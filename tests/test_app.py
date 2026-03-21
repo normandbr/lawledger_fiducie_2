@@ -22,6 +22,8 @@ if ROOT not in sys.path:
 # Must be set before the first import of app
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest")
+# Disable URL prefix so test redirects resolve correctly (no /lawledger prefix)
+os.environ["URL_PREFIX"] = ""
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +289,7 @@ class TestPageRendering:
         "/unbilled",
         "/gl",
         "/hr-records",
+        "/calendar",
     ]
 
     def test_manager_pages_render(self, client, manager_user):
@@ -347,3 +350,114 @@ class TestTemplateContent:
             ClientModel.query.filter_by(id=c_id).delete()
             db.session.commit()
         logout(client)
+
+
+# ---------------------------------------------------------------------------
+# 9. Calendar / Agenda module
+# ---------------------------------------------------------------------------
+class TestCalendarModule:
+    def test_calendar_page_renders(self, client, manager_user):
+        """GET /calendar must return HTTP 200 for an authenticated user."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/calendar", follow_redirects=True)
+        assert resp.status_code == 200
+        logout(client)
+
+    def test_calendar_page_requires_login(self, client):
+        """GET /calendar must redirect to login when not authenticated."""
+        resp = client.get("/calendar", follow_redirects=False)
+        assert resp.status_code in (302, 301)
+
+    def test_calendar_api_list_empty(self, client, manager_user):
+        """GET /api/calendar/events must return an empty list initially."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/calendar/events")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+        logout(client)
+
+    def test_calendar_api_create_event(self, client, manager_user):
+        """POST /api/calendar/events must create a new event and return 201."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        payload = {
+            "title": "Test Hearing",
+            "event_date": date.today().isoformat(),
+            "event_type": "hearing",
+        }
+        resp = client.post("/api/calendar/events", json=payload)
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data.get("title") == "Test Hearing"
+        assert data.get("id") is not None
+        event_id = data["id"]
+
+        # Clean up
+        from app import db, CalendarEvent
+        with client.application.app_context():
+            CalendarEvent.query.filter_by(id=event_id).delete()
+            db.session.commit()
+        logout(client)
+
+    def test_calendar_api_create_requires_title(self, client, manager_user):
+        """POST /api/calendar/events without a title must return 400."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            "/api/calendar/events",
+            json={"event_date": date.today().isoformat()},
+        )
+        assert resp.status_code == 400
+        logout(client)
+
+    def test_calendar_api_create_requires_date(self, client, manager_user):
+        """POST /api/calendar/events without a date must return 400."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post("/api/calendar/events", json={"title": "No Date"})
+        assert resp.status_code == 400
+        logout(client)
+
+    def test_calendar_api_update_and_delete(self, client, manager_user, app):
+        """PUT and DELETE /api/calendar/events/<id> must work correctly."""
+        from datetime import date
+        from app import db, CalendarEvent
+        login(client, "test_manager", "Pass1234!")
+
+        # Create
+        resp = client.post(
+            "/api/calendar/events",
+            json={"title": "Update Me", "event_date": date.today().isoformat()},
+        )
+        assert resp.status_code == 201
+        event_id = resp.get_json()["id"]
+
+        # Update
+        resp = client.put(
+            f"/api/calendar/events/{event_id}",
+            json={"title": "Updated Title", "is_done": True},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["title"] == "Updated Title"
+        assert resp.get_json()["is_done"] is True
+
+        # Delete
+        resp = client.delete(f"/api/calendar/events/{event_id}")
+        assert resp.status_code == 200
+        assert resp.get_json().get("success") is True
+
+        # After soft-delete, the event should not appear in listing
+        resp = client.get("/api/calendar/events?show_done=1")
+        events = resp.get_json()
+        assert not any(e["id"] == event_id for e in events)
+
+        logout(client)
+
+    def test_calendar_nav_link_present(self, client, manager_user):
+        """The calendar navigation link must appear on authenticated pages."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/", follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"/calendar" in resp.data
+        logout(client)
+
