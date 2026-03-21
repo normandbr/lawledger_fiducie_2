@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>License Error - LawLedger</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        body { background: #f5f6fa; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; font-family: 'Segoe UI', Arial, sans-serif; }
+        .license-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 16px rgba(0,0,0,0.10); padding: 48px 40px; max-width: 560px; width: 100%; }
+        .license-icon { font-size: 48px; text-align: center; margin-bottom: 16px; }
+        h1 { color: #c0392b; text-align: center; font-size: 22px; margin-bottom: 8px; }
+        .status-badge { display: inline-block; background: #fdecea; color: #c0392b; border-radius: 4px; padding: 4px 12px; font-size: 13px; font-weight: 600; margin-bottom: 20px; }
+        p { color: #444; line-height: 1.6; margin: 0 0 12px; }
+        .steps { background: #f8f9fa; border-left: 4px solid #3498db; padding: 16px 20px; border-radius: 0 4px 4px 0; margin: 20px 0; }
+        .steps h2 { color: #2980b9; font-size: 15px; margin: 0 0 10px; }
+        .steps ol { margin: 0; padding-left: 20px; color: #444; }
+        .steps ol li { margin-bottom: 6px; font-size: 14px; }
+        code { background: #eee; padding: 2px 6px; border-radius: 3px; font-size: 13px; font-family: 'Consolas', monospace; }
+        .footer-note { font-size: 12px; color: #888; text-align: center; margin-top: 24px; }
+        .notice-box { background: #fff8e1; border-left: 4px solid #f39c12; padding: 12px 16px; border-radius: 0 4px 4px 0; margin: 16px 0; font-size: 13px; color: #7d5a00; }
+        .btn-ok { display: block; width: 100%; padding: 12px; background: #0078d4; color: #fff; border: none; border-radius: 4px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 20px; text-align: center; }
+        .btn-ok:hover { background: #005a9e; }
+    </style>
+</head>
+<body>
+    <div class="license-card">
+        <div class="license-icon">🔒</div>
+        <h1>LawLedger License Required</h1>
+        <p style="text-align:center;">
+            <span class="status-badge">{{ status }}</span>
+        </p>
+        <p>{{ message }}</p>
+
+        {% if status == 'missing' %}
+        <div class="steps">
+            <h2>How to install a license</h2>
+            <ol>
+                <li>Obtain a license file (<code>license.json</code>) from your administrator.</li>
+                <li>Place it at: <code>{{ license_path }}</code></li>
+                <li>The application will automatically detect the new file on the next request.</li>
+            </ol>
+        </div>
+        <p>To generate the device fingerprint for this machine, run:</p>
+        <p><code>Computer Identity.exe</code></p>
+
+        {% elif status == 'expired' %}
+        <div class="steps">
+            <h2>How to renew your license</h2>
+            <ol>
+                <li>Contact your administrator with the device fingerprint from <code>Computer Identity.exe</code>.</li>
+                <li>Replace <code>{{ license_path }}</code> with the new license file.</li>
+                <li>The application will automatically detect the updated file on the next request.</li>
+            </ol>
+        </div>
+
+        {% elif status == 'device_mismatch' %}
+        <div class="steps">
+            <h2>Hardware change detected</h2>
+            <ol>
+                <li>Run <code>Computer Identity.exe</code> to get the new device fingerprint.</li>
+                <li>Send the fingerprint to your administrator to issue a new license.</li>
+                <li>Replace <code>{{ license_path }}</code> with the new license file.</li>
+                <li>The application will automatically detect the updated file on the next request.</li>
+            </ol>
+        </div>
+
+        {% else %}
+        <div class="steps">
+            <h2>Next steps</h2>
+            <ol>
+                <li>Contact your administrator and share the status shown above.</li>
+                <li>Run <code>Computer Identity.exe</code> to get the device fingerprint.</li>
+                <li>Once a valid license is provided, place it at: <code>{{ license_path }}</code></li>
+                <li>The application will automatically detect the new file on the next request.</li>
+            </ol>
+        </div>
+        {% endif %}
+
+        <p class="footer-note">
+            LawLedger &mdash; Offline License Enforcement &mdash;
+            See <code>docs/licensing.md</code> for full documentation.
+        </p>
+    </div>
+</body>
+</html>

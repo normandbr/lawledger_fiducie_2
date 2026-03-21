@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_gl or 'General Ledger' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📒 {{ t.title_gl or 'General Ledger' }}</h1>
+    <button class="btn btn-secondary" onclick="printGL()">{{ t.btn_print_page or '🖨 Print' }}</button>
+</div>
+
+<!-- Filters -->
+<div id="gl-filters" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_from or 'Date From' }}</label>
+        <input type="date" id="gl-date-from" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_to or 'Date To' }}</label>
+        <input type="date" id="gl-date-to" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
+        <select id="gl-client" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
+        </select>
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="loadGL()" style="height:32px;">{{ t.btn_gl_generate or 'Generate' }}</button>
+</div>
+
+<!-- Print header (visible only during print) -->
+<div id="gl-print-header" style="display:none;">
+    {% if firm and firm.logo_filename %}
+    <img src="{{ url_for('static', filename='uploads/' + firm.logo_filename) }}" alt="Logo"
+         style="max-height:60px;max-width:180px;object-fit:contain;margin-bottom:8px;"
+         onerror="this.style.display='none'">
+    {% endif %}
+    <h2 style="margin:0;">{{ t.title_gl or 'General Ledger' }}</h2>
+    <p id="gl-print-period" style="font-size:12px;color:#666;margin:4px 0 12px;"></p>
+</div>
+
+<!-- Summary Cards -->
+<div id="gl-summary" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_gl_total_debit or 'Total Debits' }}</div>
+        <div id="gl-total-debit" style="font-size:1.4rem;font-weight:600;">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_gl_total_credit or 'Total Credits' }}</div>
+        <div id="gl-total-credit" style="font-size:1.4rem;font-weight:600;color:var(--success);">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.th_gl_balance or 'Balance' }}</div>
+        <div id="gl-balance" style="font-size:1.4rem;font-weight:600;color:var(--danger);">$0.00</div>
+    </div>
+</div>
+
+<!-- Results Table -->
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px);padding-top:0;">
+    <table id="gl-table" style="min-width:800px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_invoice or 'Invoice #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_description or 'Description' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_debit or 'Debit' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_credit or 'Credit' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_balance or 'Balance' }}</th>
+            </tr>
+        </thead>
+        <tbody id="gl-tbody">
+            <tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_gl_entries or 'No entries found for the selected period.' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const GL_STR = {
+    noEntries: {{ (t.msg_no_gl_entries or 'No entries found for the selected period.') | tojson }},
+    allClients: {{ (t.lbl_all_clients or 'All Clients') | tojson }},
+    dateFrom: {{ (t.lbl_gl_date_from or 'Date From') | tojson }},
+    dateTo: {{ (t.lbl_gl_date_to or 'Date To') | tojson }},
+    title: {{ (t.title_gl or 'General Ledger') | tojson }},
+    selectDates: {{ (t.msg_gl_select_dates or 'Please select both a start and end date.') | tojson }},
+};
+
+function fmtMoney(v) {
+    return '$' + Number(v || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+
+async function loadClients() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/clients');
+        if (!res.ok) return;
+        const clients = await res.json();
+        const select = document.getElementById('gl-client');
+        clients.sort((a, b) => a.client_name.localeCompare(b.client_name));
+        clients.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.client_name;
+            select.appendChild(opt);
+        });
+    } catch (err) { console.error(err); }
+}
+
+async function loadGL() {
+    const dateFrom = document.getElementById('gl-date-from').value;
+    const dateTo = document.getElementById('gl-date-to').value;
+    const clientId = document.getElementById('gl-client').value;
+
+    if (!dateFrom || !dateTo) {
+        alert(GL_STR.selectDates);
+        return;
+    }
+
+    const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo});
+    if (clientId) params.set('client_id', clientId);
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/gl?' + params.toString());
+        if (!res.ok) throw new Error('API error');
+        const data = await res.json();
+
+        document.getElementById('gl-total-debit').textContent = fmtMoney(data.total_debit);
+        document.getElementById('gl-total-credit').textContent = fmtMoney(data.total_credit);
+        document.getElementById('gl-balance').textContent = fmtMoney(data.balance);
+
+        const tbody = document.getElementById('gl-tbody');
+        if (!data.entries || data.entries.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">' + escHtml(GL_STR.noEntries) + '</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.entries.forEach(e => {
+            html += '<tr>';
+            html += '<td>' + escHtml(e.date) + '</td>';
+            html += '<td>' + escHtml(e.invoice_number) + '</td>';
+            html += '<td>' + escHtml(e.client_name) + '</td>';
+            html += '<td>' + escHtml(e.description) + '</td>';
+            html += '<td style="text-align:right;">' + (e.debit ? fmtMoney(e.debit) : '') + '</td>';
+            html += '<td style="text-align:right;">' + (e.credit ? fmtMoney(e.credit) : '') + '</td>';
+            html += '<td style="text-align:right;font-weight:600;">' + fmtMoney(e.balance) + '</td>';
+            html += '</tr>';
+        });
+
+        // Totals row
+        html += '<tr style="font-weight:700;border-top:2px solid #333;">';
+        html += '<td colspan="4" style="text-align:right;">Total</td>';
+        html += '<td style="text-align:right;">' + fmtMoney(data.total_debit) + '</td>';
+        html += '<td style="text-align:right;">' + fmtMoney(data.total_credit) + '</td>';
+        html += '<td style="text-align:right;">' + fmtMoney(data.balance) + '</td>';
+        html += '</tr>';
+
+        tbody.innerHTML = html;
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function printGL() {
+    const dateFrom = document.getElementById('gl-date-from').value;
+    const dateTo = document.getElementById('gl-date-to').value;
+    const printHeader = document.getElementById('gl-print-header');
+    const periodEl = document.getElementById('gl-print-period');
+    const filters = document.getElementById('gl-filters');
+
+    if (dateFrom || dateTo) {
+        periodEl.textContent = (dateFrom || '…') + '  —  ' + (dateTo || '…');
+    }
+    printHeader.style.display = 'block';
+    filters.style.display = 'none';
+
+    window.print();
+
+    printHeader.style.display = 'none';
+    filters.style.display = '';
+}
+
+// Default dates: first and last day of current month
+(function() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+    document.getElementById('gl-date-from').value = y + '-' + m + '-01';
+    document.getElementById('gl-date-to').value = y + '-' + m + '-' + String(lastDay).padStart(2, '0');
+})();
+
+loadClients();
+</script>
+{% endblock %}

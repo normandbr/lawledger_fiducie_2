@@ -1,0 +1,468 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_import or 'Import Data' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_import or 'Import Data' }}</h1>
+    <p>{{ t.desc_import or 'Import client matters and cost codes from CSV or Excel files' }}</p>
+</div>
+
+<div class="import-sections">
+    <div class="card">
+        <h2>{{ t.import_title_matters or 'Import Client Matters' }}</h2>
+        <p>{{ t.card_import_client_desc or 'Upload a CSV or Excel file.' }} Required columns: <code>matter_number</code> (or <code>fmatter_number</code>), <code>client_name</code>.
+           Optional: <code>client_number</code>, <code>matter_description</code>, <code>is_active</code>,
+           <code>street</code>, <code>city</code>, <code>state</code>, <code>postal_code</code>,
+           <code>country</code>, <code>contact_name</code>, <code>phone</code>, <code>email</code>.</p>
+        
+        <form id="import-matters-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>{{ t.lbl_select_file or 'Select File:' }}</label>
+                <div>
+                    <button type="button" id="matters-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
+                    <span id="matters-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
+                    <input type="file" id="matters-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
+                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="matters_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="matters_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="matters_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
+                    </label>
+                </div>
+            </div>
+            <!-- Progress bar -->
+            <div id="matters-progress-container" style="display:none;margin-bottom:12px;">
+                <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
+                    <div id="matters-progress-bar" style="height:100%;width:0%;background:#0078d4;transition:width 0.3s ease;border-radius:4px;"></div>
+                </div>
+                <small id="matters-progress-label" style="color:#555;font-size:12px;">{{ t.msg_importing or 'Importation en cours...' }}</small>
+            </div>
+            <button type="submit" id="matters-submit-btn" class="btn btn-primary" disabled>{{ t.btn_import_matters or 'Import Matters' }}</button>
+        </form>
+        
+        <div id="matters-result" class="import-result"></div>
+        
+        <div class="sample-format">
+            <h4>{{ t.lbl_sample_format or 'Sample CSV Format:' }}</h4>
+            <pre>client_number,fmatter_number,client_name,street,city,state,postal_code,country,contact_name,phone,email,is_active
+100,001,Alpha Tech,12 Rue de l'Innovation,Paris,IDF,75008,France,Marc Morel,0142334455,contact@alpha.fr,1
+100,002,Alpha Tech,12 Rue de l'Innovation,Paris,IDF,75008,France,Marc Morel,0142334455,contact@alpha.fr,1</pre>
+        </div>
+    </div>
+    
+    <div class="card">
+        <h2>{{ t.import_title_costs or 'Import Cost' }}</h2>
+        <p>{{ t.card_import_cost_desc or 'Upload a CSV or Excel file.' }} Required columns: <code>client_number</code>, <code>matter_number</code>, <code>expense_code</code>, <code>amount</code>.
+           Optional: <code>username</code>, <code>expense_date</code>, <code>quantity</code>, <code>user_pin</code>.<br>
+           The <code>username</code> is used to look up the employee's first and last name.
+           The <code>user_pin</code> can also be used to identify the employee (takes priority over <code>username</code>).
+           The <code>expense_code</code> is used to look up the cost code and automatically populate the description.
+           The <code>quantity</code> defaults to 1 if not provided.</p>
+
+        <form id="import-costs-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>{{ t.lbl_select_file or 'Select File:' }}</label>
+                <div>
+                    <button type="button" id="costs-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
+                    <span id="costs-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
+                    <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
+                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="costs_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="costs_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="costs_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
+                    </label>
+                </div>
+            </div>
+            <!-- Progress bar -->
+            <div id="costs-progress-container" style="display:none;margin-bottom:12px;">
+                <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
+                    <div id="costs-progress-bar" style="height:100%;width:0%;background:#0078d4;transition:width 0.3s ease;border-radius:4px;"></div>
+                </div>
+                <small id="costs-progress-label" style="color:#555;font-size:12px;">{{ t.msg_importing or 'Importation en cours...' }}</small>
+            </div>
+            <button type="submit" id="costs-submit-btn" class="btn btn-primary" disabled>{{ t.btn_import_costs or 'Import Cost' }}</button>
+        </form>
+
+        <div id="costs-result" class="import-result"></div>
+
+        <div class="sample-format">
+            <h4>{{ t.lbl_sample_format or 'Sample CSV Format:' }}</h4>
+            <pre>client_number,matter_number,expense_code,username,expense_date,amount,quantity,user_pin
+100,001,CONSULT-001,jsmith,2024-01-15,1500.00,2,1234
+100,002,CONSULT-002,mjones,2024-01-20,800.00,,5678</pre>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>{{ t.import_title_cost_codes or 'Import Cost Codes' }}</h2>
+        <p>Upload a CSV or Excel file. Required columns: <code>code</code>, <code>description</code>.
+           Optional: <code>charge_type</code>, <code>rate</code>, <code>is_active</code>.<br>
+           Existing cost codes with the same <code>code</code> are skipped.</p>
+
+        <form id="import-cost-codes-form" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>{{ t.lbl_select_file or 'Select File:' }}</label>
+                <div>
+                    <button type="button" id="cost-codes-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
+                    <span id="cost-codes-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
+                    <input type="file" id="cost-codes-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
+                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="cost_codes_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="cost_codes_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
+                        <input type="radio" name="cost_codes_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
+                    </label>
+                </div>
+            </div>
+            <!-- Progress bar -->
+            <div id="cost-codes-progress-container" style="display:none;margin-bottom:12px;">
+                <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
+                    <div id="cost-codes-progress-bar" style="height:100%;width:0%;background:#0078d4;transition:width 0.3s ease;border-radius:4px;"></div>
+                </div>
+                <small id="cost-codes-progress-label" style="color:#555;font-size:12px;">{{ t.msg_importing or 'Importation en cours...' }}</small>
+            </div>
+            <button type="submit" id="cost-codes-submit-btn" class="btn btn-primary" disabled>{{ t.btn_import_cost_codes or 'Import Cost Codes' }}</button>
+        </form>
+
+        <div id="cost-codes-result" class="import-result"></div>
+
+        <div class="sample-format">
+            <h4>{{ t.lbl_sample_format or 'Sample CSV Format:' }}</h4>
+            <pre>code,description,charge_type,rate,is_active
+CONSULT-001,Legal Consultation,Professional Services,350.00,1
+REVIEW-002,Document Review,Professional Services,300.00,1
+TRAVEL-003,Travel Expenses,Disbursements,0.00,1</pre>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const IMPORT_STR = {
+    successful:   {{ (t.msg_import_successful or 'Import Successful!') | tojson }},
+    failed:       {{ (t.msg_import_failed_status or 'Import Failed!') | tojson }},
+    warnings:     {{ (t.msg_import_warnings or 'Import Completed with Warnings!') | tojson }},
+    importedOf:   {{ (t.msg_import_imported_of or 'Imported:') | tojson }},
+    outOf:        {{ (t.msg_import_out_of or 'out of') | tojson }},
+    lines:        {{ (t.msg_import_lines or 'lines') | tojson }},
+    failedCount:  {{ (t.msg_import_failed_count or 'Failed:') | tojson }},
+    records:      {{ (t.msg_import_records or 'records') | tojson }},
+    errorsLabel:  {{ (t.msg_import_errors_label or 'Errors:') | tojson }},
+    fileReminder: {{ (t.msg_import_file_reminder or '📁 Reminder: You may now delete the original file from your computer.') | tojson }},
+    importing:    {{ (t.msg_importing or 'Importing...') | tojson }},
+    selectFile:   {{ (t.err_select_file or 'Please select a file first.') | tojson }},
+    errorLabel:   {{ (t.err_import_error or 'Error:') | tojson }},
+};
+
+const supportsFilePicker = typeof window.showOpenFilePicker === 'function';
+
+let mattersFileHandle = null;
+let costsFileHandle = null;
+let costCodesFileHandle = null;
+
+const FILE_PICKER_TYPES = [{
+    description: 'CSV/Excel/TXT files',
+    accept: {
+        'text/csv': ['.csv'],
+        'text/plain': ['.txt'],
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        'application/vnd.ms-excel': ['.xls']
+    }
+}];
+
+function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle) {
+    const pickBtn = document.getElementById(pickBtnId);
+    const fileNameEl = document.getElementById(fileNameId);
+    const fileInput = document.getElementById(fileInputId);
+    const submitBtn = document.getElementById(submitBtnId);
+
+    // Enable submit button when a file is chosen via standard input
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            if (submitBtn) submitBtn.disabled = !fileInput.files.length;
+        });
+    }
+
+    if (supportsFilePicker) {
+        pickBtn.style.display = '';
+        fileNameEl.style.display = '';
+        fileInput.style.display = 'none';
+        fileInput.removeAttribute('required');
+        pickBtn.addEventListener('click', async () => {
+            try {
+                const [handle] = await window.showOpenFilePicker({ types: FILE_PICKER_TYPES, multiple: false, mode: 'read' });
+                setHandle(handle);
+                fileNameEl.textContent = handle.name;
+                if (submitBtn) submitBtn.disabled = false;
+            } catch (err) {
+                if (err.name !== 'AbortError') console.error(err);
+            }
+        });
+    }
+}
+
+initFilePicker('matters-pick-btn', 'matters-file-name', 'matters-file', 'matters-submit-btn', h => { mattersFileHandle = h; });
+initFilePicker('costs-pick-btn', 'costs-file-name', 'costs-file', 'costs-submit-btn', h => { costsFileHandle = h; });
+initFilePicker('cost-codes-pick-btn', 'cost-codes-file-name', 'cost-codes-file', 'cost-codes-submit-btn', h => { costCodesFileHandle = h; });
+
+function showImportResult(resultDiv, result, formEl, submitBtnId) {
+    if (result.success) {
+        const total = result.total;
+        let alertClass, statusLabel;
+        if (result.imported === total && result.failed === 0) {
+            alertClass = 'alert-success';
+            statusLabel = IMPORT_STR.successful;
+        } else if (result.imported === 0) {
+            alertClass = 'alert-error';
+            statusLabel = IMPORT_STR.failed;
+        } else {
+            alertClass = 'alert-warning';
+            statusLabel = IMPORT_STR.warnings;
+        }
+        const fileNote = result.file_result ? `<br><em>${result.file_result}</em>` : '';
+        resultDiv.innerHTML = `
+            <div class="alert ${alertClass}">
+                <strong>${statusLabel}</strong><br>
+                ${IMPORT_STR.importedOf} ${result.imported} ${IMPORT_STR.outOf} ${total} ${IMPORT_STR.lines}<br>
+                ${IMPORT_STR.failedCount} ${result.failed} ${IMPORT_STR.records}
+                ${result.errors.length > 0 ? '<br>' + IMPORT_STR.errorsLabel + ' ' + result.errors.join(', ') : ''}
+                ${fileNote}
+            </div>
+        `;
+        if (formEl) formEl.reset();
+        // Re-disable the submit button after form reset (no file selected anymore)
+        if (submitBtnId) {
+            const btn = document.getElementById(submitBtnId);
+            if (btn) btn.disabled = true;
+        }
+    } else {
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>${IMPORT_STR.failed}</strong><br>
+                ${result.error}
+            </div>
+        `;
+    }
+}
+
+async function tryDeleteOriginalFile(resultDiv) {
+    const alertEl = resultDiv.querySelector('.alert');
+    if (alertEl) alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+}
+
+// Progress bar animation helper: simulates progress while waiting for server
+function startProgressBar(barId, labelId) {
+    const bar = document.getElementById(barId);
+    const label = document.getElementById(labelId);
+    const container = bar ? bar.parentElement.parentElement : null;
+    if (!bar || !container) return null;
+    container.style.display = 'block';
+    bar.style.width = '0%';
+    let progress = 0;
+    const interval = setInterval(() => {
+        // Simulate progress: fast at start, slow toward 90%
+        if (progress < 30) progress += 5;
+        else if (progress < 60) progress += 2;
+        else if (progress < 85) progress += 0.5;
+        bar.style.width = Math.min(progress, 90) + '%';
+    }, 200);
+    return { interval, bar, container };
+}
+
+function finishProgressBar(state) {
+    if (!state) return;
+    clearInterval(state.interval);
+    state.bar.style.width = '100%';
+    setTimeout(() => { state.container.style.display = 'none'; state.bar.style.width = '0%'; }, 600);
+}
+
+document.getElementById('import-matters-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileAction = e.target.querySelector('input[name="matters_file_action"]:checked')?.value || 'keep';
+    const resultDiv = document.getElementById('matters-result');
+    resultDiv.innerHTML = '<p>' + IMPORT_STR.importing + '</p>';
+
+    const formData = new FormData();
+    const progressState = startProgressBar('matters-progress-bar', 'matters-progress-label');
+    const submitBtn = document.getElementById('matters-submit-btn');
+    if (submitBtn) submitBtn.disabled = true;
+
+    if (supportsFilePicker) {
+        if (!mattersFileHandle) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        const file = await mattersFileHandle.getFile();
+        formData.append('file', file, file.name);
+    } else {
+        const fileInput = document.getElementById('matters-file');
+        if (!fileInput.files[0]) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+    }
+    formData.append('file_action', fileAction);
+
+    try {
+        const response = await fetch(SCRIPT_ROOT + '/api/import/matters', { method: 'POST', body: formData });
+        const result = await response.json();
+        finishProgressBar(progressState);
+        showImportResult(resultDiv, result, e.target, 'matters-submit-btn');
+        if (result.imported > 0) {
+            await tryDeleteOriginalFile(resultDiv);
+            if (supportsFilePicker) mattersFileHandle = null;
+        } else {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    } catch (error) {
+        finishProgressBar(progressState);
+        if (submitBtn) submitBtn.disabled = false;
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>${IMPORT_STR.errorLabel}</strong> ${error.message}
+            </div>
+        `;
+    }
+});
+
+document.getElementById('import-costs-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileAction = e.target.querySelector('input[name="costs_file_action"]:checked')?.value || 'keep';
+    const resultDiv = document.getElementById('costs-result');
+    resultDiv.innerHTML = '<p>' + IMPORT_STR.importing + '</p>';
+
+    const formData = new FormData();
+    const progressState = startProgressBar('costs-progress-bar', 'costs-progress-label');
+    const submitBtn = document.getElementById('costs-submit-btn');
+    if (submitBtn) submitBtn.disabled = true;
+
+    if (supportsFilePicker) {
+        if (!costsFileHandle) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        const file = await costsFileHandle.getFile();
+        formData.append('file', file, file.name);
+    } else {
+        const fileInput = document.getElementById('costs-file');
+        if (!fileInput.files[0]) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+    }
+    formData.append('file_action', fileAction);
+
+    try {
+        const response = await fetch(SCRIPT_ROOT + '/api/import/costs', { method: 'POST', body: formData });
+        const result = await response.json();
+        finishProgressBar(progressState);
+        showImportResult(resultDiv, result, e.target, 'costs-submit-btn');
+        if (result.imported > 0) {
+            await tryDeleteOriginalFile(resultDiv);
+            if (supportsFilePicker) costsFileHandle = null;
+        } else {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    } catch (error) {
+        finishProgressBar(progressState);
+        if (submitBtn) submitBtn.disabled = false;
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>${IMPORT_STR.errorLabel}</strong> ${error.message}
+            </div>
+        `;
+    }
+});
+
+document.getElementById('import-cost-codes-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fileAction = e.target.querySelector('input[name="cost_codes_file_action"]:checked')?.value || 'keep';
+    const resultDiv = document.getElementById('cost-codes-result');
+    resultDiv.innerHTML = '<p>' + IMPORT_STR.importing + '</p>';
+
+    const formData = new FormData();
+    const progressState = startProgressBar('cost-codes-progress-bar', 'cost-codes-progress-label');
+    const submitBtn = document.getElementById('cost-codes-submit-btn');
+    if (submitBtn) submitBtn.disabled = true;
+
+    if (supportsFilePicker) {
+        if (!costCodesFileHandle) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        const file = await costCodesFileHandle.getFile();
+        formData.append('file', file, file.name);
+    } else {
+        const fileInput = document.getElementById('cost-codes-file');
+        if (!fileInput.files[0]) {
+            finishProgressBar(progressState);
+            if (submitBtn) submitBtn.disabled = false;
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + IMPORT_STR.errorLabel + '</strong> ' + IMPORT_STR.selectFile + '</div>';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+    }
+    formData.append('file_action', fileAction);
+
+    try {
+        const response = await fetch(SCRIPT_ROOT + '/api/import/cost-codes', { method: 'POST', body: formData });
+        const result = await response.json();
+        finishProgressBar(progressState);
+        showImportResult(resultDiv, result, e.target, 'cost-codes-submit-btn');
+        if (result.imported > 0) {
+            await tryDeleteOriginalFile(resultDiv);
+            if (supportsFilePicker) costCodesFileHandle = null;
+        } else {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    } catch (error) {
+        finishProgressBar(progressState);
+        if (submitBtn) submitBtn.disabled = false;
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <strong>${IMPORT_STR.errorLabel}</strong> ${error.message}
+            </div>
+        `;
+    }
+});
+</script>
+{% endblock %}

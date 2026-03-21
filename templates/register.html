@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Create New User - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Create New User</h1>
+    <a href="{{ url_for('login') }}" class="btn">Back to Login</a>
+</div>
+
+<div class="form-container" style="max-width: 500px; margin: 0 auto;">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('register') }}">
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required autofocus
+                   placeholder="Choose a username">
+        </div>
+        <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" name="email" required
+                   placeholder="Enter email address">
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required
+                   placeholder="Choose a password">
+        </div>
+        <div class="form-group">
+            <label for="confirm_password">Confirm Password</label>
+            <input type="password" id="confirm_password" name="confirm_password" required
+                   placeholder="Confirm password">
+        </div>
+        <button type="submit" class="btn btn-primary">Create User</button>
+    </form>
+</div>
+{% endblock %}

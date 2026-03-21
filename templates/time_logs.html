@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_time_logs or 'Time Logs' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>⏱ {{ t.title_time_logs or 'Time Logs' }}</h1>
+    {% if is_manager %}
+    <a href="{{ url_for('timer_page') }}" class="btn btn-secondary">{{ t.btn_go_timer or 'Go to Timer' }}</a>
+    {% endif %}
+</div>
+
+<div class="form-row" style="margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+    {% if is_manager %}
+    <div class="form-group" style="flex:1;min-width:160px;">
+        <label for="filter-employee">{{ t.lbl_filter_employee or 'Filter by Employee:' }}</label>
+        <select id="filter-employee">
+            <option value="">{{ t.opt_all_employees or 'All Employees' }}</option>
+            {% for emp in employees %}
+            <option value="{{ emp.id }}">{{ emp.first_name or '' }} {{ emp.last_name or '' }} ({{ emp.username }})</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+    <div class="form-group" style="flex:1;min-width:160px;">
+        <label for="filter-client">{{ t.lbl_filter_client or 'Filter by Client:' }}</label>
+        <select id="filter-client" onchange="onClientChange()">
+            <option value="">{{ t.opt_all_clients or 'All Clients' }}</option>
+            {% for c in clients %}
+            <option value="{{ c.id }}">{{ c.client_number }} – {{ c.client_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group" style="flex:1;min-width:160px;">
+        <label for="filter-matter">{{ t.lbl_filter_matter or 'Filter by Matter:' }}</label>
+        <select id="filter-matter">
+            <option value="">{{ t.opt_all_matters or 'All Matters' }}</option>
+        </select>
+    </div>
+    <div class="form-group" style="flex:1;min-width:130px;">
+        <label for="filter-date-from">{{ t.lbl_date_from or 'Date From:' }}</label>
+        <input type="date" id="filter-date-from">
+    </div>
+    <div class="form-group" style="flex:1;min-width:130px;">
+        <label for="filter-date-to">{{ t.lbl_date_to or 'Date To:' }}</label>
+        <input type="date" id="filter-date-to">
+    </div>
+    <div class="form-group" style="flex:0;align-self:flex-end;">
+        <button class="btn btn-primary" onclick="loadLogs()">{{ t.btn_filter_action or 'Filter' }}</button>
+        <button class="btn btn-secondary" onclick="clearFilters()" style="margin-left:6px;">{{ t.btn_clear_filters or 'Clear' }}</button>
+    </div>
+</div>
+
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+    <table id="logs-table" style="min-width:700px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date_time or 'Date / Time' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_employee or 'Employee' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_client_name or 'Client' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_matter_ledger or 'Matter' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_duration or 'Duration' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_hours or 'Hours' }}</th>
+            </tr>
+        </thead>
+        <tbody id="logs-tbody">
+            <tr><td colspan="6" style="text-align:center;color:#888;">{{ t.msg_loading_logs or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div id="logs-summary" style="margin-top:12px;text-align:right;font-weight:600;color:#0078d4;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MSG_NO_LOGS = {{ (t.msg_no_logs_found or 'No time logs found.') | tojson }};
+const MSG_ERROR_LOGS = {{ (t.msg_error_load_logs or 'Could not load time logs.') | tojson }};
+const MSG_LOADING = {{ (t.msg_loading_logs or 'Loading…') | tojson }};
+const MSG_ALL_MATTERS = {{ (t.opt_all_matters or '— All Matters —') | tojson }};
+const MSG_TOTAL = {{ (t.msg_total_summary or 'Total: {count} entries — {hours}h') | tojson }};
+
+function formatDuration(seconds) {
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    var s = seconds % 60;
+    return (h > 0 ? h + 'h ' : '') + m + 'm ' + s + 's';
+}
+function escHtml(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function onClientChange() {
+    var clientId = document.getElementById('filter-client').value;
+    var matterSel = document.getElementById('filter-matter');
+    matterSel.innerHTML = '<option value="">' + MSG_ALL_MATTERS + '</option>';
+    if (!clientId) return;
+    fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var matters = data.matters || data;
+            matters.forEach(function(m) {
+                var opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.matter_number + (m.matter_description ? ' – ' + m.matter_description : '');
+                matterSel.appendChild(opt);
+            });
+        })
+        .catch(function() {});
+}
+
+function clearFilters() {
+    {% if is_manager %}
+    document.getElementById('filter-employee').value = '';
+    {% endif %}
+    document.getElementById('filter-client').value = '';
+    document.getElementById('filter-matter').innerHTML = '<option value="">' + MSG_ALL_MATTERS + '</option>';
+    document.getElementById('filter-date-from').value = '';
+    document.getElementById('filter-date-to').value = '';
+    loadLogs();
+}
+
+function loadLogs() {
+    var tbody = document.getElementById('logs-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">' + MSG_LOADING + '</td></tr>';
+    document.getElementById('logs-summary').textContent = '';
+
+    var params = [];
+    {% if is_manager %}
+    var empId = document.getElementById('filter-employee').value;
+    if (empId) params.push('employee_id=' + empId);
+    {% endif %}
+    var clientId = document.getElementById('filter-client').value;
+    if (clientId) params.push('client_id=' + clientId);
+    var matterId = document.getElementById('filter-matter').value;
+    if (matterId) params.push('matter_id=' + matterId);
+    var dateFrom = document.getElementById('filter-date-from').value;
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    var dateTo = document.getElementById('filter-date-to').value;
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+
+    var url = SCRIPT_ROOT + '/api/time-logs' + (params.length ? '?' + params.join('&') : '');
+
+    fetch(url)
+        .then(function (r) { return r.json(); })
+        .then(function (rows) {
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">' + MSG_NO_LOGS + '</td></tr>';
+                return;
+            }
+            var html = '';
+            var totalSeconds = 0;
+            rows.forEach(function (r) {
+                totalSeconds += r.seconds_worked || 0;
+                var dt = r.recorded_at ? r.recorded_at.replace('T', ' ').substring(0, 16) : '-';
+                html += '<tr>' +
+                    '<td>' + escHtml(dt) + '</td>' +
+                    '<td>' + escHtml(r.employee_name) + '</td>' +
+                    '<td>' + escHtml(r.client_number != null ? r.client_number + ' – ' + r.client_name : r.client_name) + '</td>' +
+                    '<td>' + escHtml(r.matter_number) + '</td>' +
+                    '<td>' + formatDuration(r.seconds_worked) + '</td>' +
+                    '<td>' + r.hours_worked.toFixed(2) + 'h</td>' +
+                    '</tr>';
+            });
+            tbody.innerHTML = html;
+            var totalH = (totalSeconds / 3600).toFixed(2);
+            document.getElementById('logs-summary').textContent =
+                MSG_TOTAL.replace('{count}', rows.length).replace('{hours}', totalH);
+        })
+        .catch(function () {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c42b1c;">' + MSG_ERROR_LOGS + '</td></tr>';
+        });
+}
+
+// Load on page open
+loadLogs();
+</script>
+{% endblock %}

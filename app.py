@@ -1,0 +1,4638 @@
+"""
+LawLedger - Legal Invoice Management System
+"""
+import warnings
+# On ignore l'avertissement de SQLAlchemy sur la version du serveur
+warnings.filterwarnings("ignore", message=".*Unrecognized server version info.*")
+
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session
+from flask_login import logout_user
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect as sa_inspect, text as sa_text
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask_mail import Mail, Message
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import secure_filename
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+from datetime import datetime, timezone, timedelta, UTC
+from decimal import Decimal, ROUND_HALF_UP
+import math
+from translations import LEXICON
+import urllib.parse
+import urllib.request
+import urllib.error
+import json
+import re
+import logging
+import os
+import csv
+import io
+import pandas as pd
+import uuid
+import licensing as _licensing
+import sys
+import io
+logger = logging.getLogger(__name__)
+
+APP_VERSION = "2026.03.5"
+def get_real_ip():
+   
+    
+    ip = request.headers.get('X-ARR-ClientIP')
+
+    if not ip:
+        ip = request.headers.get('X-Forwarded-For')
+
+    if ip:
+        ip = ip.split(',')[0].strip()
+    else:
+        ip = request.remote_addr
+
+    return ip
+
+
+def _round_half_up(value, places=2):
+    """Round *value* to *places* decimal places using the traditional
+    "round half up" rule (0.5 always rounds away from zero).
+
+    Python's built-in ``round()`` uses banker's rounding (round-half-to-even),
+    which can produce counter-intuitive results for monetary amounts
+    (e.g. 0.045 rounds to 0.04 instead of 0.05).  This helper always rounds
+    0.5 upward, matching standard accounting expectations.
+    """
+    quant = Decimal('0.' + '0' * places) if places > 0 else Decimal('1')
+    return float(Decimal(str(value)).quantize(quant, rounding=ROUND_HALF_UP))
+
+
+# Initialize Flask app
+app = Flask(__name__, static_folder="static", template_folder="templates")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
+class _ScriptNameMiddleware:
+    """Inject SCRIPT_NAME so that url_for() generates prefix-aware URLs.
+
+    The IIS reverse proxy strips the /lawledger prefix before forwarding
+    requests to Flask (via the web.config rewrite rule).  This middleware
+    tells Werkzeug/Flask its mount point so that all redirect and link URLs
+    are generated with the correct prefix (e.g. /lawledger).
+    """
+
+    def __init__(self, wsgi_app, script_name):
+        self.app = wsgi_app
+        self.script_name = script_name
+
+    def __call__(self, environ, start_response):
+        environ['SCRIPT_NAME'] = self.script_name
+        return self.app(environ, start_response)
+
+
+# Load .env file if present (must run before reading env vars like URL_PREFIX)
+try:
+    from dotenv import load_dotenv
+    import logging as _logging
+
+    class _DotenvHelpFilter(_logging.Filter):
+        """Enhance python-dotenv parse warnings with actionable guidance."""
+        def filter(self, record):
+            if 'could not parse statement' in record.getMessage():
+                record.msg += (
+                    '\n  Your .env file contains an invalid line '
+                    '(e.g. a PowerShell here-string delimiter like "@ | Out-File ...).'
+                    '\n  The file must contain only KEY=VALUE pairs.'
+                    '\n  On Windows: copy .env.example .env  '
+                    'then open .env in Notepad and fill in your values.'
+                )
+            return True
+
+    _logging.getLogger('dotenv.main').addFilter(_DotenvHelpFilter())
+    load_dotenv()
+except ImportError:
+    pass
+
+# When URL_PREFIX is set (e.g. URL_PREFIX=/lawledger), wrap the WSGI app so
+# that url_for() and redirects include the prefix automatically.
+_url_prefix = os.environ.get('URL_PREFIX', '').rstrip('/')
+if _url_prefix:
+    app.wsgi_app = _ScriptNameMiddleware(app.wsgi_app, _url_prefix)
+
+# Configure Flask app
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # Important car tu n'as pas de HTTPS (SSL) localement
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+# Cookie path set to root so the session works both with and without the IIS
+# reverse-proxy prefix (/lawledger).
+app.config['SESSION_COOKIE_PATH'] = '/'
+# Sessions expire after 2 hours of inactivity (enforced server-side as well)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
+
+
+#app.config['SECRET_KEY'] = '8513c25c36b9708695e2fc52da2ba23df65839164c5d19fcefd5ea0dc565896f'
+
+# Build SQL Server connection string
+server   = os.environ.get('DB_SERVER', 'localhost')
+database = os.environ.get('DB_NAME', 'LawLedger')
+username = os.environ.get('DB_USER', '')
+password = os.environ.get('DB_PASSWORD', '')
+driver   = os.environ.get('DB_DRIVER', 'ODBC Driver 17 for SQL Server')
+
+# URL encode the connection string parameters
+params = urllib.parse.quote_plus(
+    f"DRIVER={{{driver}}};"
+    f"SERVER={server};"
+    f"DATABASE={database};"
+    f"UID={username};"
+    f"PWD={password};"
+    f"TrustServerCertificate=yes;"
+)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = f"mssql+pyodbc:///?odbc_connect={params}"
+# Allow DATABASE_URL env var to override (useful for testing with SQLite)
+_override_db_url = os.environ.get('DATABASE_URL', '').strip()
+if _override_db_url:
+    app.config['SQLALCHEMY_DATABASE_URI'] = _override_db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ECHO'] = os.environ.get('DEBUG', '').lower() in ('1', 'true', 'yes')
+
+@app.route('/set_lang/<lang>')
+def set_lang(lang):
+    session['lang'] = lang if lang in ['fr', 'en'] else 'fr'
+    return redirect(request.referrer or url_for('index'))
+
+# Flask-Mail configuration (from .env or config.ini)
+# When BREVO_API_KEY is set the app sends via Brevo's transactional API directly,
+# so the SMTP settings below are only used as a fallback.
+if os.environ.get('BREVO_API_KEY'):
+    app.config['MAIL_SERVER'] = 'smtp-relay.brevo.com'
+    app.config['MAIL_PORT'] = 587
+    app.config['MAIL_USE_TLS'] = True
+    app.config['MAIL_USERNAME'] = os.environ.get('BREVO_SENDER_EMAIL', '')
+    app.config['MAIL_PASSWORD'] = os.environ.get('BREVO_API_KEY', '')
+    app.config['MAIL_DEFAULT_SENDER'] = (
+        os.environ.get('BREVO_SENDER_NAME', 'Law Ledger'),
+        os.environ.get('BREVO_SENDER_EMAIL', 'noreply@lawledger.com'),
+    )
+else:
+    app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+    app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
+    app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() != 'false'
+    app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+    app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+    app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@lawledger.com')
+
+# ── License configuration ─────────────────────────────────────────────────────
+# LICENSE_FILE:       path to license.json (env var or config key)
+# LICENSE_PUBLIC_KEY: base64url Ed25519 public key (env var or config key)
+app.config.setdefault(
+    'LICENSE_FILE',
+    os.environ.get(
+        'LICENSE_FILE',
+        os.path.join(os.path.dirname(__file__), 'config', 'license.json'),
+    ),
+)
+app.config.setdefault(
+    'LICENSE_PUBLIC_KEY',
+    os.environ.get('LICENSE_PUBLIC_KEY', '') or _licensing._DEFAULT_PUBLIC_KEY_B64,
+)
+
+# Upload folder for logos and other media
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Folder for holding imported CSV/Excel files (server backup).
+# Windows: %PROGRAMDATA%\lawledger\import  (i.e. C:\ProgramData\lawledger\import)
+# Linux/macOS: ~/.local/share/lawledger/import
+_programdata_base = (
+    os.environ.get('PROGRAMDATA', r'C:\ProgramData')
+    if os.name == 'nt'
+    else os.path.join(os.path.expanduser('~'), '.local', 'share')
+)
+IMPORT_UPLOAD_FOLDER = os.path.join(_programdata_base, 'lawledger', 'import')
+try:
+    os.makedirs(IMPORT_UPLOAD_FOLDER, exist_ok=True)
+except OSError:
+    # If the system path is unusable (e.g. running in a container without write
+    # access to the OS data directory), fall back to a directory next to the app.
+    IMPORT_UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'import_uploads')
+    try:
+        os.makedirs(IMPORT_UPLOAD_FOLDER, exist_ok=True)
+    except OSError as exc:
+        logging.warning('Could not create import upload folder %s: %s', IMPORT_UPLOAD_FOLDER, exc)
+app.config['IMPORT_UPLOAD_FOLDER'] = IMPORT_UPLOAD_FOLDER
+
+# Dossier de logs forcé sur C:\appdataprograpdata\lawledger\logs
+IMPORT_LOG_FOLDER = r'C:\programdata\lawledger\logs'
+try:
+    os.makedirs(IMPORT_LOG_FOLDER, exist_ok=True)
+except OSError:
+    # En cas de dossier protégé ou inaccessible, on utilise le dossier local de l'app
+    IMPORT_LOG_FOLDER = os.path.join(os.path.dirname(__file__), 'logs')
+    os.makedirs(IMPORT_LOG_FOLDER, exist_ok=True)
+app.config['IMPORT_LOG_FOLDER'] = IMPORT_LOG_FOLDER
+
+
+# Initialize extensions
+db = SQLAlchemy(app)
+mail = Mail(app)
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, nullable=False) 
+
+# Initialize Flask-Login
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Veuillez vous connecter pour accéder à cette page.'
+login_manager.login_message_category = 'warning'
+
+# Token serializer for password reset
+serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+
+
+def send_reset_email(user, reset_url, lang='en'):
+    """Send a password-reset email via Brevo API or Flask-Mail fallback."""
+    t = LEXICON.get(lang, LEXICON.get('en'))
+    html_content = render_template('email_reset_password.html', user=user, reset_url=reset_url, t=t, lang=lang)
+    subject = t.get('email_reset_subject', 'LawLedger \u2013 Password Reset')
+    brevo_api_key = os.environ.get('BREVO_API_KEY')
+    if brevo_api_key:
+        sender_email = os.environ.get('BREVO_SENDER_EMAIL', 'noreply@lawledger.com')
+        sender_name = os.environ.get('BREVO_SENDER_NAME', 'Law Ledger')
+        payload = json.dumps({
+            'sender': {'name': sender_name, 'email': sender_email},
+            'to': [{'email': user.email}],
+            'subject': subject,
+            'htmlContent': html_content,
+            'replyTo': {'email': sender_email},
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            'https://api.brevo.com/v3/smtp/email',
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'api-key': brevo_api_key,
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                logger.info('Brevo API response: %s', resp.status)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode('utf-8', errors='replace')
+            logger.error('Brevo API error %s: %s', exc.code, body)
+            raise
+    else:
+        msg = Message(
+            subject=subject,
+            recipients=[user.email],
+            html=html_content,
+        )
+        mail.send(msg)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    #return Employee.query.get(int(user_id))
+    return db.session.get(Employee, int(user_id))
+
+
+class Client(db.Model):
+    __tablename__ = 'clients'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_number = db.Column(db.String(50), unique=True, nullable=False)
+    client_name = db.Column(db.String(255), nullable=False)
+    street = db.Column(db.String(255), nullable=True)
+    city = db.Column(db.String(100), nullable=True)
+    state = db.Column(db.String(100), nullable=True)
+    postal_code = db.Column(db.String(20), nullable=True)
+    country = db.Column(db.String(100), nullable=True)
+    contact_name = db.Column(db.String(255), nullable=True)
+    phone = db.Column(db.String(50), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    matters = db.relationship('Matter', backref='client', lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'client_number': self.client_number,
+            'client_name': self.client_name,
+            'street': self.street or '',
+            'city': self.city or '',
+            'state': self.state or '',
+            'postal_code': self.postal_code or '',
+            'country': self.country or '',
+            'contact_name': self.contact_name or '',
+            'phone': self.phone or '',
+            'email': self.email or '',
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class Matter(db.Model):
+    __tablename__ = 'matters'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    matter_number = db.Column(db.String(50), nullable=False)
+    matter_description = db.Column(db.String(500))
+    is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    # Unique key for duplicate detection during import (client_number_matter_number)
+    client_matter_key = db.Column(db.String(120), nullable=True, unique=True)
+    # Attorney assignment fields (up to 6)
+    attorney1_name = db.Column(db.String(255), nullable=True)
+    attorney1_start_date = db.Column(db.Date, nullable=True)
+    attorney2_name = db.Column(db.String(255), nullable=True)
+    attorney2_start_date = db.Column(db.Date, nullable=True)
+    attorney3_name = db.Column(db.String(255), nullable=True)
+    attorney3_start_date = db.Column(db.Date, nullable=True)
+    attorney4_name = db.Column(db.String(255), nullable=True)
+    attorney4_start_date = db.Column(db.Date, nullable=True)
+    attorney5_name = db.Column(db.String(255), nullable=True)
+    attorney5_start_date = db.Column(db.Date, nullable=True)
+    attorney6_name = db.Column(db.String(255), nullable=True)
+    attorney6_start_date = db.Column(db.Date, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    expenses = db.relationship('Expense', backref='matter', lazy=True, cascade='all, delete-orphan')
+    invoices = db.relationship('Invoice', backref='matter', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'client_id': self.client_id,
+            'matter_number': self.matter_number,
+            'matter_description': self.matter_description,
+            'is_active': self.is_active,
+            'attorney1_name': self.attorney1_name or '',
+            'attorney1_start_date': self.attorney1_start_date.isoformat() if self.attorney1_start_date else '',
+            'attorney2_name': self.attorney2_name or '',
+            'attorney2_start_date': self.attorney2_start_date.isoformat() if self.attorney2_start_date else '',
+            'attorney3_name': self.attorney3_name or '',
+            'attorney3_start_date': self.attorney3_start_date.isoformat() if self.attorney3_start_date else '',
+            'attorney4_name': self.attorney4_name or '',
+            'attorney4_start_date': self.attorney4_start_date.isoformat() if self.attorney4_start_date else '',
+            'attorney5_name': self.attorney5_name or '',
+            'attorney5_start_date': self.attorney5_start_date.isoformat() if self.attorney5_start_date else '',
+            'attorney6_name': self.attorney6_name or '',
+            'attorney6_start_date': self.attorney6_start_date.isoformat() if self.attorney6_start_date else '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class CostCode(db.Model):
+    __tablename__ = 'cost_codes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(50), unique=True, nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    charge_type = db.Column(db.String(100), nullable=True)
+    rate = db.Column(db.Numeric(10, 2), default=0.00)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'code': self.code,
+            'description': self.description,
+            'charge_type': self.charge_type or '',
+            'rate': float(self.rate) if self.rate else 0.00,
+            'is_active': self.is_active if self.is_active is not None else True,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class Expense(db.Model):
+    __tablename__ = 'expenses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    code = db.Column(db.String(100), nullable=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=True)
+    username = db.Column(db.String(80), nullable=True)
+    description = db.Column(db.String(500), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), default=0.00)
+    expense_date = db.Column(db.Date, default=datetime.utcnow)
+    is_billed = db.Column(db.Boolean, default=False)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=True)
+    invoice_number = db.Column(db.String(100), nullable=True)
+    invoice_date = db.Column(db.Date, nullable=True)
+    import_id = db.Column(db.String(32), nullable=True)
+    quantity = db.Column(db.Numeric(10, 2), default=1.00)
+    user_pin = db.Column(db.String(20), nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    employee = db.relationship('Employee', backref='expenses', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'matter_id': self.matter_id,
+            'code': self.code,
+            'employee_id': self.employee_id,
+            'username': self.username or (self.employee.username if self.employee else None),
+            'first_name': self.employee.first_name if self.employee else None,
+            'last_name': self.employee.last_name if self.employee else None,
+            'description': self.description,
+            'amount': float(self.amount) if self.amount else 0.00,
+            'expense_date': self.expense_date.isoformat() if self.expense_date else None,
+            'is_billed': self.is_billed,
+            'invoice_id': self.invoice_id,
+            'invoice_number': self.invoice_number,
+            'invoice_date': self.invoice_date.isoformat() if self.invoice_date else None,
+            'import_id': self.import_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class Employee(UserMixin, db.Model):
+    __tablename__ = 'employees'
+
+    id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(100), nullable=True)
+    last_name = db.Column(db.String(100), nullable=True)
+    username = db.Column(db.String(80), unique=True, nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    personal_email = db.Column(db.String(255), nullable=True)
+    password_hash = db.Column(db.String(255), nullable=True)
+    title = db.Column(db.String(100))
+    address = db.Column(db.String(500), nullable=True)
+    phone_number = db.Column(db.String(50), nullable=True)
+    social_insurance_number = db.Column(db.String(20))
+    salary_type = db.Column(db.String(20))
+    salary = db.Column(db.Numeric(10, 2), default=0.00)
+    hiring_date = db.Column(db.Date, nullable=True)
+    leave_date = db.Column(db.Date, nullable=True)
+    emergency_contact = db.Column(db.String(255), nullable=True)
+    emergency_phone = db.Column(db.String(50), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    is_manager = db.Column(db.Boolean, default=False)
+    is_user = db.Column(db.Boolean, default=False)
+    timer_user = db.Column(db.Boolean, default=False)
+    hourly_rate = db.Column(db.Numeric(10, 2), nullable=True)
+    pin = db.Column(db.String(20), nullable=True)
+    group_name = db.Column(db.String(100), nullable=True)
+    network_id = db.Column(db.String(100), nullable=True)
+    office_phone = db.Column(db.String(50), nullable=True)
+    supervisor = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Session management: single-session enforcement and inactivity tracking
+    session_token = db.Column(db.String(36), nullable=True)
+    last_login = db.Column(db.DateTime, nullable=True)
+    login_ip = db.Column(db.String(45), nullable=True)
+    must_change_password = db.Column(db.Boolean, default=False)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password) if self.password_hash else False
+
+    @property
+    def display_name(self):
+        """Return the employee's full name, falling back to username."""
+        name = f"{self.first_name or ''} {self.last_name or ''}".strip()
+        return name or self.username
+
+    def get_reset_token(self):
+        return serializer.dumps(self.email, salt='password-reset')
+
+    @staticmethod
+    def verify_reset_token(token, max_age=3600):
+        try:
+            email = serializer.loads(token, salt='password-reset', max_age=max_age)
+        except (SignatureExpired, BadSignature):
+            return None
+        return Employee.query.filter_by(email=email).first()
+
+    def to_dict(self):
+        sin = self.social_insurance_number
+        masked_sin = ('***-***-' + sin[-3:]) if sin and len(sin) >= 3 else ('***' if sin else None)
+        return {
+            'id': self.id,
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'username': self.username,
+            'email': self.email,
+            'personal_email': self.personal_email,
+            'title': self.title,
+            'address': self.address,
+            'phone_number': self.phone_number,
+            'social_insurance_number': masked_sin,
+            'salary_type': self.salary_type,
+            'salary': float(self.salary) if self.salary else 0.00,
+            'hiring_date': self.hiring_date.isoformat() if self.hiring_date else None,
+            'leave_date': self.leave_date.isoformat() if self.leave_date else None,
+            'emergency_contact': self.emergency_contact,
+            'emergency_phone': self.emergency_phone,
+            'notes': self.notes,
+            'is_active': self.is_active,
+            'is_manager': bool(self.is_manager),
+            'is_user': bool(self.is_user),
+            'timer_user': bool(self.timer_user),
+            'hourly_rate': float(self.hourly_rate) if self.hourly_rate else None,
+            'pin': self.pin,
+            'group_name': self.group_name,
+            'network_id': self.network_id,
+            'office_phone': self.office_phone,
+            'supervisor': self.supervisor,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class ImportLog(db.Model):
+    __tablename__ = 'import_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    import_id = db.Column(db.String(32), nullable=True)
+    filename = db.Column(db.String(255), nullable=False)
+    import_date = db.Column(db.DateTime, default=datetime.utcnow)
+    records_imported = db.Column(db.Integer, default=0)
+    records_failed = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(50), default='success')
+    error_message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'import_id': self.import_id,
+            'filename': self.filename,
+            'import_date': self.import_date.isoformat() if self.import_date else None,
+            'records_imported': self.records_imported,
+            'records_failed': self.records_failed,
+            'status': self.status,
+            'error_message': self.error_message,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class Invoice(db.Model):
+    __tablename__ = 'invoices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
+    invoice_number = db.Column(db.String(100), unique=True, nullable=False)
+    invoice_date = db.Column(db.Date, nullable=False)
+    due_date = db.Column(db.Date, nullable=True)
+    subtotal = db.Column(db.Numeric(12, 2), default=0.00)
+    gst_rate = db.Column(db.Numeric(6, 3), default=5.000)
+    gst_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    qst_rate = db.Column(db.Numeric(6, 3), default=9.975)
+    qst_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    total_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    credit_applied = db.Column(db.Numeric(12, 2), default=0.00)
+    trust_applied = db.Column(db.Numeric(12, 2), default=0.00)
+    status = db.Column(db.String(20), default='draft')
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    expenses = db.relationship('Expense', backref='invoice', lazy=True,
+                                foreign_keys='Expense.invoice_id')
+    client_ref = db.relationship('Client', foreign_keys=[client_id], lazy=True)
+
+    @property
+    def resolved_client(self):
+        """Return the Client for this invoice regardless of how it was created."""
+        if self.matter:
+            return self.matter.client
+        return self.client_ref
+
+    def to_dict(self):
+        matter = self.matter
+        client = self.resolved_client
+        return {
+            'id': self.id,
+            'matter_id': self.matter_id,
+            'client_id': self.client_id or (matter.client_id if matter else None),
+            'matter_number': matter.matter_number if matter else None,
+            'client_name': client.client_name if client else None,
+            'client_number': client.client_number if client else None,
+            'invoice_number': self.invoice_number,
+            'invoice_date': self.invoice_date.isoformat() if self.invoice_date else None,
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'subtotal': float(self.subtotal) if self.subtotal else 0.00,
+            'gst_rate': float(self.gst_rate) if self.gst_rate else 0.00,
+            'gst_amount': float(self.gst_amount) if self.gst_amount else 0.00,
+            'qst_rate': float(self.qst_rate) if self.qst_rate else 0.00,
+            'qst_amount': float(self.qst_amount) if self.qst_amount else 0.00,
+            'total_amount': float(self.total_amount) if self.total_amount else 0.00,
+            'credit_applied': float(self.credit_applied) if self.credit_applied else 0.00,
+            'trust_applied': float(self.trust_applied) if self.trust_applied else 0.00,
+            'status': self.status,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+
+class FirmInfo(db.Model):
+    __tablename__ = 'firm_info'
+
+    id = db.Column(db.Integer, primary_key=True)
+    firm_name = db.Column(db.String(255), nullable=False, default='Your Law Firm')
+    address_line1 = db.Column(db.String(255))
+    address_line2 = db.Column(db.String(255))
+    city = db.Column(db.String(100))
+    province = db.Column(db.String(100))
+    postal_code = db.Column(db.String(20))
+    phone = db.Column(db.String(50))
+    email = db.Column(db.String(255))
+    tax_number = db.Column(db.String(100))
+    logo_filename = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Configurable tax labels (empty/NULL = hide that tax on invoices)
+    tax1_name = db.Column(db.String(100), default='GST')
+    tax2_name = db.Column(db.String(100), default=None)
+    # When True, tax2 is calculated on (subtotal + tax1) instead of subtotal alone
+    tax2_compound = db.Column(db.Boolean, default=False)
+    # Tax rates (%) stored here so invoices use consistent firm-wide rates
+    tax1_rate = db.Column(db.Numeric(6, 3), default=0.000)
+    tax2_rate = db.Column(db.Numeric(6, 3), default=0.000)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'firm_name': self.firm_name or '',
+            'address_line1': self.address_line1 or '',
+            'address_line2': self.address_line2 or '',
+            'city': self.city or '',
+            'province': self.province or '',
+            'postal_code': self.postal_code or '',
+            'phone': self.phone or '',
+            'email': self.email or '',
+            'tax_number': self.tax_number or '',
+            'logo_filename': self.logo_filename or '',
+            'tax1_name': self.tax1_name or 'GST',
+            'tax2_name': self.tax2_name or '',
+            'tax2_compound': bool(self.tax2_compound) if self.tax2_compound is not None else False,
+            'tax1_rate': float(self.tax1_rate) if self.tax1_rate is not None else 0.0,
+            'tax2_rate': float(self.tax2_rate) if self.tax2_rate is not None else 0.0,
+        }
+
+
+class SecondWork(db.Model):
+    """Records the raw seconds worked per timer session, linked to a matter and employee."""
+    __tablename__ = 'second_works'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    seconds_worked = db.Column(db.Integer, nullable=False)
+    expense_id = db.Column(db.Integer, db.ForeignKey('expenses.id'), nullable=True)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'employee_id': self.employee_id,
+            'matter_id': self.matter_id,
+            'seconds_worked': self.seconds_worked,
+            'expense_id': self.expense_id,
+            'recorded_at': self.recorded_at.isoformat() if self.recorded_at else None,
+        }
+
+
+class HrRecord(db.Model):
+    """HR record for an employee: PTO balance, last review date, and review comment."""
+    __tablename__ = 'hr_records'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    balance_pto = db.Column(db.Numeric(8, 2), default=0.00)
+    date_last_review = db.Column(db.Date, nullable=True)
+    review_comment = db.Column(db.Text, nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    employee = db.relationship('Employee', backref=db.backref('hr_records', lazy=True))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'employee_id': self.employee_id,
+            'balance_pto': float(self.balance_pto) if self.balance_pto is not None else 0.0,
+            'date_last_review': self.date_last_review.isoformat() if self.date_last_review else None,
+            'review_comment': self.review_comment,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class ActiveTimerSession(db.Model):
+    """Tracks a running timer session for an employee.
+
+    Enforces the one-timer-at-a-time rule: at most one row per employee_id
+    (enforced by the unique constraint on the column).  Rows older than 24 hours
+    are considered stale and are replaced automatically when a new session starts.
+    """
+    __tablename__ = 'active_timer_sessions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'),
+                            nullable=False, unique=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    session_token = db.Column(db.String(36), nullable=False)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CreditNote(db.Model):
+    """Credit note that can be applied to a client's next invoice."""
+    __tablename__ = 'credit_notes'
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    applied_amount = db.Column(db.Numeric(12, 2), default=0.00)
+    reason = db.Column(db.String(500))
+    applied_invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    client = db.relationship('Client', backref='credit_notes', lazy=True)
+    applied_invoice = db.relationship('Invoice', lazy=True)
+
+    @property
+    def remaining(self):
+        return float(self.amount or 0) - float(self.applied_amount or 0)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'client_id': self.client_id,
+            'client_name': self.client.client_name if self.client else None,
+            'amount': float(self.amount) if self.amount else 0.00,
+            'applied_amount': float(self.applied_amount) if self.applied_amount else 0.00,
+            'remaining': self.remaining,
+            'reason': self.reason,
+            'applied_invoice_id': self.applied_invoice_id,
+            'applied_invoice_number': self.applied_invoice.invoice_number if self.applied_invoice else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class Supplier(db.Model):
+    """Supplier (fournisseur) with contact information and service details."""
+    __tablename__ = 'suppliers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    account_number = db.Column(db.String(100), nullable=True)
+    address = db.Column(db.String(500), nullable=True)
+    phone = db.Column(db.String(50), nullable=True)
+    email = db.Column(db.String(255), nullable=True)
+    service_provided = db.Column(db.String(500), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    payments = db.relationship('SupplierPayment', backref='supplier', lazy=True,
+                                foreign_keys='SupplierPayment.supplier_id')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'account_number': self.account_number or '',
+            'address': self.address or '',
+            'phone': self.phone or '',
+            'email': self.email or '',
+            'service_provided': self.service_provided or '',
+            'notes': self.notes or '',
+            'is_active': bool(self.is_active),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class SupplierPayment(db.Model):
+    """Payment made to a supplier, tracking invoice number and payment method."""
+    __tablename__ = 'supplier_payments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_id = db.Column(db.Integer, db.ForeignKey('suppliers.id'), nullable=False)
+    invoice_number = db.Column(db.String(100), nullable=True)
+    invoice_date = db.Column(db.Date, nullable=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    description = db.Column(db.String(500), nullable=True)
+    payment_date = db.Column(db.Date, nullable=True)
+    payment_method = db.Column(db.String(50), nullable=True)  # cheque, virement, etc.
+    cheque_number = db.Column(db.String(100), nullable=True)
+    bank_transaction = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.String(80), nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'supplier_id': self.supplier_id,
+            'supplier_name': self.supplier.name if self.supplier else None,
+            'invoice_number': self.invoice_number or '',
+            'invoice_date': self.invoice_date.isoformat() if self.invoice_date else None,
+            'amount': float(self.amount) if self.amount else 0.00,
+            'description': self.description or '',
+            'payment_date': self.payment_date.isoformat() if self.payment_date else None,
+            'payment_method': self.payment_method or '',
+            'cheque_number': self.cheque_number or '',
+            'bank_transaction': self.bank_transaction or '',
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ── Schema migrations (no Alembic – add missing columns on startup) ───────────
+
+# Columns that may be missing from existing tables after a schema upgrade.
+# Each entry is (column_name, SQL Server column definition).
+_COLUMN_MIGRATIONS = {
+    'cost_codes': [
+        ('charge_type', 'NVARCHAR(100) NULL'),
+        ('is_active',   'BIT NOT NULL DEFAULT 1'),
+    ],
+    'clients': [
+        ('is_active',    'BIT NOT NULL DEFAULT 1'),
+        ('is_deleted',   'BIT NOT NULL DEFAULT 0'),
+        ('address',      'NVARCHAR(500) NULL'),
+        ('phone',        'NVARCHAR(50) NULL'),
+        ('email',        'NVARCHAR(255) NULL'),
+        ('street',       'NVARCHAR(255) NULL'),
+        ('city',         'NVARCHAR(100) NULL'),
+        ('state',        'NVARCHAR(100) NULL'),
+        ('postal_code',  'NVARCHAR(20) NULL'),
+        ('country',      'NVARCHAR(100) NULL'),
+        ('contact_name', 'NVARCHAR(255) NULL'),
+    ],
+    'matters': [
+        ('is_active',            'BIT NOT NULL DEFAULT 1'),
+        ('is_deleted',           'BIT NOT NULL DEFAULT 0'),
+        ('attorney1_name',       'NVARCHAR(255) NULL'),
+        ('attorney1_start_date', 'DATE NULL'),
+        ('attorney2_name',       'NVARCHAR(255) NULL'),
+        ('attorney2_start_date', 'DATE NULL'),
+        ('attorney3_name',       'NVARCHAR(255) NULL'),
+        ('attorney3_start_date', 'DATE NULL'),
+        ('attorney4_name',       'NVARCHAR(255) NULL'),
+        ('attorney4_start_date', 'DATE NULL'),
+        ('attorney5_name',       'NVARCHAR(255) NULL'),
+        ('attorney5_start_date', 'DATE NULL'),
+        ('attorney6_name',       'NVARCHAR(255) NULL'),
+        ('attorney6_start_date', 'DATE NULL'),
+        ('client_matter_key',    'NVARCHAR(120) NULL'),
+    ],
+    'expenses': [
+        ('is_deleted',   'BIT NOT NULL DEFAULT 0'),
+        ('employee_id',    'INT NULL'),
+        ('username',       'NVARCHAR(80) NULL'),
+        ('code',           'NVARCHAR(100) NULL'),
+        ('import_id',      'NVARCHAR(32) NULL'),
+        ('invoice_number', 'NVARCHAR(100) NULL'),
+        ('invoice_date',   'DATE NULL'),
+        ('quantity',       'DECIMAL(10,2) NOT NULL DEFAULT 1'),
+        ('user_pin',       'NVARCHAR(20) NULL'),
+    ],
+    'employees': [
+        ('is_active',               'BIT NOT NULL DEFAULT 1'),
+        ('is_deleted',              'BIT NOT NULL DEFAULT 0'),
+        ('is_manager',              'BIT NOT NULL DEFAULT 0'),
+        ('is_user',                 'BIT NOT NULL DEFAULT 0'),
+        ('timer_user',              'BIT NOT NULL DEFAULT 0'),
+        ('hourly_rate',             'DECIMAL(10,2) NULL'),
+        ('first_name',              'NVARCHAR(100) NULL'),
+        ('last_name',               'NVARCHAR(100) NULL'),
+        ('title',                   'NVARCHAR(100) NULL'),
+        ('address',                 'NVARCHAR(500) NULL'),
+        ('phone_number',            'NVARCHAR(50) NULL'),
+        ('emergency_contact',       'NVARCHAR(255) NULL'),
+        ('emergency_phone',         'NVARCHAR(50) NULL'),
+        ('notes',                   'NVARCHAR(MAX) NULL'),
+        ('salary_type',             'NVARCHAR(20) NULL'),
+        ('hiring_date',             'DATE NULL'),
+        ('leave_date',              'DATE NULL'),
+        ('social_insurance_number', 'NVARCHAR(20) NULL'),
+        ('personal_email',          'NVARCHAR(255) NULL'),
+        ('pin',                     'NVARCHAR(20) NULL'),
+        ('group_name',              'NVARCHAR(100) NULL'),
+        ('network_id',              'NVARCHAR(100) NULL'),
+        ('office_phone',            'NVARCHAR(50) NULL'),
+        ('supervisor',              'NVARCHAR(255) NULL'),
+        # Session management columns (Issues 3 & 4)
+        ('session_token',           'NVARCHAR(36) NULL'),
+        ('last_login',              'DATETIME2(7) NULL'),
+        ('login_ip',                'NVARCHAR(45) NULL'),
+        ('must_change_password',    'BIT NOT NULL DEFAULT 0'),
+    ],
+    'firm_info': [
+        ('address_line1', 'NVARCHAR(255) NULL'),
+        ('address_line2', 'NVARCHAR(255) NULL'),
+        ('city',          'NVARCHAR(100) NULL'),
+        ('province',      'NVARCHAR(100) NULL'),
+        ('postal_code',   'NVARCHAR(20) NULL'),
+        ('phone',         'NVARCHAR(50) NULL'),
+        ('email',         'NVARCHAR(255) NULL'),
+        ('tax_number',    'NVARCHAR(100) NULL'),
+        ('logo_filename', 'NVARCHAR(255) NULL'),
+        ('updated_at',    'DATETIME2(7) NULL'),
+        ('tax1_name',     "NVARCHAR(100) NOT NULL DEFAULT 'GST'"),
+        ('tax2_name',     'NVARCHAR(100) NULL'),
+        ('tax2_compound', 'BIT NOT NULL DEFAULT 0'),
+        ('tax1_rate',     'DECIMAL(6,3) NOT NULL DEFAULT 0'),
+        ('tax2_rate',     'DECIMAL(6,3) NOT NULL DEFAULT 0'),
+    ],
+    'invoices': [
+        ('client_id',      'INT NULL'),
+        ('credit_applied', 'DECIMAL(12,2) NOT NULL DEFAULT 0'),
+        ('trust_applied',  'DECIMAL(12,2) NOT NULL DEFAULT 0'),
+    ],
+    'second_works': [
+        ('seconds_worked', 'INT NULL'),
+        ('expense_id',     'INT NULL'),
+        ('recorded_at',    'DATETIME2(7) NULL'),
+    ],
+    'import_logs': [
+        ('import_id', 'NVARCHAR(32) NULL'),
+    ],
+    'hr_records': [
+        ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
+    ],
+    'TransactionsFiducie': [
+        ('beneficiaire',    'NVARCHAR(255) NULL'),
+        ('motif',           'NVARCHAR(MAX) NULL'),
+        ('created_by',      'NVARCHAR(255) NULL'),
+        ('invoice_number',  'NVARCHAR(100) NULL'),
+    ],
+    'suppliers': [
+        ('account_number',    'NVARCHAR(100) NULL'),
+        ('email',             'NVARCHAR(255) NULL'),
+        ('notes',             'NVARCHAR(MAX) NULL'),
+        ('is_active',         'BIT NOT NULL DEFAULT 1'),
+        ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+    ],
+    'supplier_payments': [
+        ('description',       'NVARCHAR(500) NULL'),
+        ('payment_method',    'NVARCHAR(50) NULL'),
+        ('cheque_number',     'NVARCHAR(100) NULL'),
+        ('bank_transaction',  'NVARCHAR(255) NULL'),
+        ('created_by',        'NVARCHAR(80) NULL'),
+        ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+    ],
+}
+
+_schema_migrations_applied = False
+
+
+def _apply_schema_migrations():
+    """Create missing tables and add missing columns to existing tables.
+
+    Called once at startup.  Uses ``db.create_all()`` to create any tables that
+    do not exist yet, then runs ``ALTER TABLE … ADD …`` for each column that is
+    present in the SQLAlchemy model but absent from the live database.  Errors
+    are logged as warnings so that a temporary DB-connectivity issue does not
+    prevent the app from starting.
+    """
+    global _schema_migrations_applied
+    if _schema_migrations_applied:
+        return
+    try:
+        # Create tables that don't exist yet (leaves existing tables untouched)
+        db.create_all()
+
+        inspector = sa_inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+
+        for table_name, columns in _COLUMN_MIGRATIONS.items():
+            if table_name not in existing_tables:
+                continue
+            existing_cols = {col['name'].lower() for col in inspector.get_columns(table_name)}
+            with db.engine.begin() as conn:
+                for col_name, col_def in columns:
+                    if col_name.lower() not in existing_cols:
+                        # Use quoted identifiers ([…]) to prevent any future
+                        # misuse if the dict keys ever come from a dynamic source.
+                        conn.execute(sa_text(
+                            f"ALTER TABLE [{table_name}] ADD [{col_name}] {col_def}"
+                        ))
+                        logger.info("Schema migration: added %s.%s", table_name, col_name)
+
+        # Ensure all existing managers can still log in after the is_user column
+        # was added with DEFAULT 0 (which would have left them with is_user=0).
+        # The WHERE clause makes this idempotent across restarts.
+        if 'employees' in existing_tables:
+            with db.engine.begin() as conn:
+                conn.execute(sa_text(
+                    "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
+                ))
+                logger.info("Schema migration: backfilled is_user=1 for existing managers")
+
+        # Add CHECK constraint for timer_user / hourly_rate requirement
+        if 'employees' in existing_tables:
+            try:
+                with db.engine.begin() as conn:
+                    row = conn.execute(sa_text(
+                        "SELECT COUNT(*) FROM sys.check_constraints "
+                        "WHERE parent_object_id = OBJECT_ID('dbo.employees') "
+                        "AND name = 'CK_employees_timer_hourly_rate'"
+                    )).scalar()
+                    if not row:
+                        conn.execute(sa_text(
+                            "ALTER TABLE [employees] ADD CONSTRAINT [CK_employees_timer_hourly_rate] "
+                            "CHECK (timer_user = 0 OR (hourly_rate IS NOT NULL AND hourly_rate > 0))"
+                        ))
+                        logger.info("Schema migration: added CK_employees_timer_hourly_rate")
+            except Exception as ck_exc:
+                logger.warning("Could not add timer_hourly_rate check constraint: %s", ck_exc)
+
+        # Make invoices.matter_id nullable to support "All Matters" client-level invoices
+        if 'invoices' in existing_tables:
+            try:
+                with db.engine.begin() as conn:
+                    row = conn.execute(sa_text(
+                        "SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_NAME='invoices' AND COLUMN_NAME='matter_id'"
+                    )).fetchone()
+                    if row and row[0] == 'NO':
+                        conn.execute(sa_text(
+                            "ALTER TABLE [invoices] ALTER COLUMN [matter_id] INT NULL"
+                        ))
+                        logger.info("Schema migration: made invoices.matter_id nullable")
+            except Exception as mi_exc:
+                logger.warning("Could not make invoices.matter_id nullable: %s", mi_exc)
+
+        # Only mark as done when every migration step succeeds so that a
+        # partial failure (e.g. temporary DB outage) retries on next request.
+        _schema_migrations_applied = True
+    except Exception as exc:
+        logger.warning("Schema migration check failed (will retry on next request): %s", exc)
+
+
+@app.before_request
+def _enforce_license():
+    """Role-based license enforcement on every request.
+
+    Access matrix (all non-VALID statuses treated identically):
+
+    A) Manager + VALID        → all modules accessible
+    B) Manager + INVALID      → Home, Clients & Matters, Timer allowed;
+                                 Cost Codes, Invoices, Employees, Import blocked
+    C) Timer-only user        → handled by _enforce_timer_user_restriction();
+                                 this function passes through unchanged
+    D) User (non-manager) + VALID   → Clients & Matters, Invoices accessible;
+                                       Cost Codes/Employees/Import blocked by
+                                       existing role checks in those views
+    E) User (non-manager) + INVALID → only Home + Timer allowed; everything
+                                       else blocked
+
+    Blocked HTML routes redirect to index with a flash warning.
+    Blocked API routes return JSON 403 with consistent payload.
+    """
+    path = request.path
+
+    # ── Always allow static files ─────────────────────────────────────────
+    if path.startswith('/static/'):
+        return
+
+    # ── Always allow auth + public setup routes ───────────────────────────
+    _always_allowed = {
+        '/login', '/logout', '/register',
+        '/forgot-password', '/reset-password',
+        '/license/acknowledge',
+    }
+    if path in _always_allowed or path.startswith('/reset-password/') or path.startswith('/set_lang/'):
+        return
+
+    # ── Always allow public APIs (used from login page setup dialog) ──────
+    _public_apis = {
+        '/api/firm-info', '/api/firm-info/logo',
+        '/api/manager', '/api/license-info',
+    }
+    if path in _public_apis:
+        return
+
+    license_path, public_key_b64 = _licensing.get_license_config(app.config)
+    result = _licensing.get_cached_license_result(license_path, public_key_b64)
+
+    # Valid license → role checks in individual views handle the rest
+    if result.is_valid:
+        return
+
+    # Invalid license – unauthenticated requests pass through so Flask-Login
+    # can redirect them to the login page normally.
+    if not current_user.is_authenticated:
+        return
+
+    is_manager  = getattr(current_user, 'is_manager', False)
+    is_user     = getattr(current_user, 'is_user', False)
+    timer_user  = getattr(current_user, 'timer_user', False)
+
+    # Timer-only users: let _enforce_timer_user_restriction() handle them
+    if timer_user and not is_user and not is_manager:
+        return
+
+    def _api_403():
+        return jsonify({
+            'error':   'license_invalid',
+            'status':  result.status.value,
+            'message': 'This module requires a valid license.',
+        }), 403
+
+    if is_manager:
+        # B) Manager + invalid license: block specific modules
+        _blocked = (
+            path.startswith('/cost-codes') or
+            path.startswith('/api/cost-codes') or
+            path.startswith('/invoices') or
+            path.startswith('/api/invoices') or
+            path.startswith('/employees') or
+            path.startswith('/api/employees') or
+            path.startswith('/hr-records') or
+            path.startswith('/api/hr-records') or
+            path.startswith('/import') or
+            path.startswith('/api/import')
+        )
+        if _blocked:
+            if path.startswith('/api/'):
+                return _api_403()
+            flash('This module requires a valid license.', 'warning')
+            return redirect(url_for('index'))
+        return  # Allow home, clients, timer, export, etc.
+
+    if is_user:
+        # E) Non-manager user + invalid license: allow only Home + Timer routes
+        _allowed = (
+            path == '/' or
+            path.startswith('/timer') or
+            path.startswith('/api/timer')
+        )
+        if not _allowed:
+            if path.startswith('/api/'):
+                return _api_403()
+            flash('A valid license is required to access this module.', 'warning')
+            return redirect(url_for('index'))
+        return
+
+
+@app.before_request
+def _ensure_schema_migrated():
+    """Run schema migrations once before the first request is handled."""
+    if not _schema_migrations_applied:
+        _apply_schema_migrations()
+
+
+# ── Session timeout & single-session enforcement ─────────────────────────────
+
+_SESSION_TIMEOUT_SECONDS = 2 * 3600  # 2 hours of inactivity
+
+_SESSION_EXEMPT_PATHS = {'/login', '/logout', '/register', '/forgot-password',
+                         '/reset-password', '/license/acknowledge'}
+
+
+@app.before_request
+def _check_session_timeout():
+    """Force-logout a user who has been inactive for more than 2 hours."""
+    if not current_user.is_authenticated:
+        return
+    path = request.path
+    if path.startswith('/static/') or path in _SESSION_EXEMPT_PATHS or path.startswith('/reset-password/'):
+        return
+    last_activity_raw = session.get('last_activity')
+    if last_activity_raw:
+        try:
+            last_activity = datetime.fromisoformat(last_activity_raw)
+            #idle_seconds = (datetime.utcnow() - last_activity).total_seconds()
+            idle_seconds = (datetime.now(timezone.utc) - last_activity).total_seconds()
+            if idle_seconds > _SESSION_TIMEOUT_SECONDS:       
+          
+                logout_user()
+                session.clear()
+                if path.startswith('/api/'):
+                    return jsonify({'error': 'session_expired',
+                                    'message': 'Session expirée après 2 heures d\'inactivité.'}), 401
+                flash('Votre session a expiré après 2 heures d\'inactivité. Veuillez vous reconnecter.', 'warning')
+                return redirect(url_for('login'))
+        except (ValueError, TypeError):
+            pass
+    # Refresh last-activity timestamp on every authenticated request
+    #session['last_activity'] = datetime.utcnow().isoformat()
+    session['last_activity'] = datetime.now(UTC).isoformat()
+    session.modified = True
+
+
+@app.before_request
+def _enforce_single_session():
+    """If the user logged in from another device, invalidate the current session.
+
+    On login a unique token is stored both in the server-side DB row and in
+    the session cookie.  If the tokens no longer match (because a new login
+    replaced the DB token), this device's session is rejected.
+    """
+    if not current_user.is_authenticated:
+        return
+    path = request.path
+    if path.startswith('/static/') or path in _SESSION_EXEMPT_PATHS or path.startswith('/reset-password/'):
+        return
+    cookie_token = session.get('login_token')
+    db_token = getattr(current_user, 'session_token', None)
+    if cookie_token and db_token and cookie_token != db_token:
+        logout_user()
+        session.clear()
+        if path.startswith('/api/'):
+            return jsonify({'error': 'session_invalidated',
+                            'message': 'Vous avez été déconnecté car un autre appareil s\'est connecté avec ce compte.'}), 401
+        flash('Vous avez été déconnecté car un autre appareil s\'est connecté avec votre compte.', 'warning')
+        return redirect(url_for('login'))
+
+
+@app.before_request
+def _enforce_timer_user_restriction():
+    """Block timer-only users from accessing non-timer pages/APIs."""
+    if not current_user.is_authenticated:
+        return
+    if not getattr(current_user, 'timer_user', False):
+        return
+    # Users who also have regular or manager access are unrestricted
+    if current_user.is_user or current_user.is_manager:
+        return
+    path = request.path
+    allowed = (
+        path.startswith('/timer') or
+        path.startswith('/time-logs') or
+        path.startswith('/api/timer/') or
+        path.startswith('/api/time-logs') or
+        path.startswith('/static/') or
+        path.startswith('/set_lang/') or
+        path in ('/logout', '/reset-password', '/forgot-password') or
+        path.startswith('/reset-password/')
+    )
+    if not allowed:
+        if path.startswith('/api/'):
+            return jsonify({'error': 'Access restricted to timer functionality'}), 403
+        return redirect(url_for('timer_page'))
+
+
+# ── License context processor & acknowledgement ───────────────────────────────
+
+@app.context_processor
+def inject_translations():
+    # 1. On récupère la langue (fr par défaut si vide)
+    lang = session.get('lang', 'fr') 
+    
+    # 2. On s'assure que LEXICON contient bien cette langue
+    texts = LEXICON.get(lang, LEXICON.get('fr'))
+
+    # 3. On rend 't' et 'current_lang' disponibles pour TOUS les fichiers .html
+    return dict(t=texts, current_lang=lang, app_version=APP_VERSION)
+
+
+@app.context_processor
+def _inject_license_status():
+    """Expose license status to every template.
+
+    ``license_modules_restricted`` is True for *any* non-VALID status so that
+    templates can grey-out restricted modules regardless of the specific reason
+    the license is invalid.
+    """
+    license_path, public_key_b64 = _licensing.get_license_config(app.config)
+    result = _licensing.get_cached_license_result(license_path, public_key_b64)
+    return {
+        'license_valid':              result.is_valid,
+        'license_status':             result.status.value,
+        'license_modules_restricted': not result.is_valid,
+    }
+
+
+@app.route('/license/acknowledge', methods=['POST'])
+def license_acknowledge():
+    """Legacy acknowledge endpoint – kept for backward compatibility.
+
+    Acknowledgement mode has been removed; this route now redirects to login
+    without setting any session flag.
+    """
+    return redirect(url_for('login'))
+
+
+# ── Authentication routes ─────────────────────────────────────────────────────
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        uname = request.form.get('username', '').strip()
+        pwd = request.form.get('password', '')
+        user = Employee.query.filter_by(username=uname).first()
+        if user and user.is_active and not getattr(user, 'is_deleted', False) and user.check_password(pwd):
+            if user.is_user or user.is_manager or user.timer_user:
+                # Generate a new session token (invalidates any previous session)
+                new_token = str(uuid.uuid4())
+                user.session_token = new_token
+                #user.last_login = datetime.utcnow()
+                user.last_login = datetime.now()
+                #user.login_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+                #user.login_ip = request.headers.get('X-ARR-ClientIP', request.remote_addr)
+                #user.login_ip = get_real_ip()
+                user.login_ip = request.headers.get("X-Real-IP", request.remote_addr)
+                db.session.commit()
+                login_user(user, remember=False)
+                session.permanent = False  # Session cookie expires when browser closes
+                session['login_token'] = new_token
+                session['last_activity'] = datetime.now(timezone.utc).isoformat()
+                # If the admin set must_change_password, redirect to the change-password page
+                if getattr(user, 'must_change_password', False):
+                    return redirect(url_for('reset_password'))
+                next_page = request.args.get('next')
+                # Timer-only users go to the timer page
+                if user.timer_user and not user.is_user and not user.is_manager:
+                    return redirect(next_page or url_for('timer_page'))
+                return redirect(next_page or url_for('index'))
+            flash("You don't have permission to connect to this application.", 'danger')
+            return render_template('login.html')
+        # Check if the account exists but is deactivated/deleted
+        if user and (not user.is_active or getattr(user, 'is_deleted', False)):
+            lang = session.get('lang', 'fr')
+            texts = LEXICON.get(lang, LEXICON.get('fr'))
+            flash(texts.get('msg_account_deactivated', 'Your account has been deactivated. Please contact your supervisor.'), 'warning')
+            return render_template('login.html')
+        flash('Invalid username or password.', 'danger')
+    return render_template('login.html')
+
+   
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    # Registration is only for the initial manager setup.
+    # Once the first user exists, new employees are created by a manager
+    # through the employee management module.
+    if Employee.query.count() > 0:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        uname = request.form.get('username', '').strip()
+        email = request.form.get('email', '').strip()
+        pwd = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not uname or not email or not pwd:
+            flash('All fields are required.', 'danger')
+        elif pwd != confirm:
+            flash('Passwords do not match.', 'danger')
+        elif Employee.query.filter_by(username=uname).first():
+            flash('Username already exists.', 'danger')
+        elif Employee.query.filter_by(email=email).first():
+            flash('Email already registered.', 'danger')
+        else:
+            # First user is always the manager
+            employee = Employee(username=uname, email=email,
+                                is_manager=True, is_user=True, is_active=True)
+            employee.set_password(pwd)
+            db.session.add(employee)
+            db.session.flush()  # obtain employee.id before commit
+            # Create the matching HR record
+            _ensure_hr_record(employee)
+            db.session.commit()
+            flash(f'Gestionnaire "{uname}" créé avec succès. Veuillez vous connecter.', 'success')
+            return redirect(url_for('login'))
+    return render_template('register.html')
+
+    # --- MODULE FIDUCIE ---
+# 1. D'ABORD LA DÉFINITION DE LA TABLE (La classe)
+class TransactionsFiducie(db.Model):
+    __tablename__ = 'TransactionsFiducie'
+    fid_id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    date_trans = db.Column(db.DateTime, default=datetime.utcnow)
+    type_trans = db.Column(db.String(20))
+    montant = db.Column(db.Float, nullable=False)
+    beneficiaire = db.Column(db.String(255), nullable=True)
+    motif = db.Column(db.Text, nullable=True)
+    ref_bancaire = db.Column(db.String(100))
+    invoice_number = db.Column(db.String(100), nullable=True)
+    est_annulee = db.Column(db.Boolean, default=False)
+    created_by = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+@app.route('/fiducie', methods=['GET'])
+@login_required
+def fiducie_select():
+    """Landing page: show client/matter selector for the fiducie module."""
+    clients = Client.query.filter(Client.is_deleted == False).order_by(Client.client_name).all()
+    return render_template('fiducie.html',
+                           dossier=None,
+                           solde=0,
+                           transactions=[],
+                           clients=clients)
+
+# 1. On ajoute les "methods" pour permettre d'enregistrer des données
+@app.route('/fiducie/<int:id>', methods=['GET', 'POST'])
+@login_required
+def module_fiducie(id):
+    # 1. Préparation des données de base
+    dossier = Matter.query.get_or_404(id)
+    
+
+    # 2. Récupérer les transactions existantes pour calculer le solde
+    transactions = TransactionsFiducie.query.filter_by(matter_id=id).order_by(TransactionsFiducie.date_trans.desc()).all()
+    
+    # On calcule le solde (Dépôts - Retraits)
+    solde_final = sum(t.montant if t.type_trans == 'DEPOT' else -t.montant for t in transactions if not t.est_annulee)
+
+    # 3. Gérer l'enregistrement d'une nouvelle transaction (POST)
+    if request.method == 'POST':
+        try:
+            montant = float(request.form.get('montant', 0))
+            type_trans = request.form.get('type')
+
+            if type_trans == 'RETRAIT' and montant > solde_final:
+                flash(f"🚫 Fonds insuffisants ! Solde : {solde_final:,.2f}$", "danger")
+            else:
+                nouvelle_t = TransactionsFiducie(
+                    matter_id=id,
+                    type_trans=type_trans,
+                    montant=montant,
+                    beneficiaire=request.form.get('beneficiaire'),
+                    motif=request.form.get('motif'),
+                    ref_bancaire=request.form.get('ref'),
+                    est_annulee=False,
+                    created_by=current_user.display_name
+                )
+                db.session.add(nouvelle_t)
+                db.session.commit()
+                flash("✅ Transaction enregistrée.", "success")
+            
+            return redirect(url_for('module_fiducie', id=id))
+            
+        except Exception as e:
+            flash(f"Erreur : {str(e)}", "danger")
+            return redirect(url_for('module_fiducie', id=id))
+
+    # 4. Affichage final (GET)
+    clients = Client.query.filter(Client.is_deleted == False).order_by(Client.client_name).all()
+    return render_template('fiducie.html', 
+                           solde=solde_final, 
+                           transactions=transactions, 
+                           dossier=dossier,
+                           clients=clients)
+
+
+# ── API: Fiducie / Trust Accounting ──────────────────────────────────────────
+
+@app.route('/api/fiducie/<int:matter_id>', methods=['GET'])
+@login_required
+def api_fiducie_list(matter_id):
+    """Return all trust transactions for a given matter as JSON."""
+    Matter.query.get_or_404(matter_id)
+    transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).order_by(
+        TransactionsFiducie.date_trans.desc()
+    ).all()
+    solde = sum(
+        t.montant if t.type_trans == 'DEPOT' else -t.montant
+        for t in transactions if not t.est_annulee
+    )
+    return jsonify({
+        'matter_id': matter_id,
+        'balance': round(solde, 2),
+        'transactions': [
+            {
+                'id': t.fid_id,
+                'date': t.date_trans.strftime('%Y-%m-%d') if t.date_trans else None,
+                'type': t.type_trans,
+                'montant': float(t.montant),
+                'beneficiaire': t.beneficiaire,
+                'motif': t.motif,
+                'ref_bancaire': t.ref_bancaire,
+                'invoice_number': t.invoice_number or '',
+                'est_annulee': t.est_annulee,
+                'created_by': t.created_by,
+            }
+            for t in transactions
+        ]
+    })
+
+
+@app.route('/api/fiducie/<int:matter_id>', methods=['POST'])
+@login_required
+def api_fiducie_create(matter_id):
+    """Create a new trust transaction via JSON API."""
+    matter = Matter.query.get_or_404(matter_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+
+    type_trans = (data.get('type_trans') or '').strip().upper()
+    if type_trans not in ('DEPOT', 'RETRAIT'):
+        return jsonify({'error': 'type_trans must be DEPOT or RETRAIT'}), 400
+
+    try:
+        montant = float(data.get('montant', 0))
+        if montant <= 0:
+            return jsonify({'error': 'montant must be positive'}), 400
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid montant value'}), 400
+
+    # Check sufficient funds for withdrawals
+    if type_trans == 'RETRAIT':
+        transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
+        solde = sum(
+            t.montant if t.type_trans == 'DEPOT' else -t.montant
+            for t in transactions if not t.est_annulee
+        )
+        if montant > solde:
+            return jsonify({'error': f'Insufficient funds. Balance: {solde:,.2f}$'}), 400
+
+    nouvelle_t = TransactionsFiducie(
+        matter_id=matter_id,
+        type_trans=type_trans,
+        montant=montant,
+        beneficiaire=(data.get('beneficiaire') or '').strip() or None,
+        motif=(data.get('motif') or '').strip() or None,
+        ref_bancaire=(data.get('ref_bancaire') or '').strip() or None,
+        invoice_number=(data.get('invoice_number') or '').strip() or None,
+        est_annulee=False,
+        created_by=current_user.display_name
+    )
+    db.session.add(nouvelle_t)
+    db.session.commit()
+    return jsonify({'success': True, 'id': nouvelle_t.fid_id}), 201
+
+
+@app.route('/api/fiducie/transaction/<int:trans_id>/cancel', methods=['PUT'])
+@login_required
+def api_fiducie_cancel(trans_id):
+    """Cancel (void) a trust transaction."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    trans = TransactionsFiducie.query.get_or_404(trans_id)
+    trans.est_annulee = True
+    db.session.commit()
+    return jsonify({'success': True, 'id': trans_id, 'est_annulee': True})
+
+
+@app.route('/api/fiducie/transaction/<int:trans_id>', methods=['DELETE'])
+@login_required
+def api_fiducie_delete(trans_id):
+    """Delete a trust transaction (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    trans = TransactionsFiducie.query.get_or_404(trans_id)
+    db.session.delete(trans)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/fiducie/<int:matter_id>/balance', methods=['GET'])
+@login_required
+def api_fiducie_balance(matter_id):
+    """Return the current trust balance for a matter."""
+    Matter.query.get_or_404(matter_id)
+    transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
+    solde = sum(
+        t.montant if t.type_trans == 'DEPOT' else -t.montant
+        for t in transactions if not t.est_annulee
+    )
+    return jsonify({'matter_id': matter_id, 'balance': round(solde, 2)})
+
+
+@app.route('/api/clients/<int:client_id>/trust-balance', methods=['GET'])
+@login_required
+def api_client_trust_balance(client_id):
+    """Return the total trust balance across all matters for a client, with per-matter breakdown."""
+    client = Client.query.get_or_404(client_id)
+    matters = Matter.query.filter_by(client_id=client_id).filter(Matter.is_deleted == False).all()
+    total = 0.0
+    breakdown = []
+    for matter in matters:
+        txns = TransactionsFiducie.query.filter_by(matter_id=matter.id).all()
+        balance = sum(
+            float(t.montant) if t.type_trans == 'DEPOT' else -float(t.montant)
+            for t in txns if not t.est_annulee
+        )
+        if balance != 0.0:
+            breakdown.append({
+                'matter_id': matter.id,
+                'matter_number': matter.matter_number,
+                'matter_description': matter.matter_description or '',
+                'balance': round(balance, 2),
+            })
+        total += balance
+    return jsonify({'client_id': client_id, 'trust_balance': round(total, 2), 'matters': breakdown})
+
+
+@app.route('/api/fiducie/<int:matter_id>/export', methods=['GET'])
+@login_required
+def api_fiducie_export(matter_id):
+    """Export trust transactions for a matter as a CSV file.
+
+    Optional query params: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD)
+    """
+    matter = Matter.query.get_or_404(matter_id)
+    client = matter.client
+
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+
+    query = TransactionsFiducie.query.filter_by(matter_id=matter_id)
+    if date_from_str:
+        try:
+            date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            query = query.filter(TransactionsFiducie.date_trans >= date_from)
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            query = query.filter(TransactionsFiducie.date_trans <= date_to)
+        except ValueError:
+            pass
+
+    transactions = query.order_by(TransactionsFiducie.date_trans.asc()).all()
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+
+    client_number = client.client_number if client else ''
+    matter_number = matter.matter_number
+
+    writer.writerow(['Client', 'Dossier', 'Date', 'Type', 'Montant', 'Bénéficiaire / Payeur', 'Motif', 'Réf. bancaire', 'Annulée', 'Créé par'])
+    for t in transactions:
+        writer.writerow([
+            client_number,
+            matter_number,
+            t.date_trans.strftime('%Y-%m-%d') if t.date_trans else '',
+            t.type_trans,
+            f'{float(t.montant):.2f}',
+            t.beneficiaire or '',
+            t.motif or '',
+            t.ref_bancaire or '',
+            'Oui' if t.est_annulee else 'Non',
+            t.created_by or '',
+        ])
+
+    csv_content = output.getvalue()
+    filename = f'fiducie_{client_number}_{matter_number}.csv'
+    return Response(
+        csv_content.encode('utf-8-sig'),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+@app.route('/api/fiducie/summary', methods=['GET'])
+@login_required
+def api_fiducie_summary():
+    """Return trust summary: one entry per matter with opening balance, transactions, closing balance.
+    Supports optional date_from / date_to filters, optional client_id filter, and optional matter_id filter.
+    """
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    client_id = request.args.get('client_id')
+    matter_id = request.args.get('matter_id')
+
+    date_from = None
+    date_to = None
+    if date_from_str:
+        try:
+            date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
+    # Get all matters that have trust transactions
+    matter_q = Matter.query.filter(Matter.is_deleted == False)
+    if client_id:
+        matter_q = matter_q.filter(Matter.client_id == int(client_id))
+    if matter_id:
+        matter_q = matter_q.filter(Matter.id == int(matter_id))
+    matters = matter_q.order_by(Matter.client_id, Matter.matter_number).all()
+
+    results = []
+    for matter in matters:
+        client = matter.client
+        all_txns = TransactionsFiducie.query.filter_by(matter_id=matter.id).filter(
+            TransactionsFiducie.est_annulee == False
+        ).order_by(TransactionsFiducie.date_trans).all()
+
+        if not all_txns:
+            continue  # skip matters with no transactions
+
+        # Opening balance: sum of transactions BEFORE date_from
+        if date_from:
+            prior_txns = [t for t in all_txns if t.date_trans.date() < date_from]
+        else:
+            prior_txns = []
+        opening_balance = sum(
+            float(t.montant) if t.type_trans == 'DEPOT' else -float(t.montant)
+            for t in prior_txns
+        )
+
+        # Period transactions
+        if date_from or date_to:
+            period_txns = [
+                t for t in all_txns
+                if (not date_from or t.date_trans.date() >= date_from)
+                and (not date_to or t.date_trans.date() <= date_to)
+            ]
+        else:
+            period_txns = all_txns
+
+        period_deposits = sum(float(t.montant) for t in period_txns if t.type_trans == 'DEPOT')
+        period_withdrawals = sum(float(t.montant) for t in period_txns if t.type_trans == 'RETRAIT')
+        closing_balance = opening_balance + period_deposits - period_withdrawals
+
+        # Collect unique invoice numbers for RETRAIT transactions in the period
+        invoice_numbers = list(dict.fromkeys(
+            t.invoice_number for t in period_txns
+            if t.type_trans == 'RETRAIT' and t.invoice_number
+        ))
+
+        results.append({
+            'client_number': client.client_number if client else '',
+            'client_name': client.client_name if client else '',
+            'matter_number': matter.matter_number,
+            'matter_description': matter.matter_description or '',
+            'opening_balance': round(opening_balance, 2),
+            'period_deposits': round(period_deposits, 2),
+            'period_withdrawals': round(period_withdrawals, 2),
+            'closing_balance': round(closing_balance, 2),
+            'txn_count': len(period_txns),
+            'invoice_numbers': invoice_numbers,
+        })
+
+    return jsonify(results)
+
+
+@app.route('/fiducie/<int:matter_id>/print')
+@login_required
+def fiducie_print(matter_id):
+    """Render a printable trust statement for a matter with optional date filtering."""
+    matter = Matter.query.get_or_404(matter_id)
+    client = matter.client
+    firm = FirmInfo.query.first()
+
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+
+    query = TransactionsFiducie.query.filter_by(matter_id=matter_id)
+    if date_from_str:
+        try:
+            df = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+            query = query.filter(TransactionsFiducie.date_trans >= df)
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            dt = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+            query = query.filter(TransactionsFiducie.date_trans <= dt)
+        except ValueError:
+            pass
+
+    transactions = query.order_by(TransactionsFiducie.date_trans.asc()).all()
+
+    total_deposits = sum(float(t.montant) for t in transactions if t.type_trans == 'DEPOT' and not t.est_annulee)
+    total_withdrawals = sum(float(t.montant) for t in transactions if t.type_trans == 'RETRAIT' and not t.est_annulee)
+    closing_balance = total_deposits - total_withdrawals
+
+    return render_template('fiducie_print.html',
+                           matter=matter,
+                           client=client,
+                           firm=firm,
+                           transactions=transactions,
+                           total_deposits=total_deposits,
+                           total_withdrawals=total_withdrawals,
+                           closing_balance=closing_balance,
+                           date_from=date_from_str,
+                           date_to=date_to_str)
+
+
+@app.route('/unbilled/print')
+@login_required
+def unbilled_print():
+    """Render a printable accounts-receivable report."""
+    firm = FirmInfo.query.first()
+    client_id = request.args.get('client_id')
+
+    inv_q = Invoice.query.filter(
+        Invoice.status == 'sent'
+    )
+
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        inv_q = inv_q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+
+    invoices = inv_q.order_by(Invoice.invoice_date.asc()).all()
+
+    today = datetime.now(UTC).date()
+    rows = []
+    total_invoice = 0.0
+    total_paid = 0.0
+    aging_current = 0.0
+    aging_30 = 0.0
+    aging_60 = 0.0
+    aging_60_plus = 0.0
+
+    for inv in invoices:
+        client = inv.resolved_client
+        amount = float(inv.total_amount or 0)
+        paid = float(inv.total_amount or 0) if inv.status == 'paid' else 0.0
+        balance = amount - paid
+        total_invoice += amount
+        total_paid += paid
+
+        days_old = (today - inv.invoice_date).days if inv.invoice_date else 0
+        if days_old <= 0:
+            aging_current += balance
+        elif days_old <= 30:
+            aging_30 += balance
+        elif days_old <= 60:
+            aging_60 += balance
+        else:
+            aging_60_plus += balance
+
+        rows.append({
+            'client_name': client.client_name if client else '',
+            'invoice_number': inv.invoice_number,
+            'invoice_date': inv.invoice_date,
+            'due_date': inv.due_date,
+            'amount': amount,
+            'paid': paid,
+            'balance': balance,
+            'days_old': days_old,
+        })
+
+    return render_template('ar_print.html',
+                           firm=firm,
+                           rows=rows,
+                           total_invoice=total_invoice,
+                           total_paid=total_paid,
+                           total_balance=total_invoice - total_paid,
+                           aging_current=aging_current,
+                           aging_30=aging_30,
+                           aging_60=aging_60,
+                           aging_60_plus=aging_60_plus,
+                           today=today)
+
+
+@app.route('/statement/print')
+@login_required
+def statement_print():
+    """Render a printable account statement (état de compte) for a client."""
+    import calendar as _calendar
+    firm = FirmInfo.query.first()
+    client_id = request.args.get('client_id')
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    statuses_param = request.args.get('statuses', '').strip()
+    allowed_statuses = {'sent', 'paid', 'draft', 'cancelled'}
+    if statuses_param:
+        filter_statuses = [s for s in statuses_param.split(',') if s in allowed_statuses]
+    else:
+        filter_statuses = []
+
+    if not date_from_str and not date_to_str:
+        now = datetime.now(UTC)
+        _, last_day = _calendar.monthrange(now.year, now.month)
+        date_from_str = f'{now.year}-{now.month:02d}-01'
+        date_to_str = f'{now.year}-{now.month:02d}-{last_day:02d}'
+
+    client = None
+    if client_id:
+        client = Client.query.get(int(client_id))
+
+    # Get invoices in period
+    inv_q = Invoice.query.filter(
+        Invoice.invoice_date >= date_from_str,
+        Invoice.invoice_date <= date_to_str
+    )
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        inv_q = inv_q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    invoices = inv_q.order_by(Invoice.invoice_date.asc()).all()
+
+    # Apply status filter if specified
+    if filter_statuses:
+        invoices = [i for i in invoices if i.status in filter_statuses]
+
+    total_invoiced = sum(float(i.total_amount or 0) for i in invoices)
+    total_paid = sum(float(i.total_amount or 0) for i in invoices if i.status == 'paid')
+    balance = total_invoiced - total_paid
+
+    # Previous balance (invoices before date_from that are not paid)
+    prev_q = Invoice.query.filter(Invoice.invoice_date < date_from_str)
+    if client_id:
+        prev_q = prev_q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    prev_invoices = prev_q.all()
+    prev_balance = sum(
+        float(i.total_amount or 0) for i in prev_invoices if i.status not in ('paid', 'cancelled')
+    )
+
+    today = datetime.now(UTC).date()
+    return render_template(
+        'statement_print.html',
+        firm=firm,
+        client=client,
+        invoices=invoices,
+        total_invoiced=total_invoiced,
+        total_paid=total_paid,
+        balance=balance,
+        prev_balance=prev_balance,
+        date_from=date_from_str,
+        date_to=date_to_str,
+        today=today,
+    )
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    # Clear session token to invalidate this session on all devices
+    try:
+        current_user.session_token = None
+        # Clear any active timer session for this user
+        ActiveTimerSession.query.filter_by(employee_id=current_user.id).delete()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+    logout_user()
+    flash('Vous avez été déconnecté.', 'info')
+    return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    lang = session.get('lang', 'fr')
+    t = LEXICON.get(lang, LEXICON.get('fr'))
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        user = Employee.query.filter_by(email=email).first()
+        if user:
+            token = user.get_reset_token()
+            email_link_host = os.environ.get('EMAILLINKK', '').strip().rstrip('/')
+            if not email_link_host:
+                _host = os.environ.get('HOST', '127.0.0.1')
+                _prefix = os.environ.get('URL_PREFIX', '').rstrip('/')
+                _scheme = 'https' if os.environ.get('USE_HTTPS', '').lower() in ('1', 'true', 'yes') else 'http'
+                _default_port = '443' if _scheme == 'https' else '80'
+                # EXTERNAL_PORT is the port visible to end-users (e.g. 80
+                # behind IIS).  Do NOT fall back to PORT which is the
+                # internal Waitress port (5000).
+                _port = os.environ.get('EXTERNAL_PORT', _default_port)
+                _port_part = '' if _port == _default_port else f':{_port}'
+                email_link_host = f"{_scheme}://{_host}{_port_part}{_prefix}"
+            reset_url = f"{email_link_host}/reset-password/{token}"
+            try:
+                send_reset_email(user, reset_url, lang=lang)
+            except Exception as mail_err:
+                logger.warning('Password reset email failed: %s', mail_err)
+            flash(t.get('msg_reset_sent', 'Password reset instructions have been sent to your email address.'), 'success')
+        else:
+            flash(t.get('msg_no_account', 'No account found with this email address.'), 'danger')
+        return redirect(url_for('forgot_password'))
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password_via_token(token):
+    lang = session.get('lang', 'fr')
+    t = LEXICON.get(lang, LEXICON.get('fr'))
+    user = Employee.verify_reset_token(token)
+    if not user:
+        flash(t.get('msg_reset_link_invalid', 'The password reset link is invalid or has expired.'), 'danger')
+        return redirect(url_for('forgot_password'))
+    if request.method == 'POST':
+        new_password = request.form.get('new_password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not new_password:
+            flash(t.get('msg_password_empty', 'New password cannot be empty.'), 'danger')
+        elif new_password != confirm:
+            flash(t.get('msg_passwords_no_match', 'Passwords do not match.'), 'danger')
+        else:
+            user.set_password(new_password)
+            db.session.commit()
+            flash(t.get('msg_password_reset_done', 'Your password has been reset. Please sign in.'), 'success')
+            return redirect(url_for('login'))
+    return render_template('reset_password_token.html', token=token)
+
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+@login_required
+def reset_password():
+    if request.method == 'POST':
+        current_password = request.form.get('current_password', '')
+        new_password = request.form.get('new_password', '')
+        confirm = request.form.get('confirm_password', '')
+        if not current_user.check_password(current_password):
+            flash('Current password is incorrect.', 'danger')
+        elif not new_password:
+            flash('New password cannot be empty.', 'danger')
+        elif new_password != confirm:
+            flash('New passwords do not match.', 'danger')
+        else:
+            current_user.set_password(new_password)
+            current_user.must_change_password = False
+            db.session.commit()
+            flash('Password changed successfully.', 'success')
+            return redirect(url_for('index'))
+    return render_template('reset_password.html')
+
+
+# ── Page routes ───────────────────────────────────────────────────────────────
+
+@app.route('/')
+@login_required
+def index():
+    return render_template('index.html')
+
+
+@app.route('/clients')
+@login_required
+def list_clients():
+    return render_template('clients.html')
+
+
+@app.route('/cost-codes')
+@login_required
+def list_cost_codes():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    codes = CostCode.query.all()
+    return render_template('cost_codes.html', codes=codes)
+
+
+@app.route('/employees')
+@login_required
+def list_employees():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    show_deactivated = request.args.get('show_deactivated', 'false').lower() == 'true'
+    q = Employee.query.filter(Employee.is_deleted == False)
+    if not show_deactivated:
+        q = q.filter(Employee.is_active == True)
+    employees = q.order_by(Employee.last_name, Employee.first_name).all()
+    return render_template('employees.html', employees=employees, show_deactivated=show_deactivated)
+
+
+@app.route('/invoices')
+@login_required
+def list_invoices():
+    return render_template('invoices.html')
+
+
+@app.route('/unbilled')
+@login_required
+def unbilled_page():
+    return render_template('unbilled.html')
+
+
+@app.route('/api/ar-invoices', methods=['GET'])
+@login_required
+def api_ar_invoices():
+    """Return invoices that are sent but not yet paid (accounts receivable)."""
+    q = Invoice.query.filter(Invoice.status == 'sent')
+    client_id = request.args.get('client_id')
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        q = q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    date_from = request.args.get('date_from')
+    if date_from:
+        q = q.filter(Invoice.invoice_date >= date_from)
+    date_to = request.args.get('date_to')
+    if date_to:
+        q = q.filter(Invoice.invoice_date <= date_to)
+    invoices = q.order_by(Invoice.invoice_date.desc()).all()
+    return jsonify([i.to_dict() for i in invoices])
+
+
+@app.route('/api/draft-invoices', methods=['GET'])
+@login_required
+def api_draft_invoices():
+    """Return invoices in draft status (created but not yet sent)."""
+    q = Invoice.query.filter(Invoice.status == 'draft')
+    client_id = request.args.get('client_id')
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        q = q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    date_from = request.args.get('date_from')
+    if date_from:
+        q = q.filter(Invoice.invoice_date >= date_from)
+    date_to = request.args.get('date_to')
+    if date_to:
+        q = q.filter(Invoice.invoice_date <= date_to)
+    invoices = q.order_by(Invoice.invoice_date.desc()).all()
+    return jsonify([i.to_dict() for i in invoices])
+
+
+@app.route('/api/unbilled', methods=['GET'])
+@login_required
+def api_unbilled():
+    """Return all unbilled expenses, optionally filtered by client_id and date range."""
+    q = Expense.query.filter(Expense.is_billed == False, Expense.is_deleted == False)
+    client_id = request.args.get('client_id')
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        q = q.filter(Expense.matter_id.in_(matter_ids))
+    date_from = request.args.get('date_from')
+    if date_from:
+        q = q.filter(Expense.expense_date >= date_from)
+    date_to = request.args.get('date_to')
+    if date_to:
+        q = q.filter(Expense.expense_date <= date_to)
+    expenses = q.order_by(Expense.expense_date.desc()).all()
+    results = []
+    for exp in expenses:
+        d = exp.to_dict()
+        #matter = Matter.query.get(exp.matter_id) if exp.matter_id else None
+        matter = db.session.get(Matter, exp.matter_id) if exp.matter_id else None
+        client = matter.client if matter else None
+        d['matter_number'] = matter.matter_number if matter else None
+        d['client_name'] = client.client_name if client else None
+        d['client_id'] = client.id if client else None
+        results.append(d)
+    return jsonify(results)
+
+
+@app.route('/statement')
+@login_required
+def statement_page():
+    return render_template('statement.html')
+
+
+@app.route('/api/statement', methods=['GET'])
+@login_required
+def api_statement():
+    """Return account statement data for a date range, optionally filtered by client.
+    Supports date_from/date_to params (YYYY-MM-DD), falling back to month/year for backward compat."""
+    import calendar
+    client_id = request.args.get('client_id')
+
+    # Prefer explicit date_from / date_to; fall back to month/year
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    if not date_from and not date_to:
+        month = int(request.args.get('month', datetime.now(UTC).month))
+        year = int(request.args.get('year', datetime.now(UTC).year))
+        _, last_day = calendar.monthrange(year, month)
+        date_from = f'{year}-{month:02d}-01'
+        date_to = f'{year}-{month:02d}-{last_day:02d}'
+    else:
+        # If only one is provided, default the other to a reasonable range
+        if not date_from:
+            date_from = date_to
+        if not date_to:
+            date_to = date_from
+
+    # Invoiced in period
+    inv_q = Invoice.query.filter(
+        Invoice.invoice_date >= date_from,
+        Invoice.invoice_date <= date_to
+    )
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        inv_q = inv_q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    invoices = inv_q.all()
+    total_invoiced = sum(float(i.total_amount or 0) for i in invoices)
+    total_paid = sum(float(i.total_amount or 0) for i in invoices if i.status == 'paid')
+
+    # Unbilled in period
+    exp_q = Expense.query.filter(
+        Expense.is_billed == False,
+        Expense.is_deleted == False,
+        Expense.expense_date >= date_from,
+        Expense.expense_date <= date_to
+    )
+    if client_id:
+        exp_q = exp_q.filter(Expense.matter_id.in_(matter_ids))
+    unbilled_expenses = exp_q.all()
+    total_unbilled = sum(float(e.amount or 0) for e in unbilled_expenses)
+
+    return jsonify({
+        'date_from': date_from,
+        'date_to': date_to,
+        'total_invoiced': round(total_invoiced, 2),
+        'total_paid': round(total_paid, 2),
+        'total_unbilled': round(total_unbilled, 2),
+        'outstanding_balance': round(total_invoiced - total_paid, 2),
+        'invoices': [i.to_dict() for i in invoices],
+    })
+
+
+# ── Page & API: General Ledger (GL) ──────────────────────────────────────────
+
+@app.route('/gl')
+@login_required
+def gl_page():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    firm = FirmInfo.query.first()
+    return render_template('gl.html', firm=firm)
+
+
+@app.route('/api/gl', methods=['GET'])
+@login_required
+def api_gl():
+    """Return general-ledger style entries for a date range.
+
+    Query params: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD), client_id (optional).
+    Returns invoiced amounts as debits and payments as credits.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    client_id = request.args.get('client_id')
+
+    if not date_from or not date_to:
+        return jsonify({'error': 'date_from and date_to are required'}), 400
+
+    # Fetch invoices in the period
+    inv_q = Invoice.query.filter(
+        Invoice.invoice_date >= date_from,
+        Invoice.invoice_date <= date_to,
+        Invoice.status != 'cancelled'
+    )
+    if client_id:
+        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+        inv_q = inv_q.filter(
+            db.or_(
+                Invoice.matter_id.in_(matter_ids),
+                Invoice.client_id == int(client_id)
+            )
+        )
+    invoices = inv_q.order_by(Invoice.invoice_date.asc()).all()
+
+    entries = []
+    running_balance = 0.0
+    total_debit = 0.0
+    total_credit = 0.0
+
+    for inv in invoices:
+        client = inv.resolved_client
+        client_name = client.client_name if client else ''
+        amount = float(inv.total_amount or 0)
+
+        # Invoice = debit (amount owed)
+        running_balance += amount
+        total_debit += amount
+        entries.append({
+            'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
+            'invoice_number': inv.invoice_number,
+            'client_name': client_name,
+            'description': f'Invoice {inv.invoice_number}',
+            'debit': round(amount, 2),
+            'credit': 0,
+            'balance': round(running_balance, 2),
+        })
+
+        # If paid, add credit entry
+        if inv.status == 'paid':
+            running_balance -= amount
+            total_credit += amount
+            entries.append({
+                'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
+                'invoice_number': inv.invoice_number,
+                'client_name': client_name,
+                'description': f'Payment - {inv.invoice_number}',
+                'debit': 0,
+                'credit': round(amount, 2),
+                'balance': round(running_balance, 2),
+            })
+
+    return jsonify({
+        'entries': entries,
+        'total_debit': round(total_debit, 2),
+        'total_credit': round(total_credit, 2),
+        'balance': round(running_balance, 2),
+    })
+
+
+@app.route('/invoices/create')
+@login_required
+def create_invoice_page():
+    return render_template('invoice_create.html')
+
+
+@app.route('/invoices/<int:invoice_id>/print')
+@login_required
+def print_invoice(invoice_id):
+    invoice = Invoice.query.get_or_404(invoice_id)
+    firm = FirmInfo.query.first()
+    applied_credits = CreditNote.query.filter_by(applied_invoice_id=invoice_id).all()
+    return render_template('invoice_print.html', invoice=invoice, firm=firm, applied_credits=applied_credits)
+
+
+@app.route('/test-db')
+@login_required
+def test_db():
+    try:
+        codes = CostCode.query.all()
+        return jsonify({'status': 'success', 'cost_codes_count': len(codes)})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/timer')
+@login_required
+def timer_page():
+    if not getattr(current_user, 'timer_user', False):
+        flash('Access restricted to timer users.', 'danger')
+        return redirect(url_for('index'))
+    return render_template('timer.html')
+
+
+# ── API: Users (removed – all users are managed via the Employees table) ─────
+
+
+# ── API: Timer ────────────────────────────────────────────────────────────────
+
+@app.route('/api/timer/start', methods=['POST'])
+@login_required
+def api_timer_start():
+    """Register the start of a timer session.
+
+    Enforces the one-timer-at-a-time rule: returns 409 if the user already
+    has an active session that is less than 24 hours old.  Stale sessions
+    (older than 24 h) are silently replaced so a browser crash cannot lock a
+    user out forever.
+    """
+    if not getattr(current_user, 'timer_user', False):
+        return jsonify({'error': 'Access restricted to timer users'}), 403
+    data = request.get_json() or {}
+    matter_id = data.get('matter_id')
+    if not matter_id:
+        return jsonify({'error': 'matter_id is required'}), 400
+
+    existing = ActiveTimerSession.query.filter_by(employee_id=current_user.id).first()
+    if existing:
+        age_hours = (datetime.utcnow() - existing.started_at).total_seconds() / 3600
+        if age_hours < 24:
+            return jsonify({
+                'error': 'Un chronomètre est déjà en cours. Arrêtez-le avant d\'en démarrer un nouveau.'
+            }), 409
+        # Stale session – clear it
+        db.session.delete(existing)
+
+    token = str(uuid.uuid4())
+    session_record = ActiveTimerSession(
+        employee_id=current_user.id,
+        matter_id=matter_id,
+        session_token=token,
+        started_at=datetime.utcnow()
+    )
+    db.session.add(session_record)
+    db.session.commit()
+    return jsonify({'session_token': token}), 201
+
+
+@app.route('/api/timer/cancel', methods=['DELETE'])
+@login_required
+def api_timer_cancel():
+    """Cancel the current timer session without saving time."""
+    if not getattr(current_user, 'timer_user', False):
+        return jsonify({'error': 'Access restricted to timer users'}), 403
+    ActiveTimerSession.query.filter_by(employee_id=current_user.id).delete()
+    db.session.commit()
+    return jsonify({'message': 'Chronomètre annulé.'}), 200
+
+
+@app.route('/api/timer/clients')
+@login_required
+def api_timer_clients():
+    """Return active clients for the timer client-selection list."""
+    if not getattr(current_user, 'timer_user', False):
+        return jsonify({'error': 'Access restricted to timer users'}), 403
+    search = request.args.get('search', '').strip()
+    query = Client.query.filter(Client.is_active == True, Client.is_deleted == False)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                Client.client_name.ilike(like),
+                Client.client_number.ilike(like)
+            )
+        )
+    results = []
+    for client in query.order_by(Client.client_number).all():
+        results.append({
+            'id': client.id,
+            'client_number': client.client_number,
+            'client_name': client.client_name,
+        })
+    return jsonify(results)
+
+
+@app.route('/api/timer/matters')
+@login_required
+def api_timer_matters():
+    """Return active matters matching an optional search term (for timer UI).
+
+    Optional query params:
+      - ``client_id``: restrict results to a single client
+      - ``search``: free-text filter across client/matter fields
+    """
+    if not getattr(current_user, 'timer_user', False):
+        return jsonify({'error': 'Access restricted to timer users'}), 403
+    search = request.args.get('search', '').strip()
+    client_id = request.args.get('client_id', type=int)
+    query = (
+        db.session.query(Matter, Client)
+        .join(Client, Matter.client_id == Client.id)
+        .filter(Matter.is_active == True, Matter.is_deleted == False,
+                Client.is_deleted == False)
+    )
+    if client_id:
+        query = query.filter(Matter.client_id == client_id)
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                Client.client_name.ilike(like),
+                Client.client_number.ilike(like),
+                Matter.matter_number.ilike(like),
+                Matter.matter_description.ilike(like)
+            )
+        )
+    results = []
+    for matter, client in query.order_by(Client.client_number, Matter.matter_number).limit(50).all():
+        results.append({
+            'id': matter.id,
+            'matter_number': matter.matter_number,
+            'matter_description': matter.matter_description or '',
+            'client_number': client.client_number,
+            'client_name': client.client_name,
+        })
+    return jsonify(results)
+
+
+@app.route('/api/timer/time-entry', methods=['POST'])
+@login_required
+def api_timer_time_entry():
+    """Create an expense row from a completed timer session."""
+    if not getattr(current_user, 'timer_user', False):
+        return jsonify({'error': 'Access restricted to timer users'}), 403
+    if not current_user.hourly_rate or float(current_user.hourly_rate) <= 0:
+        return jsonify({'error': 'Hourly rate is not configured. Please contact your manager.'}), 400
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    matter_id = data.get('matter_id')
+    if not matter_id:
+        return jsonify({'error': 'matter_id is required'}), 400
+    #matter = Matter.query.get(matter_id)
+    matter = db.session.get(Matter, matter_id)
+    if not matter:
+        return jsonify({'error': 'Matter not found'}), 404
+    duration_seconds = data.get('duration_seconds')
+    if not duration_seconds or float(duration_seconds) <= 0:
+        return jsonify({'error': 'duration_seconds must be a positive number'}), 400
+    # Resolve the active "Time Entry" cost code dynamically
+    time_entry_code = CostCode.query.filter(
+        db.func.lower(db.func.ltrim(db.func.rtrim(CostCode.description))) == 'time entry',
+        CostCode.is_active == True
+    ).first()
+    if not time_entry_code:
+        return jsonify({
+            'error': 'Active "Time Entry" cost code not found. '
+                     'Please ask your manager to add a cost code with description "Time Entry".'
+        }), 400
+    # Compute hours and amount — round UP to nearest 0.1 h (6-min legal billing increment)
+    hours = math.ceil(float(duration_seconds) / 360.0) / 10.0
+    amount = _round_half_up(hours * float(current_user.hourly_rate))
+    # Build description
+    description = f'Time Entry ({hours:.1f}h)'
+    note = (data.get('note') or '').strip()
+    if note:
+        description += f' \u2013 {note}'
+    # Parse optional expense date
+    expense_date_raw = data.get('expense_date')
+    if expense_date_raw:
+        try:
+            expense_date = datetime.fromisoformat(expense_date_raw).date()
+        except ValueError:
+            expense_date = datetime.utcnow().date()
+    else:
+        #expense_date = datetime.utcnow().date()
+        expense_date = datetime.now(timezone.utc).date()
+    #now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    expense = Expense(
+        matter_id=matter_id,
+        code=time_entry_code.code,
+        employee_id=current_user.id,
+        username=current_user.username,
+        description=description,
+        amount=amount,
+        expense_date=expense_date,
+        is_billed=False,
+        invoice_id=None,
+        created_at=now,
+        updated_at=now
+    )
+    db.session.add(expense)
+    db.session.flush()  # get expense.id before commit
+    second_work = SecondWork(
+        employee_id=current_user.id,
+        matter_id=matter_id,
+        seconds_worked=int(duration_seconds),
+        expense_id=expense.id,
+        recorded_at=now
+    )
+    db.session.add(second_work)
+    # Clear the active timer session now that time has been saved
+    ActiveTimerSession.query.filter_by(employee_id=current_user.id).delete()
+    db.session.commit()
+    return jsonify(expense.to_dict()), 201
+
+
+# ── API: Firm Info ─────────────────────────────────────────────────────────────
+
+@app.route('/api/firm-info', methods=['GET', 'PUT'])
+def api_firm_info():
+    """Get or update firm information. GET is public; PUT is available without auth
+    so it can be used from the login page firm-info dialog."""
+    firm = FirmInfo.query.first()
+    if request.method == 'GET':
+        if firm:
+            return jsonify(firm.to_dict())
+        return jsonify({'id': None, 'firm_name': '', 'address_line1': '', 'address_line2': '',
+                        'city': '', 'province': '', 'postal_code': '', 'phone': '', 'email': '',
+                        'tax_number': '', 'logo_filename': '',
+                        'tax1_name': 'GST', 'tax2_name': '', 'tax2_compound': False,
+                        'tax1_rate': 0.0, 'tax2_rate': 0.0})
+    # PUT – create or update
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    if not firm:
+        firm = FirmInfo()
+        db.session.add(firm)
+    for field in ('firm_name', 'address_line1', 'address_line2', 'city', 'province',
+                  'postal_code', 'phone', 'email', 'tax_number'):
+        if field in data:
+            setattr(firm, field, data[field] or None)
+    # Tax name fields: empty string means "hide this tax"
+    if 'tax1_name' in data:
+        firm.tax1_name = data['tax1_name'] or None
+    if 'tax2_name' in data:
+        firm.tax2_name = data['tax2_name'] or None
+    if 'tax2_compound' in data:
+        firm.tax2_compound = bool(data['tax2_compound'])
+    if 'tax1_rate' in data:
+        try:
+            firm.tax1_rate = float(data['tax1_rate']) if data['tax1_rate'] is not None else 0.0
+        except (ValueError, TypeError):
+            firm.tax1_rate = 0.0
+    if 'tax2_rate' in data:
+        try:
+            firm.tax2_rate = float(data['tax2_rate']) if data['tax2_rate'] is not None else 0.0
+        except (ValueError, TypeError):
+            firm.tax2_rate = 0.0
+    if not firm.firm_name:
+        firm.firm_name = 'Your Law Firm'
+    db.session.commit()
+    return jsonify(firm.to_dict())
+
+
+@app.route('/api/firm-info/logo', methods=['POST'])
+def api_firm_logo():
+    """Upload or replace the firm logo. Available without auth so it can be
+    used from the login page setup dialog."""
+    if 'logo' not in request.files or not request.files['logo'].filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['logo']
+    # Validate extension from filename
+    ext = os.path.splitext(file.filename)[1].lower().lstrip('.')
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return jsonify({'error': 'Invalid file type. Allowed: png, jpg, jpeg, gif, svg, webp'}), 400
+    # Also validate MIME type reported by browser as a second check
+    mime = (file.content_type or '').lower()
+    allowed_mimes = {'image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp',
+                     'image/jpg', 'application/octet-stream'}
+    if mime and mime not in allowed_mimes:
+        return jsonify({'error': 'Invalid file content type'}), 400
+    filename = secure_filename('firm_logo.' + ext)
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    # ── 1. Save file to disk ─────────────────────────────────────────────────
+    try:
+        for old_ext in ALLOWED_IMAGE_EXTENSIONS:
+            old_path = os.path.join(app.config['UPLOAD_FOLDER'], f'firm_logo.{old_ext}')
+            if old_path != save_path and os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError as rm_exc:
+                    logger.warning('Could not remove old logo file %s: %s', old_path, rm_exc)
+        file.save(save_path)
+    except OSError as exc:
+        logger.error('Logo file save failed: %s', exc, exc_info=True)
+        return jsonify({'error': f'Could not save logo file: {exc}'}), 500
+
+    # ── 2. Persist filename in database ─────────────────────────────────────
+    try:
+        firm = FirmInfo.query.first()
+        if not firm:
+            firm = FirmInfo(firm_name='Your Law Firm')
+            db.session.add(firm)
+        firm.logo_filename = filename
+        db.session.commit()
+        return jsonify({'logo_filename': filename, 'logo_url': f'/static/uploads/{filename}'})
+    except Exception as exc:
+        logger.error('Logo DB update failed: %s', exc, exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': f'Logo saved to disk but database update failed '
+                                 f'({type(exc).__name__}). Please check server logs.'}), 500
+
+
+# ── API: License Info ─────────────────────────────────────────────────────────
+
+@app.route('/api/license-info', methods=['GET'])
+def api_license_info():
+    """Return current license status and details for display in the Setup modal."""
+    license_path, public_key_b64 = _licensing.get_license_config(app.config)
+    result = _licensing.get_cached_license_result(license_path, public_key_b64)
+    data = result.license_data or {}
+    return jsonify({
+        'status': result.status.value,
+        'message': result.message,
+        'license_id': data.get('license_id'),
+        'issued_to': data.get('issued_to'),
+        'expires_at': data.get('expires_at'),
+        'fingerprint': _licensing.get_cached_fingerprint(),
+        'license_path': license_path,
+    })
+
+
+@app.route('/api/manager', methods=['GET', 'PUT'])
+def api_manager():
+    """Get or create/update the application Manager employee. Available without
+    auth so it can be used from the login-page setup dialog."""
+    manager = Employee.query.filter_by(is_manager=True).first()
+    if request.method == 'GET':
+        if manager:
+            return jsonify(manager.to_dict())
+        return jsonify({})
+    # PUT – create or update
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    if not manager:
+        manager = Employee(is_manager=True, is_active=True, is_user=True)
+        db.session.add(manager)
+    for field in ('first_name', 'last_name', 'email', 'personal_email', 'title', 'phone_number', 'address'):
+        if field in data:
+            setattr(manager, field, data[field] or None)
+    # Handle username – must be unique
+    new_username = (data.get('username') or '').strip()
+    if new_username:
+        query = Employee.query.filter(Employee.username == new_username)
+        if manager.id:
+            query = query.filter(Employee.id != manager.id)
+        if query.first():
+            return jsonify({'error': 'Username already taken'}), 409
+        manager.username = new_username
+    # Handle password update
+    if data.get('password'):
+        manager.set_password(data['password'])
+    db.session.flush()
+    # Ensure a matching HR record exists for this manager (idempotent)
+    _ensure_hr_record(manager)
+    db.session.commit()
+    return jsonify(manager.to_dict())
+
+
+# ── Helper utilities ─────────────────────────────────────────────────────────
+
+def _ensure_hr_record(employee):
+    """Create an HrRecord for the given employee if one does not exist yet.
+
+    This is called after any employee/manager is created so that every
+    employee always has a corresponding HR record.
+    """
+    if not employee.id:
+        return
+    if not HrRecord.query.filter_by(employee_id=employee.id).first():
+        hr_record = HrRecord(employee_id=employee.id)
+        db.session.add(hr_record)
+
+
+def _parse_date(val):
+    """Parse a date string in YYYY-MM-DD format; returns None on failure."""
+    if not val:
+        return None
+    try:
+        return datetime.strptime(val, '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
+_IMPORT_MAX_ERRORS = 20
+
+
+# ── API: Employees ────────────────────────────────────────────────────────────
+
+@app.route('/api/employees', methods=['GET', 'POST'])
+@login_required
+def api_employees():
+    if request.method == 'GET':
+        return jsonify([e.to_dict() for e in Employee.query.filter(Employee.is_deleted == False).order_by(Employee.last_name, Employee.first_name).all()])
+    data = request.get_json()
+    if not data or not data.get('first_name') or not data.get('last_name'):
+        return jsonify({'error': 'first_name and last_name are required'}), 400
+
+    # Auto-generate a unique username from first/last name (ASCII letters, digits and dots only)
+    def slugify(s):
+        s = s.lower().strip()
+        # Replace accented characters with ASCII equivalents via encode/decode
+        try:
+            import unicodedata
+            s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
+        except Exception:
+            pass
+        # Keep only alphanumeric characters; replace spaces/hyphens with nothing
+        s = re.sub(r'[^a-z0-9]', '', s)
+        return s or 'employee'
+
+    requested_username = (data.get('username') or '').strip()
+    if requested_username:
+        # Caller specified a username — validate uniqueness
+        if Employee.query.filter_by(username=requested_username).first():
+            return jsonify({'error': 'Username already taken'}), 409
+        username = requested_username
+    else:
+        # Auto-generate a unique username from first/last name
+        base = f"{slugify(data['first_name'])}.{slugify(data['last_name'])}"
+        username = base
+        counter = 2
+        while Employee.query.filter_by(username=username).first():
+            username = f"{base}.{counter}"
+            counter += 1
+
+    employee = Employee(
+        first_name=data['first_name'].strip(),
+        last_name=data['last_name'].strip(),
+        username=username,
+        email=data.get('email') or None,
+        personal_email=data.get('personal_email') or None,
+        title=data.get('title'),
+        address=data.get('address') or None,
+        phone_number=data.get('phone_number') or None,
+        office_phone=data.get('office_phone') or None,
+        social_insurance_number=data.get('social_insurance_number'),
+        salary_type=data.get('salary_type'),
+        salary=data.get('salary', 0),
+        hiring_date=_parse_date(data.get('hiring_date')),
+        leave_date=_parse_date(data.get('leave_date')),
+        emergency_contact=data.get('emergency_contact') or None,
+        emergency_phone=data.get('emergency_phone') or None,
+        notes=data.get('notes') or None,
+        is_active=data.get('is_active', True),
+        is_manager=bool(data.get('is_manager', False)),
+        is_user=bool(data.get('is_user', False)),
+        timer_user=bool(data.get('timer_user', False)),
+        hourly_rate=data.get('hourly_rate') or None,
+        pin=data.get('pin') or None,
+        group_name=data.get('group_name') or None,
+        network_id=data.get('network_id') or None,
+        supervisor=data.get('supervisor') or None
+    )
+    # Managers must always be able to log in
+    if employee.is_manager:
+        employee.is_user = True
+    if data.get('password'):
+        employee.set_password(data['password'])
+    employee.must_change_password = bool(data.get('must_change_password', False))
+    db.session.add(employee)
+    db.session.flush()  # obtain employee.id before creating hr_record
+    # Automatically create an HR record for every new employee
+    _ensure_hr_record(employee)
+    db.session.commit()
+    return jsonify(employee.to_dict()), 201
+
+# ICI DEBUTE IMPORT COSTCODE
+@app.route('/api/import/cost-codes', methods=['POST'])
+@login_required
+def api_import_cost_codes():
+    """Import cost codes from a CSV/Excel file.
+
+    Required columns: code, description
+    Optional columns: charge_type, rate, is_active
+    Optional form field: file_action (keep|rename|delete) – what to do with the
+    uploaded file after a successful import.
+
+    Existing codes are skipped (reported as failed rows); they are not updated.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if 'file' not in request.files or not request.files['file'].filename:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file_obj = request.files['file']
+    file_action = (request.form.get('file_action') or 'keep').strip().lower()
+
+    # Save the file to the import upload folder so it can be renamed/deleted later.
+    try:
+        save_path, original_name, import_id = _save_import_file(file_obj)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not save uploaded file: {exc}'}), 400
+
+    try:
+        rows = _parse_uploaded_file(file_obj)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not read file: {exc}'}), 400
+
+    total = len(rows)
+    imported = 0
+    failed = 0
+    errors = []
+
+    try:
+        for i, row in enumerate(rows, start=2):
+            code_val = (row.get('code') or '').strip()
+            description_val = (row.get('description') or '').strip()
+            charge_type_val = (row.get('charge_type') or 'Professional Services').strip()
+            rate_raw = (row.get('rate') or '0').strip()
+            is_active_raw = (row.get('is_active') or 'true').strip().lower()
+
+            if not code_val:
+                errors.append(f'Row {i}: code is required')
+                failed += 1
+                continue
+
+            if not description_val:
+                errors.append(f'Row {i}: description is required')
+                failed += 1
+                continue
+
+            try:
+                rate_val = float(rate_raw) if rate_raw else 0.0
+            except ValueError:
+                errors.append(f'Row {i}: invalid rate "{rate_raw}"')
+                failed += 1
+                continue
+
+            is_active_val = is_active_raw not in ('false', '0', 'no', 'inactive')
+
+            if CostCode.query.filter_by(code=code_val).first():
+                errors.append(f'Row {i}: cost code "{code_val}" already exists, skipped')
+                failed += 1
+                continue
+
+            new_code = CostCode(
+                code=code_val,
+                description=description_val,
+                charge_type=charge_type_val,
+                rate=rate_val,
+                is_active=is_active_val,
+                created_at=datetime.utcnow()
+            )
+            db.session.add(new_code)
+            imported += 1
+
+        if imported > 0:
+            db.session.commit()
+        else:
+            db.session.rollback()
+
+        log_entry = ImportLog(
+            import_id=import_id,
+            filename=original_name,
+            records_imported=imported,
+            records_failed=failed,
+            status='success' if failed == 0 else ('partial' if imported > 0 else 'failed'),
+            error_message='; '.join(errors[:_IMPORT_MAX_ERRORS]) if errors else None
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception('Import cost-codes failed: %s', exc)
+        return jsonify({'success': False, 'error': f'Import failed: {exc}'}), 500
+
+    file_result = _apply_import_file_action(save_path, original_name, file_action)
+
+    _write_import_log('cost-codes', original_name, total, imported, failed,
+                      errors[:_IMPORT_MAX_ERRORS], file_result)
+
+    return jsonify({
+        'success': True,
+        'total': total,
+        'imported': imported,
+        'failed': failed,
+        'errors': errors[:_IMPORT_MAX_ERRORS],
+        'file_result': file_result
+    })
+
+
+@app.route('/api/employees/<int:employee_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_employee_detail(employee_id):
+    employee = Employee.query.get_or_404(employee_id)
+    if request.method == 'GET':
+        return jsonify(employee.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        for field in ('first_name', 'last_name', 'email', 'personal_email', 'title', 'address',
+                      'phone_number', 'office_phone', 'salary_type', 'emergency_contact', 'emergency_phone', 'notes',
+                      'pin', 'group_name', 'network_id', 'supervisor'):
+            if field in data:
+                setattr(employee, field, data[field] or None)
+        if 'salary' in data:
+            employee.salary = data['salary'] or 0
+        if 'hiring_date' in data:
+            employee.hiring_date = _parse_date(data['hiring_date'])
+        if 'leave_date' in data:
+            employee.leave_date = _parse_date(data['leave_date'])
+        if 'is_active' in data:
+            employee.is_active = bool(data['is_active'])
+        if 'is_manager' in data:
+            employee.is_manager = bool(data['is_manager'])
+        if 'is_user' in data:
+            employee.is_user = bool(data['is_user'])
+        if 'timer_user' in data:
+            employee.timer_user = bool(data['timer_user'])
+        if 'hourly_rate' in data:
+            employee.hourly_rate = data['hourly_rate'] or None
+        # Managers must always be able to log in
+        if employee.is_manager:
+            employee.is_user = True
+        if data.get('social_insurance_number'):
+            employee.social_insurance_number = data['social_insurance_number']
+        new_username = (data.get('username') or '').strip()
+        if new_username and new_username != employee.username:
+            if Employee.query.filter(
+                Employee.username == new_username,
+                Employee.id != employee_id
+            ).first():
+                return jsonify({'error': 'Username already taken'}), 409
+            employee.username = new_username
+        db.session.commit()
+        return jsonify(employee.to_dict())
+    # Soft-delete: mark as deleted and inactive instead of removing the row
+    employee.is_deleted = True
+    employee.is_active = False
+    db.session.commit()
+    return '', 204
+
+
+# ── Page: HR Records ──────────────────────────────────────────────────────────
+
+@app.route('/hr-records')
+@login_required
+def hr_records_page():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    employees = Employee.query.filter(Employee.is_active == True, Employee.is_deleted == False).order_by(Employee.last_name, Employee.first_name).all()
+    records = HrRecord.query.filter(HrRecord.is_deleted == False).order_by(HrRecord.date_last_review.desc()).all()
+    return render_template('hr_records.html', employees=employees, records=records)
+
+
+# ── API: HR Records ───────────────────────────────────────────────────────────
+
+@app.route('/api/hr-records', methods=['GET', 'POST'])
+@login_required
+def api_hr_records():
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'GET':
+        employee_id = request.args.get('employee_id', type=int)
+        q = HrRecord.query.filter(HrRecord.is_deleted == False)
+        if employee_id:
+            q = q.filter_by(employee_id=employee_id)
+        return jsonify([r.to_dict() for r in q.order_by(HrRecord.date_last_review.desc()).all()])
+    data = request.get_json()
+    if not data or not data.get('employee_id'):
+        return jsonify({'error': 'employee_id is required'}), 400
+    Employee.query.get_or_404(data['employee_id'])
+    record = HrRecord(
+        employee_id=data['employee_id'],
+        balance_pto=data.get('balance_pto', 0),
+        date_last_review=_parse_date(data.get('date_last_review')),
+        review_comment=data.get('review_comment') or None,
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify(record.to_dict()), 201
+
+
+@app.route('/api/hr-records/<int:record_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_hr_record_detail(record_id):
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    record = HrRecord.query.get_or_404(record_id)
+    if request.method == 'GET':
+        return jsonify(record.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        if 'balance_pto' in data:
+            record.balance_pto = data['balance_pto'] if data['balance_pto'] is not None else 0
+        if 'date_last_review' in data:
+            record.date_last_review = _parse_date(data['date_last_review'])
+        if 'review_comment' in data:
+            record.review_comment = data['review_comment'] or None
+        record.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify(record.to_dict())
+    # Soft-delete: mark as deleted instead of removing the row
+    record.is_deleted = True
+    db.session.commit()
+    return '', 204
+
+
+# ── API: Time logs (second_works) ─────────────────────────────────────────────
+
+@app.route('/api/time-logs')
+@login_required
+def api_time_logs():
+    """Return second_works records with matter and employee context.
+
+    Managers can view all records or filter by employee_id / matter_id / client_id / date.
+    Regular users / timer users see only their own records.
+    """
+    is_manager = getattr(current_user, 'is_manager', False)
+    employee_id_filter = request.args.get('employee_id', type=int)
+    matter_id_filter = request.args.get('matter_id', type=int)
+    client_id_filter = request.args.get('client_id', type=int)
+    date_from_str = request.args.get('date_from')
+    date_to_str = request.args.get('date_to')
+
+    q = db.session.query(SecondWork, Matter, Client, Employee).join(
+        Matter, SecondWork.matter_id == Matter.id
+    ).join(
+        Client, Matter.client_id == Client.id
+    ).join(
+        Employee, SecondWork.employee_id == Employee.id
+    )
+
+    if not is_manager:
+        q = q.filter(SecondWork.employee_id == current_user.id)
+    elif employee_id_filter:
+        q = q.filter(SecondWork.employee_id == employee_id_filter)
+
+    if matter_id_filter:
+        q = q.filter(SecondWork.matter_id == matter_id_filter)
+
+    if client_id_filter:
+        q = q.filter(Matter.client_id == client_id_filter)
+
+    if date_from_str:
+        try:
+            date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+            q = q.filter(SecondWork.recorded_at >= date_from)
+        except ValueError:
+            pass
+
+    if date_to_str:
+        try:
+            date_to = datetime.strptime(date_to_str, '%Y-%m-%d')
+            # Add 1 day and use strict `<` so all records on the end date are included.
+            date_to_end = date_to + timedelta(days=1)
+            q = q.filter(SecondWork.recorded_at < date_to_end)
+        except ValueError:
+            pass
+
+    results = []
+    for sw, matter, client, emp in q.order_by(SecondWork.recorded_at.desc()).limit(500).all():
+        results.append({
+            'id': sw.id,
+            'employee_id': sw.employee_id,
+            'employee_name': f'{emp.first_name or ""} {emp.last_name or ""}'.strip() or emp.username,
+            'matter_id': sw.matter_id,
+            'matter_number': matter.matter_number,
+            'client_name': client.client_name,
+            'seconds_worked': sw.seconds_worked,
+            'hours_worked': round(sw.seconds_worked / 3600, 4),
+            'expense_id': sw.expense_id,
+            'recorded_at': sw.recorded_at.isoformat() if sw.recorded_at else None,
+        })
+    return jsonify(results)
+
+
+# ── Page: Time Logs ───────────────────────────────────────────────────────────
+
+@app.route('/time-logs')
+@login_required
+def time_logs_page():
+    is_manager = getattr(current_user, 'is_manager', False)
+    is_timer = getattr(current_user, 'timer_user', False)
+    if not is_manager and not is_timer and not getattr(current_user, 'is_user', False):
+        flash('Access denied.', 'danger')
+        return redirect(url_for('index'))
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.last_name, Employee.first_name).all() if is_manager else []
+    clients = Client.query.filter_by(is_active=True).order_by(Client.client_number).all() if is_manager else []
+    return render_template('time_logs.html', employees=employees, clients=clients, is_manager=is_manager)
+
+
+# ── API: Clients ──────────────────────────────────────────────────────────────
+
+@app.route('/api/clients', methods=['GET', 'POST'])
+@login_required
+def api_clients():
+    if request.method == 'GET':
+        show_inactive = request.args.get('show_inactive', 'false').lower() == 'true'
+        q = Client.query.filter(Client.is_deleted == False)
+        if not show_inactive:
+            q = q.filter(Client.is_active == True)
+        return jsonify([c.to_dict() for c in q.order_by(Client.client_number).all()])
+    data = request.get_json()
+    if not data or not data.get('client_number') or not data.get('client_name'):
+        return jsonify({'error': 'client_number and client_name are required'}), 400
+    if Client.query.filter_by(client_number=data['client_number']).first():
+        return jsonify({'error': 'Client number already exists'}), 409
+    client = Client(
+        client_number=data['client_number'],
+        client_name=data['client_name'],
+        street=data.get('street') or None,
+        city=data.get('city') or None,
+        state=data.get('state') or None,
+        postal_code=data.get('postal_code') or None,
+        country=data.get('country') or None,
+        contact_name=data.get('contact_name') or None,
+        phone=data.get('phone') or None,
+        email=data.get('email') or None,
+        is_active=data.get('is_active', True)
+    )
+    db.session.add(client)
+    db.session.commit()
+    return jsonify(client.to_dict()), 201
+
+
+@app.route('/api/clients/<int:client_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_client_detail(client_id):
+    client = Client.query.get_or_404(client_id)
+    if request.method == 'GET':
+        return jsonify(client.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json()
+        if 'client_number' in data and data['client_number']:
+            new_num = data['client_number'].strip()
+            if new_num != client.client_number:
+                if Client.query.filter(
+                    Client.client_number == new_num
+                ).filter(
+                    Client.id != client_id
+                ).first():
+                    return jsonify({'error': 'Client number already exists'}), 409
+                client.client_number = new_num
+        if 'client_name' in data:
+            client.client_name = data['client_name']
+        for field in ('street', 'city', 'state', 'postal_code', 'country', 'contact_name',
+                      'phone', 'email'):
+            if field in data:
+                setattr(client, field, data[field] or None)
+        if 'is_active' in data:
+            client.is_active = bool(data['is_active'])
+        db.session.commit()
+        return jsonify(client.to_dict())
+    # Soft-delete: mark as deleted and inactive instead of removing the row
+    client.is_deleted = True
+    client.is_active = False
+    db.session.commit()
+    return '', 204
+
+
+@app.route('/api/clients/<int:client_id>/matters', methods=['GET', 'POST'])
+@login_required
+def api_client_matters(client_id):
+    client = Client.query.get_or_404(client_id)
+    if request.method == 'GET':
+        show_inactive = request.args.get('show_inactive', 'false').lower() == 'true'
+        q = Matter.query.filter(Matter.client_id == client_id, Matter.is_deleted == False)
+        if not show_inactive:
+            q = q.filter(Matter.is_active == True)
+        return jsonify([m.to_dict() for m in q.order_by(Matter.matter_number).all()])
+    data = request.get_json()
+    if not data or not data.get('matter_number'):
+        return jsonify({'error': 'matter_number is required'}), 400
+    if Matter.query.filter_by(client_id=client_id, matter_number=data['matter_number']).first():
+        return jsonify({'error': 'Matter number already exists for this client'}), 409
+    matter = Matter(
+        client_id=client_id,
+        matter_number=data['matter_number'],
+        matter_description=data.get('matter_description'),
+        is_active=data.get('is_active', True),
+        attorney1_name=data.get('attorney1_name') or None,
+        attorney1_start_date=_parse_date(data.get('attorney1_start_date')),
+        attorney2_name=data.get('attorney2_name') or None,
+        attorney2_start_date=_parse_date(data.get('attorney2_start_date')),
+        attorney3_name=data.get('attorney3_name') or None,
+        attorney3_start_date=_parse_date(data.get('attorney3_start_date')),
+        attorney4_name=data.get('attorney4_name') or None,
+        attorney4_start_date=_parse_date(data.get('attorney4_start_date')),
+        attorney5_name=data.get('attorney5_name') or None,
+        attorney5_start_date=_parse_date(data.get('attorney5_start_date')),
+        attorney6_name=data.get('attorney6_name') or None,
+        attorney6_start_date=_parse_date(data.get('attorney6_start_date')),
+    )
+    db.session.add(matter)
+    db.session.commit()
+    return jsonify(matter.to_dict()), 201
+
+
+@app.route('/api/client-matters/<int:matter_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_matter_detail(matter_id):
+    matter = Matter.query.get_or_404(matter_id)
+    if request.method == 'GET':
+        return jsonify(matter.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json()
+        if 'matter_number' in data and data['matter_number']:
+            new_num = data['matter_number'].strip()
+            if new_num != matter.matter_number:
+                if Matter.query.filter(
+                    Matter.client_id == matter.client_id
+                ).filter(
+                    Matter.matter_number == new_num
+                ).filter(
+                    Matter.id != matter_id
+                ).first():
+                    return jsonify({'error': 'Matter number already exists for this client'}), 409
+                matter.matter_number = new_num
+        if 'matter_description' in data:
+            matter.matter_description = data['matter_description']
+        if 'is_active' in data:
+            matter.is_active = bool(data['is_active'])
+        for field in ('attorney1_name', 'attorney2_name', 'attorney3_name',
+                      'attorney4_name', 'attorney5_name', 'attorney6_name'):
+            if field in data:
+                setattr(matter, field, data[field] or None)
+        for n in range(1, 7):
+            key = f'attorney{n}_start_date'
+            if key in data:
+                setattr(matter, key, _parse_date(data[key]))
+        db.session.commit()
+        return jsonify(matter.to_dict())
+    # Soft-delete: mark as deleted and inactive instead of removing the row
+    matter.is_deleted = True
+    matter.is_active = False
+    db.session.commit()
+    return '', 204
+
+
+# ── API: Expenses ─────────────────────────────────────────────────────────────
+
+@app.route('/api/matters/<int:matter_id>/expenses', methods=['GET', 'POST'])
+@login_required
+def api_matter_expenses(matter_id):
+    Matter.query.get_or_404(matter_id)
+    if request.method == 'GET':
+        show_billed = request.args.get('show_billed', 'false').lower() == 'true'
+        q = Expense.query.filter(Expense.matter_id == matter_id, Expense.is_deleted == False)
+        if not show_billed:
+            q = q.filter(Expense.is_billed == False)
+        return jsonify([e.to_dict() for e in q.order_by(Expense.expense_date.desc()).all()])
+    data = request.get_json()
+    if not data or not data.get('description') or data.get('amount') is None:
+        return jsonify({'error': 'description and amount are required'}), 400
+    expense_date = data.get('expense_date')
+    if expense_date:
+        try:
+            expense_date = datetime.fromisoformat(expense_date).date()
+        except ValueError:
+            expense_date = datetime.utcnow().date()
+    else:
+        expense_date = datetime.utcnow().date()
+    expense = Expense(
+        matter_id=matter_id,
+        code=data.get('code'),
+        employee_id=current_user.id,
+        username=current_user.username,
+        description=data['description'],
+        amount=data['amount'],
+        expense_date=expense_date,
+        is_billed=False
+    )
+    db.session.add(expense)
+    db.session.commit()
+    return jsonify(expense.to_dict()), 201
+
+
+@app.route('/api/clients/<int:client_id>/expenses', methods=['GET'])
+@login_required
+def api_client_expenses(client_id):
+    """Return all expenses for every matter belonging to a client."""
+    client = Client.query.get_or_404(client_id)
+    show_billed = request.args.get('show_billed', 'false').lower() == 'true'
+    matter_ids = [m.id for m in client.matters]
+    if not matter_ids:
+        return jsonify([])
+    q = Expense.query.filter(Expense.matter_id.in_(matter_ids), Expense.is_deleted == False)
+    if not show_billed:
+        q = q.filter(Expense.is_billed == False)
+    return jsonify([e.to_dict() for e in q.order_by(Expense.expense_date.desc()).all()])
+
+
+@app.route('/api/expenses/<int:expense_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_expense_detail(expense_id):
+    expense = Expense.query.get_or_404(expense_id)
+    if request.method == 'GET':
+        return jsonify(expense.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json()
+        for field in ('description', 'amount', 'code', 'expense_date', 'is_billed', 'invoice_id'):
+            if field in data:
+                setattr(expense, field, data[field])
+        expense.updated_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(expense.to_dict())
+    # Soft-delete: mark as deleted instead of removing the row
+    expense.is_deleted = True
+    db.session.commit()
+    return '', 204
+
+
+# ── API: Cost codes ───────────────────────────────────────────────────────────
+
+@app.route('/api/cost-codes', methods=['GET', 'POST'])
+@login_required
+def cost_codes():
+    if request.method == 'GET':
+        return jsonify([c.to_dict() for c in CostCode.query.order_by(CostCode.code).all()])
+    # Write operations are manager-only
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    data = request.get_json()
+    code = CostCode(
+        code=data['code'],
+        description=data['description'],
+        charge_type=data.get('charge_type') or None,
+        rate=data.get('rate', 0.00),
+        is_active=data.get('is_active', True)
+    )
+    db.session.add(code)
+    db.session.commit()
+    return jsonify(code.to_dict()), 201
+
+
+@app.route('/api/cost-codes/<int:code_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_cost_code_detail(code_id):
+    cost_code = CostCode.query.get_or_404(code_id)
+    if request.method == 'GET':
+        return jsonify(cost_code.to_dict())
+    # Write operations are manager-only
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        for field in ('description', 'charge_type'):
+            if field in data:
+                setattr(cost_code, field, data[field] or None)
+        if 'code' in data and data['code']:
+            # Ensure uniqueness if code is being changed
+            existing = CostCode.query.filter(
+                CostCode.code == data['code'],
+                CostCode.id != code_id
+            ).first()
+            if existing:
+                return jsonify({'error': 'Cost code already exists'}), 409
+            cost_code.code = data['code']
+        if 'rate' in data:
+            cost_code.rate = data['rate'] if data['rate'] is not None else 0
+        if 'is_active' in data:
+            cost_code.is_active = bool(data['is_active'])
+        cost_code.updated_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(cost_code.to_dict())
+    db.session.delete(cost_code)
+    db.session.commit()
+    return '', 204
+
+
+# ── API: Invoices ─────────────────────────────────────────────────────────────
+
+@app.route('/api/invoices', methods=['GET', 'POST'])
+@login_required
+def api_invoices():
+    if request.method == 'GET':
+        invs = Invoice.query.order_by(Invoice.invoice_date.desc()).all()
+        return jsonify([i.to_dict() for i in invs])
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    # Resolve matter and/or client
+    matter_id = data.get('matter_id') or None
+    client_id = data.get('client_id') or None
+
+    if matter_id:
+        matter = Matter.query.get_or_404(matter_id)
+        client = matter.client
+    elif client_id:
+        client = Client.query.get_or_404(client_id)
+        matter = None
+        matter_id = None
+    else:
+        return jsonify({'error': 'matter_id or client_id is required'}), 400
+
+    # Generate invoice number if not provided
+    invoice_number = data.get('invoice_number')
+    if not invoice_number:
+        import uuid
+        if matter:
+            invoice_number = f'INV-{client.client_number}-{matter.matter_number}-{uuid.uuid4().hex[:6].upper()}'
+        else:
+            invoice_number = f'INV-{client.client_number}-{uuid.uuid4().hex[:8].upper()}'
+
+    try:
+        invoice_date = datetime.fromisoformat(data['invoice_date']).date()
+    except (KeyError, ValueError):
+        invoice_date = datetime.utcnow().date()
+
+    due_date = None
+    if data.get('due_date'):
+        try:
+            due_date = datetime.fromisoformat(data['due_date']).date()
+        except ValueError:
+            pass
+
+    gst_rate = float(data.get('gst_rate', 0.0))
+    qst_rate = float(data.get('qst_rate', 0.0))
+    tax2_compound = bool(data.get('tax2_compound', False))
+    expense_ids = data.get('expense_ids', [])
+
+    # Calculate totals from selected expenses
+    if matter_id:
+        selected_expenses = Expense.query.filter(
+            Expense.id.in_(expense_ids),
+            Expense.matter_id == matter_id,
+            Expense.is_billed == False
+        ).all() if expense_ids else []
+    else:
+        # All-matters invoice: expenses may belong to any matter of this client
+        matter_ids = [m.id for m in client.matters]
+        selected_expenses = Expense.query.filter(
+            Expense.id.in_(expense_ids),
+            Expense.matter_id.in_(matter_ids),
+            Expense.is_billed == False
+        ).all() if expense_ids else []
+
+    subtotal = sum(float(e.amount) for e in selected_expenses)
+    gst_amount = _round_half_up(subtotal * gst_rate / 100)
+    qst_base = subtotal + gst_amount if tax2_compound else subtotal
+    qst_amount = _round_half_up(qst_base * qst_rate / 100)
+    total_amount = _round_half_up(subtotal + gst_amount + qst_amount)
+
+    invoice = Invoice(
+        matter_id=matter_id,
+        client_id=client_id if not matter_id else None,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+        due_date=due_date,
+        subtotal=subtotal,
+        gst_rate=gst_rate,
+        gst_amount=gst_amount,
+        qst_rate=qst_rate,
+        qst_amount=qst_amount,
+        total_amount=total_amount,
+        status=data.get('status', 'draft'),
+        notes=data.get('notes')
+    )
+    db.session.add(invoice)
+    db.session.flush()
+
+    # Mark selected expenses as billed
+    for expense in selected_expenses:
+        expense.is_billed = True
+        expense.invoice_id = invoice.id
+        expense.invoice_number = invoice.invoice_number
+        expense.invoice_date = invoice_date
+
+    # Apply available credit notes to reduce invoice total (only when requested)
+    credit_applied = 0.0
+    if client and data.get('apply_credit', False):
+        unapplied_credits = CreditNote.query.filter(
+            CreditNote.client_id == client.id,
+        ).order_by(CreditNote.created_at).all()
+        # Filter to only credits with remaining balance
+        unapplied_credits = [cn for cn in unapplied_credits if cn.remaining > 0]
+        remaining_total = float(total_amount)
+        for cn in unapplied_credits:
+            if remaining_total <= 0:
+                break
+            avail = cn.remaining
+            apply = min(avail, remaining_total)
+            cn.applied_amount = float(cn.applied_amount or 0) + apply
+            cn.applied_invoice_id = invoice.id
+            remaining_total -= apply
+            credit_applied += apply
+        if credit_applied > 0:
+            invoice.credit_applied = round(credit_applied, 2)
+            invoice.total_amount = round(float(total_amount) - credit_applied, 2)
+
+    # Apply trust balance to reduce invoice total (only when requested)
+    trust_applied = 0.0
+    if data.get('apply_trust', False) and matter_id:
+        trust_transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
+        trust_balance = sum(
+            float(t.montant) if t.type_trans == 'DEPOT' else -float(t.montant)
+            for t in trust_transactions if not t.est_annulee
+        )
+        current_total = float(invoice.total_amount)
+        if trust_balance > 0 and current_total > 0:
+            trust_applied = min(trust_balance, current_total)
+            # Create trust withdrawal
+            trust_withdrawal = TransactionsFiducie(
+                matter_id=matter_id,
+                type_trans='RETRAIT',
+                montant=trust_applied,
+                beneficiaire=client.client_name if client else '',
+                motif=f'Paiement facture {invoice.invoice_number}',
+                invoice_number=invoice.invoice_number,
+                est_annulee=False,
+                created_by=current_user.display_name
+            )
+            db.session.add(trust_withdrawal)
+            invoice.trust_applied = round(trust_applied, 2)
+            invoice.total_amount = round(current_total - trust_applied, 2)
+            if invoice.total_amount <= 0:
+                invoice.status = 'paid'
+
+    db.session.commit()
+    return jsonify(invoice.to_dict()), 201
+
+
+@app.route('/api/invoices/<int:invoice_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_invoice_detail(invoice_id):
+    invoice = Invoice.query.get_or_404(invoice_id)
+    if request.method == 'GET':
+        result = invoice.to_dict()
+        result['expenses'] = [e.to_dict() for e in invoice.expenses]
+        return jsonify(result)
+    if request.method == 'PUT':
+        data = request.get_json()
+        for key, value in data.items():
+            if hasattr(invoice, key) and key not in ['id', 'created_at']:
+                setattr(invoice, key, value)
+        #invoice.updated_at = datetime.utcnow()
+        invoice.updated_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify(invoice.to_dict())
+    db.session.delete(invoice)
+    db.session.commit()
+    return '', 204
+
+
+@app.route('/api/invoices/<int:invoice_id>/cancel', methods=['POST'])
+@login_required
+def api_invoice_cancel(invoice_id):
+    """Cancel an invoice: reset all associated expenses to un-billed state
+    (clear invoice_id and invoice_number), then mark the invoice as 'cancelled'.
+    """
+    invoice = Invoice.query.get_or_404(invoice_id)
+    if invoice.status == 'cancelled':
+        return jsonify({'error': 'Invoice is already cancelled'}), 409
+    # Unbill all associated expenses so they can be re-invoiced in the future
+    for expense in invoice.expenses:
+        expense.is_billed = False
+        expense.invoice_id = None
+        expense.invoice_number = None
+        expense.invoice_date = None
+    #invoice.status = 'cancelled'
+    invoice.updated_at = datetime.now(UTC)    
+    db.session.commit()
+    return jsonify(invoice.to_dict())
+
+
+@app.route('/import')
+@login_required
+def import_page():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    return render_template('import.html')
+
+
+# ── API: Credit Notes ────────────────────────────────────────────────────────
+
+@app.route('/api/credit-notes', methods=['GET', 'POST'])
+@login_required
+def api_credit_notes():
+    if request.method == 'GET':
+        client_id = request.args.get('client_id')
+        q = CreditNote.query
+        if client_id:
+            q = q.filter_by(client_id=int(client_id))
+        notes = q.order_by(CreditNote.created_at.desc()).all()
+        return jsonify([n.to_dict() for n in notes])
+    data = request.get_json()
+    if not data or not data.get('client_id') or not data.get('amount'):
+        return jsonify({'error': 'client_id and amount are required'}), 400
+    note = CreditNote(
+        client_id=int(data['client_id']),
+        amount=float(data['amount']),
+        reason=data.get('reason', ''),
+    )
+    db.session.add(note)
+    db.session.commit()
+    return jsonify(note.to_dict()), 201
+
+
+@app.route('/api/credit-notes/<int:note_id>', methods=['DELETE'])
+@login_required
+def api_credit_note_delete(note_id):
+    note = CreditNote.query.get_or_404(note_id)
+    if float(note.applied_amount or 0) > 0:
+        return jsonify({'error': 'Cannot delete a credit note that has been partially applied'}), 400
+    db.session.delete(note)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/clients/<int:client_id>/credit-balance', methods=['GET'])
+@login_required
+def api_client_credit_balance(client_id):
+    """Return the total unapplied credit balance for a client."""
+    notes = CreditNote.query.filter_by(client_id=client_id).all()
+    balance = sum(n.remaining for n in notes)
+    return jsonify({'client_id': client_id, 'credit_balance': round(balance, 2)})
+
+
+# ── API: Import ───────────────────────────────────────────────────────────────
+
+def _parse_uploaded_file(file_obj):
+    """Parse an uploaded CSV or Excel file and return a list of dicts."""
+    filename = file_obj.filename or ''
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in ('.xlsx', '.xls'):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(file_obj.read()), data_only=True)
+            ws = wb.active
+            headers = [str(cell.value).strip() if cell.value is not None else '' for cell in ws[1]]
+            rows = []
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if any(v is not None for v in row):
+                    rows.append({headers[i]: (str(row[i]).strip() if row[i] is not None else '') for i in range(len(headers))})
+            return rows
+        except ImportError:
+            raise ValueError('Excel support requires openpyxl. Please upload a CSV file instead.')
+    else:
+        content = file_obj.read().decode('utf-8-sig')
+        # Normalize line endings: \r\n → \n, then bare \r → \n
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
+        reader = csv.DictReader(io.StringIO(content))
+        # Strip whitespace from header names to tolerate files with padded columns
+        if reader.fieldnames:
+            reader.fieldnames = [f.strip() for f in reader.fieldnames]
+        return [dict(row) for row in reader]
+
+
+def _save_import_file(file_obj):
+    """Save an uploaded import file to IMPORT_UPLOAD_FOLDER and return its saved path.
+
+    A UUID prefix is added to the on-disk filename to prevent collisions when
+    multiple files with the same name are uploaded concurrently.  The original
+    (sanitised) filename is returned separately so it can be used for logging
+    and in user-facing messages.
+
+    Returns (save_path, original_name, import_id) where *import_id* is the
+    32-character UUID hex string that prefixes the on-disk filename.
+    """
+    import uuid as _uuid
+    original_name = secure_filename(file_obj.filename or 'import')
+    import_id = _uuid.uuid4().hex
+    unique_name = f'{import_id}_{original_name}'
+    save_path = os.path.join(app.config['IMPORT_UPLOAD_FOLDER'], unique_name)
+    file_obj.seek(0)
+    file_obj.save(save_path)
+    file_obj.seek(0)
+    return save_path, original_name, import_id
+
+
+def _apply_import_file_action(save_path, original_name, action):
+    """Apply a post-import file action to the saved upload.
+
+    Args:
+        save_path:     Absolute path to the saved (UUID-prefixed) file on disk.
+        original_name: The sanitised original filename (used in return messages).
+        action:        One of 'keep' (do nothing), 'rename' (append today's date
+                       before the extension), or 'delete' (remove the file).
+                       The server backup is never forcibly kept on 'delete'.
+
+    Returns:
+        str – a human-readable description of the action taken.
+    """
+    if action == 'delete':
+        try:
+            if os.path.exists(save_path):
+                os.remove(save_path)
+            return f'File "{original_name}" deleted from server.'
+        except OSError as exc:
+            return f'Could not delete "{original_name}": {exc}'
+
+    if action == 'rename':
+        try:
+            base, ext = os.path.splitext(save_path)
+            # Include seconds + microseconds to avoid collisions on same-day renames
+            dated_path = f'{base}_{datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")}{ext}'
+            os.rename(save_path, dated_path)
+            return f'File "{original_name}" renamed with today\'s date.'
+        except OSError as exc:
+            return f'Could not rename "{original_name}": {exc}'
+
+    # Default: keep
+    return f'File "{original_name}" kept on server.'
+
+def _write_import_log(import_type, filename, total, imported, failed, errors, file_result):
+    """Write a plain-text log file for an import operation.
+
+    The log is stored in ``app.config['IMPORT_LOG_FOLDER']`` and named
+    ``import_YYYY-MM-DD_HHMMSS.log``.  Each call creates a new file so that
+    successive imports are never mixed together.
+
+    Args:
+        import_type:  Human-readable label, e.g. ``'costs'`` or ``'matters'``.
+        filename:     Original upload filename.
+        total:        Total rows in the file.
+        imported:     Rows successfully imported.
+        failed:       Rows that failed.
+        errors:       List of error strings (may be truncated).
+        file_result:  Result string from :func:`_apply_import_file_action`.
+    """
+    log_dir = app.config.get('IMPORT_LOG_FOLDER', '')
+    if not log_dir:
+        return
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        log_name = f'import_{now.strftime("%Y-%m-%d_%H%M%S")}.log'
+        log_path = os.path.join(log_dir, log_name)
+        status = 'success' if failed == 0 else ('partial' if imported > 0 else 'failed')
+        lines = [
+            f'LawLedger Import Log',
+            f'====================',
+            f'Date/Time (UTC) : {now.strftime("%Y-%m-%d %H:%M:%S")}',
+            f'Import type     : {import_type}',
+            f'File            : {filename}',
+            f'Status          : {status}',
+            f'Total rows      : {total}',
+            f'Imported        : {imported}',
+            f'Failed          : {failed}',
+            f'File action     : {file_result}',
+        ]
+        if errors:
+            lines.append('')
+            lines.append('Errors:')
+            for err in errors:
+                lines.append(f'  - {err}')
+        lines.append('')
+        with open(log_path, 'w', encoding='utf-8') as fh:
+            fh.write('\n'.join(lines))
+    except OSError:
+        pass  # Log writing is best-effort; never block the import response.
+
+
+@app.route('/api/import/costs', methods=['POST'])
+@login_required
+def api_import_costs():
+    """Import soft costs (expenses) from a CSV/Excel file.
+
+    Required columns: client_number, matter_number, expense_code, amount
+    Optional columns: username, expense_date
+    Legacy columns also accepted: client_matter_number, expenses_type, date
+    Optional form field: file_action (keep|rename|delete) – what to do with the
+    uploaded file after a successful import.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if 'file' not in request.files or not request.files['file'].filename:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file_obj = request.files['file']
+    file_action = (request.form.get('file_action') or 'keep').strip().lower()
+
+    # Save the file to the import upload folder so it can be renamed/deleted later.
+    try:
+        save_path, original_name, import_id = _save_import_file(file_obj)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not save uploaded file: {exc}'}), 400
+
+    try:
+        rows = _parse_uploaded_file(file_obj)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not read file: {exc}'}), 400
+
+    total = len(rows)
+    imported = 0
+    failed = 0
+    errors = []
+
+    try:
+        for i, row in enumerate(rows, start=2):
+            client_number_raw = (row.get('client_number') or '').strip()
+            matter_number_raw = (row.get('matter_number') or '').strip()
+            # Legacy fallback: client_matter_number
+            legacy_matter = (row.get('client_matter_number') or '').strip()
+            expense_code_raw = (row.get('expense_code') or row.get('expenses_type') or '').strip()
+            amount_raw = (row.get('amount') or '').strip()
+            date_raw = (row.get('expense_date') or row.get('date') or '').strip()
+            username_raw = (row.get('username') or '').strip()
+            quantity_raw = (row.get('quantity') or '').strip()
+            user_pin_raw = (row.get('user_pin') or '').strip()
+
+            if not expense_code_raw:
+                errors.append(f'Row {i}: expense_code is required')
+                failed += 1
+                continue
+
+            if not amount_raw:
+                errors.append(f'Row {i}: amount is required')
+                failed += 1
+                continue
+
+            if not client_number_raw and not matter_number_raw and not legacy_matter:
+                errors.append(f'Row {i}: client_number and matter_number are required')
+                failed += 1
+                continue
+
+            try:
+                amount = float(amount_raw)
+            except ValueError:
+                errors.append(f'Row {i}: invalid amount "{amount_raw}"')
+                failed += 1
+                continue
+
+            # Parse optional quantity (defaults to 1)
+            quantity = 1.0
+            if quantity_raw:
+                try:
+                    quantity = float(quantity_raw)
+                except ValueError:
+                    errors.append(f'Row {i}: invalid quantity "{quantity_raw}"')
+                    failed += 1
+                    continue
+
+            # Find matter by client_number + matter_number, or legacy client_matter_number
+            matter = None
+            if client_number_raw and matter_number_raw:
+                client = Client.query.filter_by(client_number=client_number_raw).first()
+                if client:
+                    matter = Matter.query.filter_by(
+                        client_id=client.id, matter_number=matter_number_raw, is_active=True
+                    ).first()
+                    if not matter:
+                        matter = Matter.query.filter_by(
+                            client_id=client.id, matter_number=matter_number_raw
+                        ).first()
+                if not matter:
+                    errors.append(
+                        f'Row {i}: matter "{matter_number_raw}" for client "{client_number_raw}" not found'
+                    )
+                    failed += 1
+                    continue
+            else:
+                # Fall back to legacy matter_number lookup
+                lookup = matter_number_raw or legacy_matter
+                matter = Matter.query.filter_by(matter_number=lookup, is_active=True).first()
+                if not matter:
+                    matter = Matter.query.filter_by(matter_number=lookup).first()
+                if not matter:
+                    errors.append(f'Row {i}: matter "{lookup}" not found')
+                    failed += 1
+                    continue
+
+            # Look up cost code by expense_code (string code)
+            cost_code = CostCode.query.filter_by(code=expense_code_raw).first()
+
+            # Resolve employee by user_pin first, then username, fall back to current user
+            employee = None
+            if user_pin_raw:
+                employee = Employee.query.filter_by(pin=user_pin_raw).first()
+                if employee is None:
+                    errors.append(f'Row {i}: user_pin "{user_pin_raw}" not found, using current user instead')
+            if employee is None and username_raw:
+                employee = Employee.query.filter_by(username=username_raw).first()
+                if employee is None:
+                    errors.append(f'Row {i}: username "{username_raw}" not found, using current user instead')
+            if employee is None:
+                employee = current_user
+
+            # Parse date
+            #expense_date = datetime.utcnow().date()
+            expense_date = datetime.now(UTC).date()
+            if date_raw:
+                for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d'):
+                    try:
+                        expense_date = datetime.strptime(date_raw, fmt).date()
+                        break
+                    except ValueError:
+                        continue
+
+            # Derive description from the cost code lookup; fall back to the expense_code value
+            if cost_code:
+                description = cost_code.description or expense_code_raw
+            else:
+                description = expense_code_raw
+
+            expense = Expense(
+                matter_id=matter.id,
+                code=expense_code_raw,
+                employee_id=employee.id,
+                username=employee.username,
+                description=description,
+                amount=amount,
+                quantity=quantity,
+                user_pin=user_pin_raw or None,
+                expense_date=expense_date,
+                is_billed=False,
+                import_id=import_id
+            )
+            db.session.add(expense)
+            imported += 1
+
+        if imported > 0:
+            db.session.commit()
+        else:
+            db.session.rollback()
+
+        log_entry = ImportLog(
+            import_id=import_id,
+            filename=original_name,
+            records_imported=imported,
+            records_failed=failed,
+            status='success' if failed == 0 else ('partial' if imported > 0 else 'failed'),
+            error_message='; '.join(errors[:_IMPORT_MAX_ERRORS]) if errors else None
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception('Import costs failed: %s', exc)
+        return jsonify({'success': False, 'error': f'Import failed: {exc}'}), 500
+
+    file_result = _apply_import_file_action(save_path, original_name, file_action)
+
+    _write_import_log('costs', original_name, total, imported, failed,
+                      errors[:_IMPORT_MAX_ERRORS], file_result)
+
+    return jsonify({
+        'success': True,
+        'total': total,
+        'imported': imported,
+        'failed': failed,
+        'errors': errors[:_IMPORT_MAX_ERRORS],
+        'file_result': file_result
+    })
+
+
+@app.route('/api/import/matters', methods=['POST'])
+@login_required
+def api_import_matters():
+    """Import client matters from a CSV/Excel file.
+
+    Expected columns: matter_number (or fmatter_number), client_name, is_active
+    Optional columns: client_number, matter_description,
+                      street, city, state, postal_code, country,
+                      contact_name, phone, email
+    Optional form field: file_action (keep|rename|delete) – what to do with the
+    uploaded file after a successful import.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if 'file' not in request.files or not request.files['file'].filename:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file_obj = request.files['file']
+    file_action = (request.form.get('file_action') or 'keep').strip().lower()
+
+    # Save the file to the import upload folder so it can be renamed/deleted later.
+    try:
+        save_path, original_name, import_id = _save_import_file(file_obj)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not save uploaded file: {exc}'}), 400
+
+    try:
+        rows = _parse_uploaded_file(file_obj)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    except Exception as exc:
+        return jsonify({'success': False, 'error': f'Could not read file: {exc}'}), 400
+
+    total = len(rows)
+    imported = 0
+    failed = 0
+    errors = []
+
+    try:
+        for i, row in enumerate(rows, start=2):
+            # Accept both matter_number and fmatter_number (fmatter_number is the
+            # column name used by the firm's legacy export format)
+            matter_number = (row.get('matter_number') or row.get('fmatter_number') or '').strip()
+            client_name = (row.get('client_name') or '').strip()
+            client_number = (row.get('client_number') or '').strip()
+            matter_description = (row.get('matter_description') or '').strip() or None
+            is_active_raw = (row.get('is_active') or 'true').strip().lower()
+            is_active = is_active_raw not in ('false', '0', 'no', 'inactive')
+
+            # Extra client detail fields present in the extended format
+            client_fields = {
+                'street':       (row.get('street') or '').strip() or None,
+                'city':         (row.get('city') or '').strip() or None,
+                'state':        (row.get('state') or '').strip() or None,
+                'postal_code':  (row.get('postal_code') or '').strip() or None,
+                'country':      (row.get('country') or '').strip() or None,
+                'contact_name': (row.get('contact_name') or '').strip() or None,
+                'phone':        (row.get('phone') or '').strip() or None,
+                'email':        (row.get('email') or '').strip() or None,
+            }
+
+            if not matter_number or not client_name:
+                errors.append(f'Row {i}: matter_number and client_name are required')
+                failed += 1
+                continue
+
+            # Find or create client — match ONLY by client_number when provided,
+            # never by name, to avoid merging two different clients with the same name.
+            client = None
+            if client_number:
+                client = Client.query.filter_by(client_number=client_number).first()
+            if not client:
+                # Only fall back to name lookup when NO client_number was supplied in the row.
+                if not client_number:
+                    client = Client.query.filter_by(client_name=client_name).first()
+            if not client:
+                if not client_number:
+                    import uuid
+                    client_number = 'C-' + uuid.uuid4().hex[:6].upper()
+                client = Client(
+                    client_number=client_number,
+                    client_name=client_name,
+                    is_active=True
+                )
+                db.session.add(client)
+            # Populate / update client detail fields when the CSV provides them.
+            # Only non-empty values are written; absent or blank columns leave the
+            # existing client data unchanged.
+            for field, value in client_fields.items():
+                if value is not None:
+                    setattr(client, field, value)
+            db.session.flush()
+
+            # Build the unique key: client_number + matter_number
+            # Duplicate detection uses ONLY the numeric keys — never client name.
+            effective_client_number = client.client_number or client_number or ''
+            client_matter_key = f"{effective_client_number}_{matter_number}"
+
+            # Check for duplicate matter using the unique client_matter_key only.
+            if Matter.query.filter_by(client_matter_key=client_matter_key).first():
+                errors.append(f'Row {i}: matter "{matter_number}" already exists for client "{effective_client_number}"')
+                failed += 1
+                continue
+
+            # Secondary guard: same client_id + matter_number (handles legacy rows without a key).
+            if Matter.query.filter_by(client_id=client.id, matter_number=matter_number).first():
+                errors.append(f'Row {i}: matter "{matter_number}" already exists for client "{effective_client_number}"')
+                failed += 1
+                continue
+
+            matter = Matter(
+                client_id=client.id,
+                matter_number=matter_number,
+                matter_description=matter_description,
+                is_active=is_active,
+                client_matter_key=client_matter_key
+            )
+            db.session.add(matter)
+            imported += 1
+
+        if imported > 0:
+            db.session.commit()
+        else:
+            db.session.rollback()
+
+        log_entry = ImportLog(
+            import_id=import_id,
+            filename=original_name,
+            records_imported=imported,
+            records_failed=failed,
+            status='success' if failed == 0 else ('partial' if imported > 0 else 'failed'),
+            error_message='; '.join(errors[:_IMPORT_MAX_ERRORS]) if errors else None
+        )
+        db.session.add(log_entry)
+        db.session.commit()
+
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception('Import matters failed: %s', exc)
+        return jsonify({'success': False, 'error': f'Import failed: {exc}'}), 500
+
+    file_result = _apply_import_file_action(save_path, original_name, file_action)
+
+    _write_import_log('matters', original_name, total, imported, failed,
+                      errors[:_IMPORT_MAX_ERRORS], file_result)
+
+    return jsonify({
+        'success': True,
+        'total': total,
+        'imported': imported,
+        'failed': failed,
+        'errors': errors[:_IMPORT_MAX_ERRORS],
+        'file_result': file_result
+    })
+
+
+# ── API: Export ───────────────────────────────────────────────────────────────
+
+@app.route('/api/export/client-matters')
+@login_required
+def api_export_client_matters():
+    """Export active client matters in CSV, TSV, or Excel format."""
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+    fmt = request.args.get('format', 'csv').lower()
+    separator = request.args.get('separator', 'comma')
+    # Map named separators to actual characters
+    sep_map = {'comma': ',', 'semicolon': ';', 'tab': '\t', 'pipe': '|',
+               'percent': '%', 'slash': '/', 'dollar': '$', 'plus': '+',
+               'ampersand': '&', 'backslash': '\\', 'hash': '#',
+               'closeparen': ')', 'openparen': '('}
+    sep_char = sep_map.get(separator, separator)
+    if len(sep_char) != 1:
+        sep_char = ','
+
+    query = (
+        db.session.query(Matter, Client)
+        .join(Client, Matter.client_id == Client.id)
+    )
+    if not include_inactive:
+        query = query.filter(Matter.is_active == True, Client.is_active == True)
+    query = query.order_by(Client.client_number, Matter.matter_number)
+    rows_data = query.all()
+
+    headers = ['client_number', 'client_name', 'matter_number', 'matter_description', 'status']
+
+    if fmt == 'xlsx':
+        try:
+            import openpyxl
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'Client Matters'
+            ws.append(headers)
+            for matter, client in rows_data:
+                ws.append([
+                    client.client_number,
+                    client.client_name,
+                    matter.matter_number,
+                    matter.matter_description or '',
+                    'Active' if matter.is_active else 'Inactive'
+                ])
+            xls_io = io.BytesIO()
+            wb.save(xls_io)
+            xls_io.seek(0)
+            return Response(
+                xls_io.read(),
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={'Content-Disposition': 'attachment; filename="active_client_matters.xlsx"'}
+            )
+        except ImportError:
+            return jsonify({'error': 'Excel export requires openpyxl. Please install it or choose CSV/TSV.'}), 500
+
+    # CSV / custom separator
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=sep_char)
+    writer.writerow(headers)
+    for matter, client in rows_data:
+        writer.writerow([
+            client.client_number,
+            client.client_name,
+            matter.matter_number,
+            matter.matter_description or '',
+            'Active' if matter.is_active else 'Inactive'
+        ])
+
+    csv_bytes = output.getvalue().encode('utf-8')
+    ext = 'tsv' if sep_char == '\t' else 'csv'
+    mime = 'text/tab-separated-values' if sep_char == '\t' else 'text/csv'
+    filename = f'active_client_matters.{ext}'
+    return Response(
+        csv_bytes,
+        mimetype=mime,
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+@app.route('/api/export/employees')
+@login_required
+def api_export_employees():
+    """Export employees in CSV, TSV, or Excel format.
+
+    Exported columns: last_name, first_name, pin, email (work), office_phone,
+    address, network_id, personal_email.
+    """
+    include_inactive = request.args.get('include_inactive', 'false').lower() == 'true'
+    fmt = request.args.get('format', 'csv').lower()
+    separator = request.args.get('separator', 'comma')
+    sep_map = {'comma': ',', 'semicolon': ';', 'tab': '\t', 'pipe': '|',
+               'percent': '%', 'slash': '/', 'dollar': '$', 'plus': '+',
+               'ampersand': '&', 'backslash': '\\', 'hash': '#',
+               'closeparen': ')', 'openparen': '('}
+    sep_char = sep_map.get(separator, separator)
+    if len(sep_char) != 1:
+        sep_char = ','
+
+    query = Employee.query.order_by(Employee.last_name, Employee.first_name)
+    if not include_inactive:
+        query = query.filter_by(is_active=True)
+    employees = query.all()
+
+    headers = ['last_name', 'first_name', 'pin', 'email', 'office_phone',
+               'address', 'network_id', 'personal_email']
+
+    if fmt == 'xlsx':
+        try:
+            import openpyxl
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = 'Employees'
+            ws.append(headers)
+            for emp in employees:
+                ws.append([
+                    emp.last_name or '',
+                    emp.first_name or '',
+                    emp.pin or '',
+                    emp.email or '',
+                    emp.office_phone or '',
+                    emp.address or '',
+                    emp.network_id or '',
+                    emp.personal_email or '',
+                ])
+            xls_io = io.BytesIO()
+            wb.save(xls_io)
+            xls_io.seek(0)
+            return Response(
+                xls_io.read(),
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={'Content-Disposition': 'attachment; filename="employees.xlsx"'}
+            )
+        except ImportError:
+            return jsonify({'error': 'Excel export requires openpyxl. Please install it or choose CSV/TSV.'}), 500
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=sep_char)
+    writer.writerow(headers)
+    for emp in employees:
+        writer.writerow([
+            emp.last_name or '',
+            emp.first_name or '',
+            emp.pin or '',
+            emp.email or '',
+            emp.office_phone or '',
+            emp.address or '',
+            emp.network_id or '',
+            emp.personal_email or '',
+        ])
+
+    csv_bytes = output.getvalue().encode('utf-8')
+    ext = 'tsv' if sep_char == '\t' else 'csv'
+    mime = 'text/tab-separated-values' if sep_char == '\t' else 'text/csv'
+    filename = f'employees.{ext}'
+    return Response(
+        csv_bytes,
+        mimetype=mime,
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
+# ── Page & API: Suppliers (Fournisseurs) ─────────────────────────────────────
+
+@app.route('/suppliers')
+@login_required
+def suppliers_page():
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    return render_template('suppliers.html')
+
+
+@app.route('/api/suppliers', methods=['GET', 'POST'])
+@login_required
+def api_suppliers():
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'GET':
+        search = request.args.get('search', '').strip()
+        q = Supplier.query.filter(Supplier.is_deleted == False)
+        if search:
+            q = q.filter(
+                db.or_(
+                    Supplier.name.ilike(f'%{search}%'),
+                    Supplier.service_provided.ilike(f'%{search}%'),
+                    Supplier.phone.ilike(f'%{search}%'),
+                )
+            )
+        suppliers = q.order_by(Supplier.name).all()
+        return jsonify([s.to_dict() for s in suppliers])
+    # POST – create new supplier
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'name_required', 'message': 'Supplier name is required.'}), 400
+    supplier = Supplier(
+        name=name,
+        account_number=data.get('account_number', ''),
+        address=data.get('address', ''),
+        phone=data.get('phone', ''),
+        email=data.get('email', ''),
+        service_provided=data.get('service_provided', ''),
+        notes=data.get('notes', ''),
+        is_active=True,
+    )
+    db.session.add(supplier)
+    db.session.commit()
+    return jsonify(supplier.to_dict()), 201
+
+
+@app.route('/api/suppliers/<int:supplier_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_supplier_detail(supplier_id):
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    supplier = db.session.get(Supplier, supplier_id)
+    if not supplier or supplier.is_deleted:
+        return jsonify({'error': 'not_found'}), 404
+    if request.method == 'GET':
+        return jsonify(supplier.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json() or {}
+        if 'name' in data:
+            name = data['name'].strip()
+            if not name:
+                return jsonify({'error': 'name_required', 'message': 'Supplier name is required.'}), 400
+            supplier.name = name
+        for field in ('account_number', 'address', 'phone', 'email', 'service_provided', 'notes'):
+            if field in data:
+                setattr(supplier, field, data[field])
+        if 'is_active' in data:
+            supplier.is_active = bool(data['is_active'])
+        db.session.commit()
+        return jsonify(supplier.to_dict())
+    # DELETE – soft delete
+    supplier.is_deleted = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/suppliers/<int:supplier_id>/payments', methods=['GET', 'POST'])
+@login_required
+def api_supplier_payments(supplier_id):
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    supplier = db.session.get(Supplier, supplier_id)
+    if not supplier or supplier.is_deleted:
+        return jsonify({'error': 'not_found'}), 404
+    if request.method == 'GET':
+        payments = SupplierPayment.query.filter_by(supplier_id=supplier_id).filter(
+            SupplierPayment.is_deleted == False
+        ).order_by(
+            SupplierPayment.invoice_date.desc(), SupplierPayment.id.desc()
+        ).all()
+        return jsonify([p.to_dict() for p in payments])
+    # POST – record a payment
+    data = request.get_json() or {}
+    try:
+        amount = float(data.get('amount') or 0)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'invalid_amount', 'message': 'Invalid amount.'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'invalid_amount', 'message': 'Amount must be greater than zero.'}), 400
+    invoice_date = None
+    if data.get('invoice_date'):
+        try:
+            invoice_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    payment_date = None
+    if data.get('payment_date'):
+        try:
+            payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    payment = SupplierPayment(
+        supplier_id=supplier_id,
+        invoice_number=data.get('invoice_number', ''),
+        invoice_date=invoice_date,
+        amount=amount,
+        description=data.get('description', ''),
+        payment_date=payment_date,
+        payment_method=data.get('payment_method', ''),
+        cheque_number=data.get('cheque_number', ''),
+        bank_transaction=data.get('bank_transaction', ''),
+        created_by=current_user.username,
+    )
+    db.session.add(payment)
+    db.session.commit()
+    return jsonify(payment.to_dict()), 201
+
+
+@app.route('/api/supplier-payments/<int:payment_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_supplier_payment_detail(payment_id):
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    payment = db.session.get(SupplierPayment, payment_id)
+    if not payment:
+        return jsonify({'error': 'not_found'}), 404
+    if getattr(payment, 'is_deleted', False):
+        return jsonify({'error': 'not_found'}), 404
+    if request.method == 'GET':
+        return jsonify(payment.to_dict())
+    if request.method == 'PUT':
+        data = request.get_json() or {}
+        if 'amount' in data:
+            try:
+                payment.amount = float(data['amount'])
+            except (ValueError, TypeError):
+                return jsonify({'error': 'invalid_amount'}), 400
+        for field in ('invoice_number', 'description', 'payment_method',
+                      'cheque_number', 'bank_transaction'):
+            if field in data:
+                setattr(payment, field, data[field])
+        if 'invoice_date' in data:
+            try:
+                payment.invoice_date = datetime.strptime(data['invoice_date'], '%Y-%m-%d').date() if data['invoice_date'] else None
+            except ValueError:
+                pass  # Invalid date format from client; leave field unchanged
+        if 'payment_date' in data:
+            try:
+                payment.payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date() if data['payment_date'] else None
+            except ValueError:
+                pass  # Invalid date format from client; leave field unchanged
+        db.session.commit()
+        return jsonify(payment.to_dict())
+    # DELETE – soft delete
+    payment.is_deleted = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# --- DIAGNOSTIC FINAL DE LA LICENCE ---
+
+def _run_license_diagnostic():
+    """Run a one-time licence diagnostic at startup."""
+    print("\n" + "="*50)
+    print("   DIAGNOSTIC FINAL DE LA LICENCE")
+    print("="*50)
+
+    # 1. Calcul du fingerprint réel de ce PC
+    reels_fp = None
+    try:
+        reels_guid = _licensing.get_machine_guid()
+        reels_fp = _licensing.compute_fingerprint(reels_guid)
+        print(f"TON PC (Réel)     : {reels_fp}")
+    except Exception as e:
+        print(f"ERREUR CALCUL PC  : {e}")
+
+    # 2. Lecture et Vérification Signature
+    # Use the same path as the running app: read LICENSE_FILE from the
+    # already-loaded .env (load_dotenv() ran at module level above), falling
+    # back to the default config/license.json location.
+    fichier = os.path.expandvars(
+        os.environ.get(
+            'LICENSE_FILE',
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'license.json'),
+        )
+    )
+    print(f"FICHIER LICENCE   : {fichier}")
+    if os.path.exists(fichier):
+        try:
+            with open(fichier, "r") as f:
+                data = json.load(f)
+                dans_fichier = data.get('device_fingerprint')
+                print(f"DANS LE FICHIER   : {dans_fichier}")
+
+                # TEST DU FINGERPRINT
+                if reels_fp == dans_fichier:
+                    print("✅ MATCH : L'ordinateur correspond à la licence.")
+                else:
+                    print("❌ ERREUR : L'ordinateur ne correspond PAS.")
+
+                # TEST DE LA SIGNATURE (LE POINT CRITIQUE)
+                cle_publique = _licensing._DEFAULT_PUBLIC_KEY_B64
+                if _licensing.verify_signature(data, cle_publique):
+                    print("✅ SIGNATURE : La signature est VALIDE !")
+                else:
+                    print("❌ SIGNATURE : La signature est REJETÉE (Clé incorrecte) !")
+
+        except Exception as e:
+            print(f"ERREUR LECTURE   : {e}")
+    else:
+        print(f"ERREUR           : Le fichier licence est absent à : {fichier}")
+        print(f"  → Vérifiez la variable LICENSE_FILE dans votre fichier .env")
+    print("="*50 + "\n")
+
+# BIND_HOST is the address the server listens on.  Behind an IIS reverse
+# proxy this must stay 127.0.0.1 (the default) so that IIS can reach the
+# backend.  HOST is the *external-facing* address used only for building
+# URLs in emails (password-reset links, etc.).
+
+if __name__ == '__main__':
+    # Force UTF-8 output for Windows console / NSSM service
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    except AttributeError:
+        pass  # Already wrapped or not a real terminal
+
+    bind_host = os.environ.get('BIND_HOST', '127.0.0.1')
+    port  = int(os.environ.get('PORT', '5000'))
+    debug = os.environ.get('DEBUG', '').lower() in ('1', 'true', 'yes')
+
+    print(f"\n{'='*60}")
+    print(f"LawLedger Application Starting")
+    print(f"{'='*60}")
+    print(f"Listening on: http://{bind_host}:{port}")
+    print(f"{'='*60}\n")
+
+    with app.app_context():
+        _apply_schema_migrations()
+
+    _run_license_diagnostic()
+
+    use_waitress = os.environ.get('USE_WAITRESS', '').lower() in ('1', 'true', 'yes')
+    if use_waitress:
+        try:
+            from waitress import serve
+            print("Starting with Waitress WSGI server")
+            serve(app, host=bind_host, port=port, threads=100)
+        except ImportError:
+            print("Waitress not installed; falling back to Flask dev server. Install with: pip install waitress")
+            app.run(host=bind_host, port=port, debug=debug)
+    else:
+        app.run(host=bind_host, port=port, debug=debug)

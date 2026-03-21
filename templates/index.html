@@ -1,0 +1,481 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.nav_home }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="hero" style="display:flex;align-items:center;gap:24px; margin-bottom: 30px;">
+    <div id="firm-logo-container" style="flex-shrink:0;">
+        <img src="{{ url_for('static', filename='lledgerlogo.jpg') }}" alt="LawLedger Logo"
+             style="max-height:100px;max-width:180px;object-fit:contain;"
+             onerror="this.style.display='none'">
+    </div>
+    <div>
+        <h1>⚖ LawLedger</h1>
+        <p class="subtitle">{{ t.footer_tagline }}</p>
+    </div>
+</div>
+
+<div class="card-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+    
+    {# 1. Clients & Matters #}
+    {% set _clients_disabled = license_modules_restricted and not current_user.is_manager %}
+    <div class="card{% if _clients_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_matters }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_matters_desc }}</p>
+        <a href="{{ url_for('list_clients') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if _clients_disabled %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
+
+    {# 2. Cost Codes #}
+    {% set _cc_disabled = not current_user.is_manager or license_modules_restricted %}
+    <div class="card{% if _cc_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_cost_codes }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_cost_desc }}</p>
+        <a href="{{ url_for('list_cost_codes') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if _cc_disabled %}
+        <span class="card-locked-badge">{% if not current_user.is_manager %}🔒 {{ t.msg_mgr_only }}{% else %}🔒 {{ t.msg_license_req }}{% endif %}</span>
+        {% endif %}
+    </div>
+
+    {# 3. Invoices #}
+    <div class="card{% if license_modules_restricted %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_billing }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_invoices_desc }}</p>
+        <a href="{{ url_for('list_invoices') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if license_modules_restricted %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
+
+    {# 3b. General Ledger #}
+    <div class="card{% if license_modules_restricted %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>📒 {{ t.nav_gl or 'General Ledger' }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_gl_desc or 'View the general ledger with billing and payment entries.' }}</p>
+        <a href="{{ url_for('gl_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if license_modules_restricted %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
+
+    {# 3c. Suppliers #}
+    {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
+    <div class="card{% if _sup_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>🏢 {{ t.nav_suppliers or 'Suppliers' }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_suppliers_desc or 'Manage suppliers, their contact information, and payments.' }}</p>
+        <a href="{{ url_for('suppliers_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if _sup_disabled %}
+        <span class="card-locked-badge">{% if not current_user.is_manager %}🔒 {{ t.msg_mgr_only }}{% else %}🔒 {{ t.msg_license_req }}{% endif %}</span>
+        {% endif %}
+    </div>
+
+    {# 4. Employees #}
+    {% set _emp_disabled = not current_user.is_manager or license_modules_restricted %}
+    <div class="card{% if _emp_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_employees }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_emp_desc }}</p>
+        <a href="{{ url_for('list_employees') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if _emp_disabled %}
+        <span class="card-locked-badge">{% if not current_user.is_manager %}🔒 {{ t.msg_mgr_only }}{% else %}🔒 {{ t.msg_license_req }}{% endif %}</span>
+        {% endif %}
+    </div>
+
+    {# 5. Timer #}
+    <div class="card{% if not current_user.timer_user %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>⏱ {{ t.nav_timer }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_timer_desc }}</p>
+        <a href="{{ url_for('timer_page') }}" class="btn btn-primary">{{ t.btn_open }}</a>
+        {% if not current_user.timer_user %}<span class="card-locked-badge">🔒 {{ t.msg_timer_req }}</span>{% endif %}
+    </div>
+
+    {# 6. Export #}
+    {% set _export_disabled = license_modules_restricted and not current_user.is_manager %}
+    <div class="card{% if _export_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.btn_export }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_export_desc }}</p>
+        <button class="btn btn-primary" onclick="openExportModal()">{{ t.btn_export }}</button>
+        {% if _export_disabled %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
+
+    {# 7. Import Costs #}
+    {% set _import_disabled = not current_user.is_manager or license_modules_restricted %}
+    <div class="card{% if _import_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_import }} (Costs)</h3>
+        <p style="flex-grow: 1;">{{ t.card_import_cost_desc }}</p>
+        <button class="btn btn-primary" onclick="openImportCostsModal()">{{ t.nav_import }}</button>
+        {% if _import_disabled %}
+        <span class="card-locked-badge">{% if not current_user.is_manager %}🔒 {{ t.msg_mgr_only }}{% else %}🔒 {{ t.msg_license_req }}{% endif %}</span>
+        {% endif %}
+    </div>
+
+    {# 8. Import Clients #}
+    <div class="card{% if _import_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_import }} (Clients)</h3>
+        <p style="flex-grow: 1;">{{ t.card_import_client_desc }}</p>
+        <button class="btn btn-primary" onclick="openImportMattersModal()">{{ t.nav_import }}</button>
+        {% if _import_disabled %}
+        <span class="card-locked-badge">{% if not current_user.is_manager %}🔒 {{ t.msg_mgr_only }}{% else %}🔒 {{ t.msg_license_req }}{% endif %}</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ── Export Modal ───────────────────────────────────────────────────────── -->
+<div id="export-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:440px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.btn_export or 'Exporter (Excel/PDF)' }}</span>
+            <span onclick="closeExportModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_export_format or 'Format de fichier' }}</label>
+            <select id="export_format" class="form-control" onchange="updateExportOptions()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="csv">CSV (.csv)</option>
+                <option value="tsv">TSV (.tsv)</option>
+            </select>
+        </div>
+        <div id="separator-group" class="form-group" style="margin-bottom:12px;display:none;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_export_separator or 'Séparateur (pour CSV)' }}</label>
+            <select id="export_separator" class="form-control" onchange="updateSeparatorWarning()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <option value="comma">, (virgule)</option>
+                <option value="semicolon">; (point-virgule)</option>
+                <option value="tab">Tab</option>
+                <option value="pipe">| (pipe)</option>
+            </select>
+            <small id="separator-warning" style="display:none;color:#e65100;font-size:11px;margin-top:4px;display:block;"></small>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+                <input type="checkbox" id="export_inactive">
+                {{ t.lbl_include_inactive or 'Inclure les dossiers inactifs' }}
+            </label>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="doExport()">{{ t.btn_start_export or 'Démarrer l\'exportation' }}</button>
+            <button class="btn btn-secondary" onclick="closeExportModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Import Costs Modal ─────────────────────────────────────────────────── -->
+<div id="import-costs-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.import_title_costs or 'Importer des frais' }}</span>
+            <span onclick="closeImportCostsModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">{{ t.card_import_cost_desc or 'Importez des entrées de frais à partir d\'un fichier CSV ou Excel.' }}</p>
+        <form id="idx-import-costs-form" enctype="multipart/form-data">
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_select_file or 'Sélectionner le fichier :' }}</label>
+                <div>
+                    <button type="button" id="idx-costs-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Ouvrir' }}</button>
+                    <span id="idx-costs-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
+                    <input type="file" id="idx-costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                </div>
+            </div>
+            <div id="idx-costs-result" style="margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" id="idx-costs-submit-btn" class="btn btn-primary" disabled>{{ t.btn_import_costs or 'Importer des frais' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="closeImportCostsModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ── Import Matters Modal ───────────────────────────────────────────────── -->
+<div id="import-matters-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.import_title_matters or 'Importer des dossiers clients' }}</span>
+            <span onclick="closeImportMattersModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">{{ t.card_import_client_desc or 'Importez des dossiers clients à partir d\'un fichier CSV ou Excel.' }}</p>
+        <form id="idx-import-matters-form" enctype="multipart/form-data">
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_select_file or 'Sélectionner le fichier :' }}</label>
+                <div>
+                    <button type="button" id="idx-matters-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Ouvrir' }}</button>
+                    <span id="idx-matters-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
+                    <input type="file" id="idx-matters-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                </div>
+            </div>
+            <div id="idx-matters-result" style="margin-bottom:8px;"></div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" id="idx-matters-submit-btn" class="btn btn-primary" disabled>{{ t.btn_import_matters or 'Importer des dossiers' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="closeImportMattersModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+// ── Export ────────────────────────────────────────────────────────────────────
+function openExportModal() {
+    document.getElementById('export-modal').style.display = 'flex';
+    updateExportOptions();
+}
+
+function closeExportModal() {
+    document.getElementById('export-modal').style.display = 'none';
+}
+
+function updateExportOptions() {
+    var fmt = document.getElementById('export_format').value;
+    // Hide separator selector for Excel and TSV (TSV always uses tab)
+    document.getElementById('separator-group').style.display =
+        (fmt === 'xlsx' || fmt === 'tsv') ? 'none' : '';
+    updateSeparatorWarning();
+}
+
+var STANDARD_SEPARATORS = new Set(['comma', 'semicolon', 'tab', 'pipe']);
+function updateSeparatorWarning() {
+    var sep = document.getElementById('export_separator').value;
+    var fmt = document.getElementById('export_format').value;
+    var warn = document.getElementById('separator-warning');
+    if (warn) {
+        warn.style.display = (fmt !== 'xlsx' && fmt !== 'tsv' && !STANDARD_SEPARATORS.has(sep))
+            ? '' : 'none';
+    }
+}
+
+var EXPORT_MIME_TYPES = {
+    'csv':  'text/csv',
+    'tsv':  'text/tab-separated-values',
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+async function doExport() {
+    var fmt      = document.getElementById('export_format').value;
+    var sep      = document.getElementById('export_separator').value;
+    var inactive = document.getElementById('export_inactive').checked;
+    var url = SCRIPT_ROOT + '/api/export/client-matters'
+              + '?format='           + encodeURIComponent(fmt)
+              + '&separator='        + encodeURIComponent(fmt === 'tsv' ? 'tab' : sep)
+              + '&include_inactive=' + inactive;
+
+    var ext = fmt === 'xlsx' ? 'xlsx' : (fmt === 'tsv' ? 'tsv' : 'csv');
+    var filename = 'active_client_matters.' + ext;
+    var mimeType = EXPORT_MIME_TYPES[ext] || 'application/octet-stream';
+
+    // Use the File System Access API (Save As dialog) when available
+    if (window.showSaveFilePicker) {
+        try {
+            var response = await fetch(url);
+            if (!response.ok) { alert('Export failed: ' + response.statusText); return; }
+            var blob = await response.blob();
+            var fileHandle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{ description: 'Export file', accept: { [mimeType]: ['.' + ext] } }]
+            });
+            var writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            closeExportModal();
+            return;
+        } catch (err) {
+            if (err.name === 'AbortError') { return; } // user cancelled
+            // Fall through to legacy download
+        }
+    }
+
+    // Legacy fallback: trigger browser download (respects "ask me where to save" browser setting)
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    closeExportModal();
+}
+
+// ── Import ─────────────────────────────────────────────────────────────────────
+function openImportCostsModal() {
+    document.getElementById('import-costs-modal').style.display = 'flex';
+}
+
+function closeImportCostsModal() {
+    document.getElementById('import-costs-modal').style.display = 'none';
+}
+
+function openImportMattersModal() {
+    document.getElementById('import-matters-modal').style.display = 'flex';
+}
+
+function closeImportMattersModal() {
+    document.getElementById('import-matters-modal').style.display = 'none';
+}
+
+const idxSupportsFilePicker = typeof window.showOpenFilePicker === 'function';
+let idxCostsFileHandle = null;
+let idxMattersFileHandle = null;
+
+const IDX_FILE_PICKER_TYPES = [{
+    description: 'CSV/Excel files',
+    accept: {
+        'text/csv': ['.csv'],
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+        'application/vnd.ms-excel': ['.xls']
+    }
+}];
+
+function idxInitFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle) {
+    const pickBtn = document.getElementById(pickBtnId);
+    const fileNameEl = document.getElementById(fileNameId);
+    const fileInput = document.getElementById(fileInputId);
+    const submitBtn = document.getElementById(submitBtnId);
+
+    // Enable submit button when file is chosen via standard input
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            if (submitBtn) submitBtn.disabled = !fileInput.files.length;
+        });
+    }
+
+    if (idxSupportsFilePicker) {
+        pickBtn.style.display = '';
+        fileNameEl.style.display = '';
+        fileInput.style.display = 'none';
+        fileInput.removeAttribute('required');
+        pickBtn.addEventListener('click', async () => {
+            try {
+                const [handle] = await window.showOpenFilePicker({ types: IDX_FILE_PICKER_TYPES, multiple: false, mode: 'read' });
+                setHandle(handle);
+                fileNameEl.textContent = handle.name;
+                if (submitBtn) submitBtn.disabled = false;
+            } catch (err) {
+                if (err.name !== 'AbortError') console.error(err);
+            }
+        });
+    }
+}
+
+idxInitFilePicker('idx-costs-pick-btn', 'idx-costs-file-name', 'idx-costs-file', 'idx-costs-submit-btn', h => { idxCostsFileHandle = h; });
+idxInitFilePicker('idx-matters-pick-btn', 'idx-matters-file-name', 'idx-matters-file', 'idx-matters-submit-btn', h => { idxMattersFileHandle = h; });
+
+function idxShowImportResult(resultDiv, result, formEl, submitBtnId) {
+    if (result.success) {
+        const total = result.total;
+        let alertClass, statusLabel;
+        if (result.imported === total && result.failed === 0) {
+            alertClass = 'alert-success';
+            statusLabel = {{ (t.msg_import_successful or 'Import réussi !') | tojson }};
+        } else if (result.imported === 0) {
+            alertClass = 'alert-error';
+            statusLabel = {{ (t.msg_import_failed_status or 'Échec de l\'importation !') | tojson }};
+        } else {
+            alertClass = 'alert-warning';
+            statusLabel = {{ (t.msg_import_warnings or 'Importation terminée avec des avertissements !') | tojson }};
+        }
+        const importedOf = {{ (t.msg_import_imported_of or 'Importé :') | tojson }};
+        const outOf = {{ (t.msg_import_out_of or 'sur') | tojson }};
+        const lines = {{ (t.msg_import_lines or 'lignes') | tojson }};
+        const failedCount = {{ (t.msg_import_failed_count or 'Échoué :') | tojson }};
+        const records = {{ (t.msg_import_records or 'entrées') | tojson }};
+        resultDiv.innerHTML = `<div class="alert ${alertClass}"><strong>${statusLabel}</strong><br>
+            ${importedOf} ${result.imported} ${outOf} ${total} ${lines}<br>
+            ${failedCount} ${result.failed} ${records}
+            ${result.errors.length > 0 ? '<br>' + result.errors.join(', ') : ''}
+            </div>`;
+        if (formEl) {
+            formEl.reset();
+            if (submitBtnId) {
+                const btn = document.getElementById(submitBtnId);
+                if (btn) btn.disabled = true;
+            }
+        }
+    } else {
+        const failed = {{ (t.msg_import_failed_status or 'Échec de l\'importation !') | tojson }};
+        resultDiv.innerHTML = `<div class="alert alert-error"><strong>${failed}</strong><br>${result.error}</div>`;
+    }
+}
+
+async function idxTryDeleteOriginalFile(resultDiv) {
+    const alertEl = resultDiv.querySelector('.alert');
+    if (alertEl) alertEl.innerHTML += '<br>' + {{ (t.msg_import_file_reminder or '📁 Rappel : Vous pouvez maintenant supprimer le fichier original de votre ordinateur.') | tojson }};
+}
+
+document.getElementById('idx-import-matters-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const resultDiv = document.getElementById('idx-matters-result');
+    const submitBtn = document.getElementById('idx-matters-submit-btn');
+    resultDiv.innerHTML = '<p style="font-size:13px;color:var(--text-secondary)">' + {{ (t.msg_importing or 'Importation en cours...') | tojson }} + '</p>';
+    if (submitBtn) submitBtn.disabled = true;
+
+    const formData = new FormData();
+
+    if (idxSupportsFilePicker) {
+        if (!idxMattersFileHandle) {
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + {{ (t.err_import_error or 'Erreur :') | tojson }} + '</strong> ' + {{ (t.err_select_file or 'Veuillez d\'abord sélectionner un fichier.') | tojson }} + '</div>';
+            if (submitBtn) submitBtn.disabled = false;
+            return;
+        }
+        const file = await idxMattersFileHandle.getFile();
+        formData.append('file', file, file.name);
+    } else {
+        const fileInput = document.getElementById('idx-matters-file');
+        if (!fileInput.files[0]) {
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + {{ (t.err_import_error or 'Erreur :') | tojson }} + '</strong> ' + {{ (t.err_select_file or 'Veuillez d\'abord sélectionner un fichier.') | tojson }} + '</div>';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+    }
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/import/matters', { method: 'POST', body: formData });
+        const result = await res.json();
+        idxShowImportResult(resultDiv, result, e.target, 'idx-matters-submit-btn');
+        if (result.imported > 0) {
+            await idxTryDeleteOriginalFile(resultDiv);
+            if (idxSupportsFilePicker) idxMattersFileHandle = null;
+        } else {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-error"><strong>` + {{ (t.err_import_error or 'Erreur :') | tojson }} + `</strong> ${err.message}</div>`;
+        if (submitBtn) submitBtn.disabled = false;
+    }
+});
+
+document.getElementById('idx-import-costs-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const resultDiv = document.getElementById('idx-costs-result');
+    const submitBtn = document.getElementById('idx-costs-submit-btn');
+    resultDiv.innerHTML = '<p style="font-size:13px;color:var(--text-secondary)">' + {{ (t.msg_importing or 'Importation en cours...') | tojson }} + '</p>';
+    if (submitBtn) submitBtn.disabled = true;
+
+    const formData = new FormData();
+
+    if (idxSupportsFilePicker) {
+        if (!idxCostsFileHandle) {
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + {{ (t.err_import_error or 'Erreur :') | tojson }} + '</strong> ' + {{ (t.err_select_file or 'Veuillez d\'abord sélectionner un fichier.') | tojson }} + '</div>';
+            if (submitBtn) submitBtn.disabled = false;
+            return;
+        }
+        const file = await idxCostsFileHandle.getFile();
+        formData.append('file', file, file.name);
+    } else {
+        const fileInput = document.getElementById('idx-costs-file');
+        if (!fileInput.files[0]) {
+            resultDiv.innerHTML = '<div class="alert alert-error"><strong>' + {{ (t.err_import_error or 'Erreur :') | tojson }} + '</strong> ' + {{ (t.err_select_file or 'Veuillez d\'abord sélectionner un fichier.') | tojson }} + '</div>';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+    }
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/import/costs', { method: 'POST', body: formData });
+        const result = await res.json();
+        idxShowImportResult(resultDiv, result, e.target, 'idx-costs-submit-btn');
+        if (result.imported > 0) {
+            await idxTryDeleteOriginalFile(resultDiv);
+            if (idxSupportsFilePicker) idxCostsFileHandle = null;
+        } else {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    } catch (err) {
+        resultDiv.innerHTML = `<div class="alert alert-error"><strong>` + {{ (t.err_import_error or 'Erreur :') | tojson }} + `</strong> ${err.message}</div>`;
+        if (submitBtn) submitBtn.disabled = false;
+    }
+});
+</script>
+{% endblock %}
