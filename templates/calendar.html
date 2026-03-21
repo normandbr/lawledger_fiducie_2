@@ -303,13 +303,13 @@ async function saveEvent() {
         const resp = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
         if (!resp.ok) {
             const d = await resp.json().catch(()=>({}));
-            errEl.textContent = d.message || 'Error saving event.';
+            errEl.textContent = d.message || 'Erreur lors de la sauvegarde de l\'événement.';
             errEl.style.display = '';
             return;
         }
         closeEventModal();
         loadEvents();
-    } catch(e) { errEl.textContent = 'Network error.'; errEl.style.display=''; }
+    } catch(e) { errEl.textContent = 'Erreur réseau.'; errEl.style.display=''; }
 }
 
 async function toggleDone(id, done) {

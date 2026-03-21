@@ -281,7 +281,7 @@ async function updateStatus(invoiceId, newStatus) {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({status: newStatus})
         });
-        if (!res.ok) throw new Error('Failed to update');
+        if (!res.ok) throw new Error('Échec de la mise à jour');
         loadInvoices();
     } catch (err) {
         alert(INV_STR.errorPrefix + err.message);
