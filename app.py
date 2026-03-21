@@ -489,6 +489,7 @@ class Employee(UserMixin, db.Model):
     is_manager = db.Column(db.Boolean, default=False)
     is_user = db.Column(db.Boolean, default=False)
     timer_user = db.Column(db.Boolean, default=False)
+    is_accounting = db.Column(db.Boolean, default=False)
     hourly_rate = db.Column(db.Numeric(10, 2), nullable=True)
     pin = db.Column(db.String(20), nullable=True)
     group_name = db.Column(db.String(100), nullable=True)
@@ -550,6 +551,7 @@ class Employee(UserMixin, db.Model):
             'is_manager': bool(self.is_manager),
             'is_user': bool(self.is_user),
             'timer_user': bool(self.timer_user),
+            'is_accounting': bool(self.is_accounting),
             'hourly_rate': float(self.hourly_rate) if self.hourly_rate else None,
             'pin': self.pin,
             'group_name': self.group_name,
@@ -997,6 +999,7 @@ class TrustReconciliation(db.Model):
             'notes': self.notes or '',
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
 class CalendarEvent(db.Model):
     """Calendar event (hearing, deadline, meeting…) optionally linked to a matter."""
     __tablename__ = 'calendar_events'
@@ -1100,6 +1103,7 @@ _COLUMN_MIGRATIONS = {
         ('is_manager',              'BIT NOT NULL DEFAULT 0'),
         ('is_user',                 'BIT NOT NULL DEFAULT 0'),
         ('timer_user',              'BIT NOT NULL DEFAULT 0'),
+        ('is_accounting',           'BIT NOT NULL DEFAULT 0'),
         ('hourly_rate',             'DECIMAL(10,2) NULL'),
         ('first_name',              'NVARCHAR(100) NULL'),
         ('last_name',               'NVARCHAR(100) NULL'),
@@ -1998,8 +2002,8 @@ def api_fiducie_create(matter_id):
         return jsonify({'error': 'No JSON data provided'}), 400
 
     type_trans = (data.get('type_trans') or '').strip().upper()
-    if type_trans not in ('DEPOT', 'RETRAIT'):
-        return jsonify({'error': 'type_trans must be DEPOT or RETRAIT'}), 400
+    if type_trans not in ('DEPOT', 'RETRAIT', 'REMBOURSEMENT'):
+        return jsonify({'error': 'type_trans must be DEPOT, RETRAIT or REMBOURSEMENT'}), 400
 
     try:
         montant = float(data.get('montant', 0))
@@ -2009,7 +2013,7 @@ def api_fiducie_create(matter_id):
         return jsonify({'error': 'Invalid montant value'}), 400
 
     # Check sufficient funds for withdrawals
-    if type_trans == 'RETRAIT':
+    if type_trans in ('RETRAIT', 'REMBOURSEMENT'):
         transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
         solde = sum(
             t.montant if t.type_trans == 'DEPOT' else -t.montant
@@ -2221,13 +2225,13 @@ def api_fiducie_summary():
             period_txns = all_txns
 
         period_deposits = sum(float(t.montant) for t in period_txns if t.type_trans == 'DEPOT')
-        period_withdrawals = sum(float(t.montant) for t in period_txns if t.type_trans == 'RETRAIT')
+        period_withdrawals = sum(float(t.montant) for t in period_txns if t.type_trans in ('RETRAIT', 'REMBOURSEMENT'))
         closing_balance = opening_balance + period_deposits - period_withdrawals
 
-        # Collect unique invoice numbers for RETRAIT transactions in the period
+        # Collect unique invoice numbers for RETRAIT/REMBOURSEMENT transactions in the period
         invoice_numbers = list(dict.fromkeys(
             t.invoice_number for t in period_txns
-            if t.type_trans == 'RETRAIT' and t.invoice_number
+            if t.type_trans in ('RETRAIT', 'REMBOURSEMENT') and t.invoice_number
         ))
 
         results.append({
@@ -2274,7 +2278,7 @@ def fiducie_print(matter_id):
     transactions = query.order_by(TransactionsFiducie.date_trans.asc()).all()
 
     total_deposits = sum(float(t.montant) for t in transactions if t.type_trans == 'DEPOT' and not t.est_annulee)
-    total_withdrawals = sum(float(t.montant) for t in transactions if t.type_trans == 'RETRAIT' and not t.est_annulee)
+    total_withdrawals = sum(float(t.montant) for t in transactions if t.type_trans in ('RETRAIT', 'REMBOURSEMENT') and not t.est_annulee)
     closing_balance = total_deposits - total_withdrawals
 
     return render_template('fiducie_print.html',
@@ -3656,6 +3660,7 @@ def api_employees():
         is_manager=bool(data.get('is_manager', False)),
         is_user=bool(data.get('is_user', False)),
         timer_user=bool(data.get('timer_user', False)),
+        is_accounting=bool(data.get('is_accounting', False)),
         hourly_rate=data.get('hourly_rate') or None,
         pin=data.get('pin') or None,
         group_name=data.get('group_name') or None,
@@ -3823,6 +3828,8 @@ def api_employee_detail(employee_id):
             employee.is_user = bool(data['is_user'])
         if 'timer_user' in data:
             employee.timer_user = bool(data['timer_user'])
+        if 'is_accounting' in data:
+            employee.is_accounting = bool(data['is_accounting'])
         if 'hourly_rate' in data:
             employee.hourly_rate = data['hourly_rate'] or None
         # Managers must always be able to log in
@@ -4435,6 +4442,8 @@ def api_invoices():
         _post_invoice_journal(invoice, client)
         db.session.commit()
     return jsonify(invoice.to_dict()), 201
+
+@app.route('/api/invoices/<int:invoice_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def api_invoice_detail(invoice_id):
     invoice = Invoice.query.get_or_404(invoice_id)

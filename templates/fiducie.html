@@ -86,8 +86,9 @@
                 <div class="form-group">
                     <label>{{ t.lbl_trans_type or 'Transaction Type' }}</label>
                     <select name="type_trans" id="trans-type" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" required>
-                        <option value="DEPOT">{{ t.opt_deposit or '📥 DEPOT (Provision)' }}</option>
+                        <option value="DEPOT">{{ t.opt_deposit or '📥 DÉPÔT (Provision)' }}</option>
                         <option value="RETRAIT">{{ t.opt_withdrawal or '📤 RETRAIT (Paiement/Honoraires)' }}</option>
+                        <option value="REMBOURSEMENT">{{ t.opt_refund or '💸 REMBOURSEMENT (Au client)' }}</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -266,9 +267,9 @@
             <div id="rec-result" style="margin-top:10px;font-size:13px;display:none;"></div>
         </div>
         <!-- History -->
-        <div style="overflow-y:auto;padding:16px 24px;flex:1 1 auto;">
+        <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
             <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_history or 'Historique' }}</h3>
-            <div id="rec-history-content">
+            <div id="rec-history-content" style="min-width:600px;">
                 <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
             </div>
         </div>

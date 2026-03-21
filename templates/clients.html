@@ -308,7 +308,7 @@
                 <h3 style="margin:0;font-size:14px;font-weight:600;">{{ t.title_credit_notes or 'Credit Notes' }}
                     <span id="credit-balance-badge" class="badge badge-success" style="margin-left:8px;display:none;"></span>
                 </h3>
-                <button class="btn btn-sm btn-primary" onclick="showAddCreditForm()">{{ t.btn_add_credit or '+ Add Credit Note' }}</button>
+                <button class="btn btn-sm btn-primary" onclick="showAddCreditForm()" style="margin-right:12px;">{{ t.btn_add_credit or '+ Add Credit Note' }}</button>
             </div>
             <!-- Add credit form (inline) -->
             <div id="add-credit-form" style="display:none;background:#f8f9fa;padding:12px;border-radius:6px;margin-bottom:8px;">
@@ -344,11 +344,11 @@
         </div>
         <!-- Trust Balance Section -->
         <div id="trust-balance-section" style="display:none;border-top:2px solid #e0e0e0;margin-top:16px;padding-top:12px;">
-            <div style="display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;padding-left:12px;">
                 <h3 style="margin:0;font-size:14px;font-weight:600;">{{ t.trust_balance or 'Trust Balance' }}</h3>
                 <span id="trust-balance-badge" style="font-size:13px;font-weight:600;padding:3px 10px;border-radius:12px;background:#e8f5e9;color:#107c10;">$0.00</span>
             </div>
-            <div id="trust-balance-breakdown" style="margin-top:8px;font-size:12px;color:var(--text-secondary);"></div>
+            <div id="trust-balance-breakdown" style="margin-top:8px;font-size:12px;color:var(--text-secondary);padding-left:12px;"></div>
         </div>
     </div>
 </div>

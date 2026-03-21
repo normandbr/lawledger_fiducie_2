@@ -180,6 +180,12 @@
                 </label>
             </div>
             <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_is_accounting" name="is_accounting">
+                    {{ t.lbl_accounting_checkbox or 'Comptabilité' }}
+                </label>
+            </div>
+            <div class="form-group">
                 <label for="emp_hourly_rate">{{ t.lbl_hourly_rate or 'Hourly Rate' }} ({{ t.lbl_timer_user or 'required for Timer Users' }}):</label>
                 <input type="number" id="emp_hourly_rate" name="hourly_rate" step="0.01" min="0" placeholder="e.g. 150.00">
             </div>
@@ -324,6 +330,12 @@
                 <label>
                     <input type="checkbox" id="edit_emp_timer_user" name="timer_user">
                     {{ t.lbl_timer_user_checkbox or 'Timer User (time-entry only access)' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_is_accounting" name="is_accounting">
+                    {{ t.lbl_accounting_checkbox or 'Comptabilité' }}
                 </label>
             </div>
             <div class="form-group">
@@ -488,6 +500,7 @@ document.getElementById('employee-form').addEventListener('submit', async (e) =>
         is_user: document.getElementById('emp_is_user').checked,
         is_manager: document.getElementById('emp_is_manager').checked,
         timer_user: document.getElementById('emp_timer_user').checked,
+        is_accounting: document.getElementById('emp_is_accounting').checked,
         hourly_rate: parseFloat(formData.get('hourly_rate')) || null,
         password: formData.get('initial_password') || null,
         must_change_password: document.getElementById('emp_must_change_password').checked
@@ -585,6 +598,7 @@ function showEditForm(id) {
     document.getElementById('edit_emp_is_user').checked = emp.is_user;
     document.getElementById('edit_emp_is_manager').checked = emp.is_manager;
     document.getElementById('edit_emp_timer_user').checked = emp.timer_user;
+    document.getElementById('edit_emp_is_accounting').checked = emp.is_accounting || false;
     document.getElementById('edit_emp_hourly_rate').value = emp.hourly_rate || '';
     document.getElementById('edit_emp_emergency_contact').value = emp.emergency_contact || '';
     document.getElementById('edit_emp_emergency_phone').value = emp.emergency_phone || '';
@@ -634,6 +648,7 @@ document.getElementById('edit-employee-form').addEventListener('submit', async (
         is_user: document.getElementById('edit_emp_is_user').checked,
         is_manager: document.getElementById('edit_emp_is_manager').checked,
         timer_user: document.getElementById('edit_emp_timer_user').checked,
+        is_accounting: document.getElementById('edit_emp_is_accounting').checked,
         hourly_rate: parseFloat(formData.get('hourly_rate')) || null
     };
 

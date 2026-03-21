@@ -130,10 +130,12 @@ function renderAccounts(list) {
         html += `<td style="font-size:12px;color:var(--text-secondary);">${escHtml(parentName)}</td>`;
         html += `<td style="text-align:center;">${a.is_active ? '✅' : '—'}</td>`;
         html += `<td style="text-align:center;white-space:nowrap;">`;
-        html += `<button class="btn btn-sm btn-secondary" onclick="editAccount(${a.id})" style="margin-right:4px;">✏️</button>`;
+        html += `<span style="display:inline-flex;gap:4px;align-items:center;min-width:64px;">`;
+        html += `<button class="btn btn-sm btn-secondary" onclick="editAccount(${a.id})">✏️</button>`;
         if (!isSystem) {
             html += `<button class="btn btn-sm btn-danger" onclick="deleteAccount(${a.id})">🗑</button>`;
         }
+        html += `</span>`;
         html += `</td></tr>`;
     });
     tbody.innerHTML = html;
