@@ -30,7 +30,7 @@
 </div>
 
 <!-- Events table -->
-<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);">
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
     <table id="events-table" style="min-width:700px;">
         <thead>
             <tr>
@@ -220,7 +220,7 @@ function renderEvents(events) {
             <td style="font-size:12px;">${escHtml(matterStr)}</td>
             <td style="font-size:12px;">${escHtml(ev.assigned_to || '—')}</td>
             <td style="text-align:center;">${statusBadge}</td>
-            <td>
+            <td style="white-space:nowrap;">
                 <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:2px;" onclick="openEditEventModal(${ev.id})">✏️</button>
                 ${!ev.is_done
                     ? `<button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:2px;" onclick="toggleDone(${ev.id}, true)" title="${I18N.btn_mark_done || 'Mark as Done'}">✔</button>`

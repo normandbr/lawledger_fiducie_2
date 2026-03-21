@@ -239,7 +239,7 @@
 {% endif %}
 <!-- Trust Reconciliation Modal -->
 <div id="reconciliation-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);">
-    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
             <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire – Fiducie' }}</h2>
             <span onclick="closeReconciliationModal()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
@@ -269,7 +269,7 @@
         <!-- History -->
         <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
             <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_history or 'Historique' }}</h3>
-            <div id="rec-history-content" style="min-width:680px;">
+            <div id="rec-history-content">
                 <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
             </div>
         </div>
@@ -650,14 +650,14 @@ async function loadReconciliationHistory() {
             cont.innerHTML = '<p style="color:#888;">' + escHtml(REC_STR.noHistory) + '</p>';
             return;
         }
-        let html = '<table style="border-collapse:collapse;font-size:13px;width:100%;min-width:680px;">'
+        let html = '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:13px;width:100%;min-width:680px;">'
             + '<thead><tr style="background:#f3f3f3;">'
-            + '<th style="padding:6px 10px;text-align:left;">' + escHtml(REC_STR.dateLabel) + '</th>'
-            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.bankLabel) + '</th>'
-            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.glLabel) + '</th>'
-            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.diffLabel) + '</th>'
-            + '<th style="padding:6px 10px;">' + escHtml(REC_STR.notesLabel) + '</th>'
-            + '<th style="padding:6px 10px;width:50px;"></th>'
+            + '<th style="' + TH_STYLE + 'text-align:left;">' + escHtml(REC_STR.dateLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.bankLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.glLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.diffLabel) + '</th>'
+            + '<th style="' + TH_STYLE + '">' + escHtml(REC_STR.notesLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'width:50px;"></th>'
             + '</tr></thead><tbody>';
         rows.forEach(r => {
             const balanced = Math.abs(r.difference) < 0.005;
@@ -671,7 +671,7 @@ async function loadReconciliationHistory() {
                 + '<td style="padding:6px 10px;text-align:center;white-space:nowrap;"><button class="btn btn-sm btn-danger" onclick="deleteReconciliation(' + r.id + ')">🗑</button></td>'
                 + '</tr>';
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         cont.innerHTML = html;
     } catch(err) {
         cont.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
