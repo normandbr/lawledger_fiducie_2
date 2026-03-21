@@ -99,6 +99,10 @@
                 <li><a href="{{ url_for('fiducie_select') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">💼 {{ t.nav_trust or 'Fiducie' }}</a></li>
             {% endif %}
 
+            {% if current_user.is_user or current_user.is_manager %}
+                <li><a href="{{ url_for('calendar_page') }}" onclick="closeNavMenu()">📅 {{ t.nav_calendar or 'Calendar' }}</a></li>
+            {% endif %}
+
             {% if current_user.timer_user or current_user.is_user or current_user.is_manager %}
                 <li><a href="{{ url_for('time_logs_page') }}" onclick="closeNavMenu()">📋 {{ t.nav_timelogs or 'Time Logs' }}</a></li>
             {% endif %}

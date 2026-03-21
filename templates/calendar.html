@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block title %}{{ t.title_calendar or 'Calendar' }} - LawLedger{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>📅 {{ t.title_calendar or 'Calendar' }}</h1>
+    <button class="btn btn-primary" onclick="openAddEventModal()">{{ t.btn_add_event or '+ Add Event' }}</button>
+</div>
+
+<!-- Filters -->
+<div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px 16px;margin-bottom:16px;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+    <div style="flex:1;min-width:130px;">
+        <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_date_from or 'Date From' }}</label>
+        <input type="date" id="cal-filter-from" oninput="loadEvents()" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="flex:1;min-width:130px;">
+        <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_date_to or 'Date To' }}</label>
+        <input type="date" id="cal-filter-to" oninput="loadEvents()" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+    </div>
+    <div>
+        <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="cal-show-done" onchange="loadEvents()" style="width:16px;height:16px;">
+            {{ t.btn_show_done or 'Show completed' }}
+        </label>
+    </div>
+    <div>
+        <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">&nbsp;</label>
+        <button class="btn btn-secondary" onclick="clearFilters()" style="height:32px;font-size:13px;">{{ t.btn_clear_filters or 'Clear' }}</button>
+    </div>
+</div>
+
+<!-- Events table -->
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);">
+    <table id="events-table" style="min-width:700px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:100px;">{{ t.th_cal_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:80px;">{{ t.th_cal_type or 'Type' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_cal_title or 'Title' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:130px;">{{ t.th_cal_matter or 'Matter' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:120px;">{{ t.th_cal_assigned or 'Assigned To' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:80px;">{{ t.th_cal_status or 'Status' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;width:110px;">{{ t.inv_th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="events-tbody">
+            <tr><td colspan="7" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ── Add / Edit Event Modal ──────────────────────────────────────────────── -->
+<div id="event-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:520px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 id="event-modal-title" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_add_event or 'Add Event' }}</span>
+            <span onclick="closeEventModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <input type="hidden" id="event-id">
+
+        <!-- Title -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_title or 'Title' }} *</label>
+            <input type="text" id="ev-title" placeholder="{{ t.ph_cal_event_title or 'e.g. Preliminary hearing…' }}"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <!-- Event type -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_type or 'Type' }}</label>
+            <select id="ev-type" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                <option value="">—</option>
+                <option value="hearing">{{ t.cal_event_type_hearing or 'Hearing' }}</option>
+                <option value="deadline">{{ t.cal_event_type_deadline or 'Deadline' }}</option>
+                <option value="meeting">{{ t.cal_event_type_meeting or 'Meeting' }}</option>
+                <option value="other">{{ t.cal_event_type_other or 'Other' }}</option>
+            </select>
+        </div>
+
+        <!-- Date + Time row -->
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_date or 'Date' }} *</label>
+                <input type="date" id="ev-date" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_time or 'Time (optional)' }}</label>
+                <input type="time" id="ev-time" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+        </div>
+
+        <!-- Matter (client selector) -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_matter or 'Matter (optional)' }}</label>
+            <select id="ev-matter" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                <option value="">—</option>
+            </select>
+        </div>
+
+        <!-- Location -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_location or 'Location (optional)' }}</label>
+            <input type="text" id="ev-location" placeholder="{{ t.ph_cal_location or 'e.g. Courtroom 12…' }}"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <!-- Assigned to -->
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_assigned_to or 'Assigned To' }}</label>
+            <input type="text" id="ev-assigned" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <!-- Notes -->
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_notes or 'Notes (optional)' }}</label>
+            <textarea id="ev-notes" rows="3" placeholder="{{ t.ph_cal_notes or 'Additional notes or details…' }}"
+                      style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+
+        <div id="event-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
+            <button class="btn btn-secondary" onclick="closeEventModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const I18N = {{ t | tojson }};
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function formatDate(d) {
+    if (!d) return '';
+    const [y, m, dd] = d.split('-');
+    return `${dd}/${m}/${y}`;
+}
+
+const TYPE_LABELS = {
+    hearing:  I18N.cal_event_type_hearing  || 'Hearing',
+    deadline: I18N.cal_event_type_deadline || 'Deadline',
+    meeting:  I18N.cal_event_type_meeting  || 'Meeting',
+    other:    I18N.cal_event_type_other    || 'Other',
+};
+
+function typeLabel(eventType) {
+    return TYPE_LABELS[eventType] || eventType || '—';
+}
+
+// ── Load matters for the dropdown ────────────────────────────────────────────
+async function loadMatters() {
+    try {
+        const resp = await fetch('/api/clients');
+        if (!resp.ok) return;
+        const clients = await resp.json();
+        const sel = document.getElementById('ev-matter');
+        sel.innerHTML = '<option value="">—</option>';
+        for (const c of clients) {
+            const matResp = await fetch(`/api/clients/${c.id}/matters`);
+            if (!matResp.ok) continue;
+            const matters = await matResp.json();
+            for (const m of matters) {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${c.client_number} / ${m.matter_number}${m.matter_description ? ' – ' + m.matter_description : ''}`;
+                sel.appendChild(opt);
+            }
+        }
+    } catch(e) { /* ignore */ }
+}
+
+// ── Load events ──────────────────────────────────────────────────────────────
+async function loadEvents() {
+    const dateFrom = document.getElementById('cal-filter-from').value;
+    const dateTo   = document.getElementById('cal-filter-to').value;
+    const showDone = document.getElementById('cal-show-done').checked;
+
+    let url = '/api/calendar/events?show_done=' + (showDone ? '1' : '0');
+    if (dateFrom) url += '&date_from=' + encodeURIComponent(dateFrom);
+    if (dateTo)   url += '&date_to='   + encodeURIComponent(dateTo);
+
+    const tbody = document.getElementById('events-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary);">' + (I18N.inv_loading || 'Loading…') + '</td></tr>';
+
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const events = await resp.json();
+        renderEvents(events);
+    } catch(e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--danger);">Error loading events.</td></tr>';
+    }
+}
+
+function renderEvents(events) {
+    const tbody = document.getElementById('events-tbody');
+    if (!events.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary);">' + (I18N.msg_cal_no_events || 'No events to display.') + '</td></tr>';
+        return;
+    }
+    const today = new Date().toISOString().split('T')[0];
+    tbody.innerHTML = events.map(ev => {
+        const isPast = ev.event_date < today && !ev.is_done;
+        const rowStyle = ev.is_done ? 'opacity:0.55;' : (isPast ? 'background:#fff3cd;' : '');
+        const timeStr  = ev.event_time ? ' ' + ev.event_time : '';
+        const matterStr = ev.client_number && ev.matter_number
+            ? `${ev.client_number} / ${ev.matter_number}` : '—';
+        const statusBadge = ev.is_done
+            ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:12px;font-size:11px;">✔</span>'
+            : (isPast
+                ? '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:12px;font-size:11px;">!</span>'
+                : '<span style="background:#d1ecf1;color:#0c5460;padding:2px 8px;border-radius:12px;font-size:11px;">●</span>');
+        return `<tr style="${rowStyle}">
+            <td style="white-space:nowrap;">${formatDate(ev.event_date)}${timeStr}</td>
+            <td>${typeLabel(ev.event_type)}</td>
+            <td>
+                <strong>${escHtml(ev.title)}</strong>
+                ${ev.location ? '<br><small style="color:var(--text-secondary);">📍 ' + escHtml(ev.location) + '</small>' : ''}
+                ${ev.notes ? '<br><small style="color:var(--text-secondary);">' + escHtml(ev.notes.substring(0,80)) + (ev.notes.length>80?'…':'') + '</small>' : ''}
+            </td>
+            <td style="font-size:12px;">${escHtml(matterStr)}</td>
+            <td style="font-size:12px;">${escHtml(ev.assigned_to || '—')}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td>
+                <button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:2px;" onclick="openEditEventModal(${ev.id})">✏️</button>
+                ${!ev.is_done
+                    ? `<button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:2px;" onclick="toggleDone(${ev.id}, true)" title="${I18N.btn_mark_done || 'Mark as Done'}">✔</button>`
+                    : `<button class="btn btn-secondary" style="padding:3px 8px;font-size:11px;margin-right:2px;" onclick="toggleDone(${ev.id}, false)" title="${I18N.btn_reopen_event || 'Reopen'}">↩</button>`}
+                <button class="btn btn-danger" style="padding:3px 8px;font-size:11px;" onclick="deleteEvent(${ev.id})">🗑</button>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── Modal helpers ────────────────────────────────────────────────────────────
+function openAddEventModal() {
+    document.getElementById('event-id').value = '';
+    document.getElementById('event-modal-title').querySelector('span').textContent = I18N.modal_add_event || 'Add Event';
+    document.getElementById('ev-title').value    = '';
+    document.getElementById('ev-type').value     = '';
+    document.getElementById('ev-date').value     = new Date().toISOString().split('T')[0];
+    document.getElementById('ev-time').value     = '';
+    document.getElementById('ev-matter').value   = '';
+    document.getElementById('ev-location').value = '';
+    document.getElementById('ev-assigned').value = '';
+    document.getElementById('ev-notes').value    = '';
+    document.getElementById('event-modal-error').style.display = 'none';
+    document.getElementById('event-modal').style.display = 'flex';
+}
+
+async function openEditEventModal(id) {
+    try {
+        const resp = await fetch(`/api/calendar/events/${id}`);
+        if (!resp.ok) throw new Error();
+        const ev = await resp.json();
+        document.getElementById('event-id').value   = ev.id;
+        document.getElementById('event-modal-title').querySelector('span').textContent = I18N.modal_edit_event || 'Edit Event';
+        document.getElementById('ev-title').value    = ev.title || '';
+        document.getElementById('ev-type').value     = ev.event_type || '';
+        document.getElementById('ev-date').value     = ev.event_date || '';
+        document.getElementById('ev-time').value     = ev.event_time || '';
+        document.getElementById('ev-matter').value   = ev.matter_id || '';
+        document.getElementById('ev-location').value = ev.location || '';
+        document.getElementById('ev-assigned').value = ev.assigned_to || '';
+        document.getElementById('ev-notes').value    = ev.notes || '';
+        document.getElementById('event-modal-error').style.display = 'none';
+        document.getElementById('event-modal').style.display = 'flex';
+    } catch(e) { alert('Error loading event.'); }
+}
+
+function closeEventModal() {
+    document.getElementById('event-modal').style.display = 'none';
+}
+
+async function saveEvent() {
+    const id    = document.getElementById('event-id').value;
+    const title = document.getElementById('ev-title').value.trim();
+    const date  = document.getElementById('ev-date').value;
+    const errEl = document.getElementById('event-modal-error');
+
+    if (!title) { errEl.textContent = I18N.lbl_cal_event_title + ' ' + (I18N.err_required || 'is required.'); errEl.style.display=''; return; }
+    if (!date)  { errEl.textContent = I18N.lbl_cal_event_date  + ' ' + (I18N.err_required || 'is required.'); errEl.style.display=''; return; }
+    errEl.style.display = 'none';
+
+    const payload = {
+        title,
+        event_date:  date,
+        event_type:  document.getElementById('ev-type').value     || '',
+        event_time:  document.getElementById('ev-time').value     || '',
+        matter_id:   document.getElementById('ev-matter').value   || null,
+        location:    document.getElementById('ev-location').value || '',
+        assigned_to: document.getElementById('ev-assigned').value || '',
+        notes:       document.getElementById('ev-notes').value    || '',
+    };
+
+    const url    = id ? `/api/calendar/events/${id}` : '/api/calendar/events';
+    const method = id ? 'PUT' : 'POST';
+
+    try {
+        const resp = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if (!resp.ok) {
+            const d = await resp.json().catch(()=>({}));
+            errEl.textContent = d.message || 'Error saving event.';
+            errEl.style.display = '';
+            return;
+        }
+        closeEventModal();
+        loadEvents();
+    } catch(e) { errEl.textContent = 'Network error.'; errEl.style.display=''; }
+}
+
+async function toggleDone(id, done) {
+    try {
+        const resp = await fetch(`/api/calendar/events/${id}`, {
+            method: 'PUT',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({is_done: done}),
+        });
+        if (resp.ok) loadEvents();
+    } catch(e) { /* ignore */ }
+}
+
+async function deleteEvent(id) {
+    if (!confirm(I18N.msg_confirm_delete || 'Delete this event?')) return;
+    try {
+        const resp = await fetch(`/api/calendar/events/${id}`, { method: 'DELETE' });
+        if (resp.ok) loadEvents();
+    } catch(e) { /* ignore */ }
+}
+
+function clearFilters() {
+    document.getElementById('cal-filter-from').value = '';
+    document.getElementById('cal-filter-to').value   = '';
+    document.getElementById('cal-show-done').checked = false;
+    loadEvents();
+}
+
+// ── Initialise ───────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    loadMatters();
+    loadEvents();
+});
+</script>
+{% endblock %}
