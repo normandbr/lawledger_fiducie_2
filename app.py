@@ -997,6 +997,50 @@ class TrustReconciliation(db.Model):
             'notes': self.notes or '',
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
+class CalendarEvent(db.Model):
+    """Calendar event (hearing, deadline, meeting…) optionally linked to a matter."""
+    __tablename__ = 'calendar_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=True)
+    title = db.Column(db.String(255), nullable=False)
+    event_type = db.Column(db.String(50), nullable=True)   # hearing | deadline | meeting | other
+    event_date = db.Column(db.Date, nullable=False)
+    event_time = db.Column(db.String(10), nullable=True)   # HH:MM (optional)
+    location = db.Column(db.String(255), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    is_done = db.Column(db.Boolean, default=False)
+    assigned_to = db.Column(db.String(80), nullable=True)
+    created_by = db.Column(db.String(80), nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    matter = db.relationship('Matter', backref='calendar_events', lazy=True)
+
+    def to_dict(self):
+        client_number = None
+        matter_number = None
+        if self.matter:
+            matter_number = self.matter.matter_number
+            if self.matter.client:
+                client_number = self.matter.client.client_number
+        return {
+            'id': self.id,
+            'matter_id': self.matter_id,
+            'client_number': client_number or '',
+            'matter_number': matter_number or '',
+            'title': self.title,
+            'event_type': self.event_type or '',
+            'event_date': self.event_date.isoformat() if self.event_date else None,
+            'event_time': self.event_time or '',
+            'location': self.location or '',
+            'notes': self.notes or '',
+            'is_done': bool(self.is_done),
+            'assigned_to': self.assigned_to or '',
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -5313,6 +5357,127 @@ def api_supplier_payment_detail(payment_id):
         return jsonify(payment.to_dict())
     # DELETE – soft delete
     payment.is_deleted = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ── Calendar / Agenda Module ─────────────────────────────────────────────────
+
+@app.route('/calendar')
+@login_required
+def calendar_page():
+    return render_template('calendar.html')
+
+
+@app.route('/api/calendar/events', methods=['GET', 'POST'])
+@login_required
+def api_calendar_events():
+    if request.method == 'GET':
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        matter_id = request.args.get('matter_id', '').strip()
+        show_done = request.args.get('show_done', '').lower() in ('1', 'true', 'yes')
+
+        q = CalendarEvent.query.filter(CalendarEvent.is_deleted == False)
+        if matter_id:
+            try:
+                q = q.filter(CalendarEvent.matter_id == int(matter_id))
+            except ValueError:
+                pass
+        if not show_done:
+            q = q.filter(CalendarEvent.is_done == False)
+        if date_from:
+            try:
+                df = datetime.strptime(date_from, '%Y-%m-%d').date()
+                q = q.filter(CalendarEvent.event_date >= df)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                dt = datetime.strptime(date_to, '%Y-%m-%d').date()
+                q = q.filter(CalendarEvent.event_date <= dt)
+            except ValueError:
+                pass
+        events = q.order_by(CalendarEvent.event_date.asc(), CalendarEvent.event_time.asc()).all()
+        return jsonify([e.to_dict() for e in events])
+
+    # POST – create new event
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'title_required', 'message': 'Event title is required.'}), 400
+    event_date_str = (data.get('event_date') or '').strip()
+    if not event_date_str:
+        return jsonify({'error': 'date_required', 'message': 'Event date is required.'}), 400
+    try:
+        event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'Invalid date format. Use YYYY-MM-DD.'}), 400
+
+    matter_id_val = None
+    if data.get('matter_id'):
+        try:
+            matter_id_val = int(data['matter_id'])
+            if not db.session.get(Matter, matter_id_val):
+                matter_id_val = None
+        except (ValueError, TypeError):
+            matter_id_val = None
+
+    event = CalendarEvent(
+        matter_id=matter_id_val,
+        title=title,
+        event_type=data.get('event_type', '') or None,
+        event_date=event_date,
+        event_time=data.get('event_time', '') or None,
+        location=data.get('location', '') or None,
+        notes=data.get('notes', '') or None,
+        is_done=bool(data.get('is_done', False)),
+        assigned_to=data.get('assigned_to', '') or None,
+        created_by=current_user.username,
+    )
+    db.session.add(event)
+    db.session.commit()
+    return jsonify(event.to_dict()), 201
+
+
+@app.route('/api/calendar/events/<int:event_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_calendar_event_detail(event_id):
+    event = db.session.get(CalendarEvent, event_id)
+    if not event or event.is_deleted:
+        return jsonify({'error': 'not_found'}), 404
+
+    if request.method == 'GET':
+        return jsonify(event.to_dict())
+
+    if request.method == 'PUT':
+        data = request.get_json() or {}
+        if 'title' in data:
+            title = data['title'].strip()
+            if not title:
+                return jsonify({'error': 'title_required', 'message': 'Event title is required.'}), 400
+            event.title = title
+        if 'event_date' in data and data['event_date']:
+            try:
+                event.event_date = datetime.strptime(data['event_date'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'invalid_date'}), 400
+        if 'matter_id' in data:
+            try:
+                mid = int(data['matter_id']) if data['matter_id'] else None
+                event.matter_id = mid if (mid and db.session.get(Matter, mid)) else None
+            except (ValueError, TypeError):
+                event.matter_id = None
+        for field in ('event_type', 'event_time', 'location', 'notes', 'assigned_to'):
+            if field in data:
+                setattr(event, field, data[field] or None)
+        if 'is_done' in data:
+            event.is_done = bool(data['is_done'])
+        db.session.commit()
+        return jsonify(event.to_dict())
+
+    # DELETE – soft delete
+    event.is_deleted = True
     db.session.commit()
     return jsonify({'success': True})
 
