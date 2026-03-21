@@ -149,13 +149,13 @@ function typeLabel(eventType) {
 // ── Load matters for the dropdown ────────────────────────────────────────────
 async function loadMatters() {
     try {
-        const resp = await fetch('/api/clients');
+        const resp = await fetch(SCRIPT_ROOT + '/api/clients');
         if (!resp.ok) return;
         const clients = await resp.json();
         const sel = document.getElementById('ev-matter');
         sel.innerHTML = '<option value="">—</option>';
         for (const c of clients) {
-            const matResp = await fetch(`/api/clients/${c.id}/matters`);
+            const matResp = await fetch(SCRIPT_ROOT + `/api/clients/${c.id}/matters`);
             if (!matResp.ok) continue;
             const matters = await matResp.json();
             for (const m of matters) {
@@ -174,7 +174,7 @@ async function loadEvents() {
     const dateTo   = document.getElementById('cal-filter-to').value;
     const showDone = document.getElementById('cal-show-done').checked;
 
-    let url = '/api/calendar/events?show_done=' + (showDone ? '1' : '0');
+    let url = SCRIPT_ROOT + '/api/calendar/events?show_done=' + (showDone ? '1' : '0');
     if (dateFrom) url += '&date_from=' + encodeURIComponent(dateFrom);
     if (dateTo)   url += '&date_to='   + encodeURIComponent(dateTo);
 
@@ -253,7 +253,7 @@ function openAddEventModal() {
 
 async function openEditEventModal(id) {
     try {
-        const resp = await fetch(`/api/calendar/events/${id}`);
+        const resp = await fetch(SCRIPT_ROOT + `/api/calendar/events/${id}`);
         if (!resp.ok) throw new Error();
         const ev = await resp.json();
         document.getElementById('event-id').value   = ev.id;
@@ -296,7 +296,7 @@ async function saveEvent() {
         notes:       document.getElementById('ev-notes').value    || '',
     };
 
-    const url    = id ? `/api/calendar/events/${id}` : '/api/calendar/events';
+    const url    = id ? SCRIPT_ROOT + `/api/calendar/events/${id}` : SCRIPT_ROOT + '/api/calendar/events';
     const method = id ? 'PUT' : 'POST';
 
     try {
@@ -314,7 +314,7 @@ async function saveEvent() {
 
 async function toggleDone(id, done) {
     try {
-        const resp = await fetch(`/api/calendar/events/${id}`, {
+        const resp = await fetch(SCRIPT_ROOT + `/api/calendar/events/${id}`, {
             method: 'PUT',
             headers: {'Content-Type':'application/json'},
             body: JSON.stringify({is_done: done}),
@@ -326,7 +326,7 @@ async function toggleDone(id, done) {
 async function deleteEvent(id) {
     if (!confirm(I18N.msg_confirm_delete || 'Delete this event?')) return;
     try {
-        const resp = await fetch(`/api/calendar/events/${id}`, { method: 'DELETE' });
+        const resp = await fetch(SCRIPT_ROOT + `/api/calendar/events/${id}`, { method: 'DELETE' });
         if (resp.ok) loadEvents();
     } catch(e) { /* ignore */ }
 }
