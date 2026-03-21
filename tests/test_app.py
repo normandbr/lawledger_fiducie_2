@@ -287,6 +287,7 @@ class TestPageRendering:
         "/unbilled",
         "/gl",
         "/hr-records",
+        "/accounts",
     ]
 
     def test_manager_pages_render(self, client, manager_user):

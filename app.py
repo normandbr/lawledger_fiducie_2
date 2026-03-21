@@ -869,6 +869,137 @@ class SupplierPayment(db.Model):
         }
 
 
+# ── Chart of Accounts / Journal models (double-entry GL) ──────────────────────
+
+class Account(db.Model):
+    """Chart of accounts (plan de comptes).
+
+    Accounts are organised into a hierarchy via parent_id and categorised by
+    type: asset, liability, equity, revenue, expense.
+    """
+    __tablename__ = 'accounts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(20), unique=True, nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    # asset | liability | equity | revenue | expense
+    account_type = db.Column(db.String(20), nullable=False, default='expense')
+    parent_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    is_system = db.Column(db.Boolean, default=False)   # protected from deletion
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    parent = db.relationship('Account', remote_side=[id], backref='children')
+    journal_lines = db.relationship('JournalLine', backref='account', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'account_type': self.account_type,
+            'parent_id': self.parent_id,
+            'is_active': self.is_active,
+            'is_system': self.is_system,
+        }
+
+
+class JournalEntry(db.Model):
+    """Header record for a double-entry journal posting."""
+    __tablename__ = 'journal_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False, default=datetime.utcnow)
+    description = db.Column(db.String(500), nullable=True)
+    # invoice | trust_deposit | trust_withdrawal | trust_payment | manual
+    source_type = db.Column(db.String(50), nullable=True)
+    source_id = db.Column(db.Integer, nullable=True)
+    is_reversed = db.Column(db.Boolean, default=False)
+    reversed_by_id = db.Column(db.Integer, db.ForeignKey('journal_entries.id'), nullable=True)
+    created_by = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    lines = db.relationship('JournalLine', backref='entry', lazy=True,
+                            cascade='all, delete-orphan')
+    reversal_entry = db.relationship('JournalEntry', remote_side=[id])
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entry_date': self.entry_date.isoformat() if self.entry_date else None,
+            'description': self.description or '',
+            'source_type': self.source_type or '',
+            'source_id': self.source_id,
+            'is_reversed': self.is_reversed,
+            'reversed_by_id': self.reversed_by_id,
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'lines': [l.to_dict() for l in self.lines],
+        }
+
+
+class JournalLine(db.Model):
+    """Individual debit or credit line within a journal entry."""
+    __tablename__ = 'journal_lines'
+
+    id = db.Column(db.Integer, primary_key=True)
+    entry_id = db.Column(db.Integer, db.ForeignKey('journal_entries.id'), nullable=False)
+    account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=False)
+    debit = db.Column(db.Numeric(12, 2), default=0.00)
+    credit = db.Column(db.Numeric(12, 2), default=0.00)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=True)
+    is_trust = db.Column(db.Boolean, default=False)
+    memo = db.Column(db.String(500), nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entry_id': self.entry_id,
+            'account_id': self.account_id,
+            'account_code': self.account.code if self.account else '',
+            'account_name': self.account.name if self.account else '',
+            'account_type': self.account.account_type if self.account else '',
+            'debit': float(self.debit or 0),
+            'credit': float(self.credit or 0),
+            'client_id': self.client_id,
+            'matter_id': self.matter_id,
+            'is_trust': self.is_trust,
+            'memo': self.memo or '',
+        }
+
+
+class TrustReconciliation(db.Model):
+    """Monthly trust-account reconciliation record.
+
+    Stores the bank-statement balance entered by the user and the computed GL
+    balance so that discrepancies are tracked over time.
+    """
+    __tablename__ = 'trust_reconciliations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    statement_date = db.Column(db.Date, nullable=False)
+    bank_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    gl_balance = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    difference = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'statement_date': self.statement_date.isoformat() if self.statement_date else None,
+            'bank_balance': float(self.bank_balance or 0),
+            'gl_balance': float(self.gl_balance or 0),
+            'difference': float(self.difference or 0),
+            'notes': self.notes or '',
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ── Schema migrations (no Alembic – add missing columns on startup) ───────────
 
 # Columns that may be missing from existing tables after a schema upgrade.
@@ -1086,6 +1217,9 @@ def _apply_schema_migrations():
             except Exception as mi_exc:
                 logger.warning("Could not make invoices.matter_id nullable: %s", mi_exc)
 
+        # Seed the default chart of accounts if the table is empty
+        _seed_default_accounts()
+
         # Only mark as done when every migration step succeeds so that a
         # partial failure (e.g. temporary DB outage) retries on next request.
         _schema_migrations_applied = True
@@ -1093,8 +1227,284 @@ def _apply_schema_migrations():
         logger.warning("Schema migration check failed (will retry on next request): %s", exc)
 
 
-@app.before_request
-def _enforce_license():
+# Default plan de comptes for a Quebec law firm.
+# Each entry is: (code, name, account_type, parent_code, is_system)
+_DEFAULT_ACCOUNTS = [
+    # ── ACTIF (1xxx) ──────────────────────────────────────────────
+    ('1000', 'ACTIF',                       'asset',     None,   True),
+    ('1010', 'Banque – compte opérationnel','asset',     '1000', True),
+    ('1020', 'Banque – compte en fiducie',  'asset',     '1000', True),
+    ('1100', 'Comptes à recevoir',          'asset',     '1000', True),
+    ('1200', 'Avances aux employés',        'asset',     '1000', False),
+    # ── PASSIF (2xxx) ─────────────────────────────────────────────
+    ('2000', 'PASSIF',                      'liability', None,   True),
+    ('2010', 'Comptes à payer',             'liability', '2000', True),
+    ('2100', 'Salaires à payer',            'liability', '2000', False),
+    ('2110', 'DAS à payer',                 'liability', '2000', False),
+    ('2200', 'TPS/TVQ à remettre',          'liability', '2000', True),
+    ('2300', 'Fiducie clients (passif)',     'liability', '2000', True),
+    # ── CAPITAUX PROPRES (3xxx) ───────────────────────────────────
+    ('3000', 'CAPITAUX PROPRES',            'equity',    None,   False),
+    ('3010', 'Capital',                     'equity',    '3000', False),
+    ('3020', 'Bénéfices non répartis',      'equity',    '3000', False),
+    # ── REVENUS (4xxx) ────────────────────────────────────────────
+    ('4000', 'REVENUS',                     'revenue',   None,   True),
+    ('4010', 'Honoraires juridiques',       'revenue',   '4000', True),
+    ('4020', 'Débours refacturés',          'revenue',   '4000', True),
+    # ── DÉPENSES (5xxx) ───────────────────────────────────────────
+    ('5000', 'DÉPENSES',                    'expense',   None,   False),
+    ('5010', 'Salaires',                    'expense',   '5000', False),
+    ('5020', 'Charges sociales',            'expense',   '5000', False),
+    ('5030', 'Loyer',                       'expense',   '5000', False),
+    ('5040', 'Fournitures de bureau',       'expense',   '5000', False),
+    ('5050', 'Débours avancés (frais)',     'expense',   '5000', False),
+]
+
+
+def _seed_default_accounts():
+    """Insert the default plan de comptes if the accounts table is empty."""
+    try:
+        if Account.query.count() > 0:
+            return
+        # First pass: create accounts without parent links
+        code_to_obj = {}
+        for code, name, acct_type, parent_code, is_system in _DEFAULT_ACCOUNTS:
+            acct = Account(code=code, name=name, account_type=acct_type,
+                           is_system=is_system, is_active=True)
+            db.session.add(acct)
+            code_to_obj[code] = acct
+        db.session.flush()
+        # Second pass: set parent_id
+        for code, name, acct_type, parent_code, is_system in _DEFAULT_ACCOUNTS:
+            if parent_code and parent_code in code_to_obj:
+                code_to_obj[code].parent_id = code_to_obj[parent_code].id
+        db.session.commit()
+        logger.info("Seeded %d default accounts", len(_DEFAULT_ACCOUNTS))
+    except Exception as exc:
+        db.session.rollback()
+        logger.warning("Could not seed default accounts: %s", exc)
+
+
+# ── Journal entry helpers ─────────────────────────────────────────────────────
+
+def _get_account_by_code(code):
+    """Return the Account with the given code, or None if not found."""
+    return Account.query.filter_by(code=code).first()
+
+
+def _create_journal_entry(entry_date, description, source_type, source_id,
+                           lines, created_by=None):
+    """Create a balanced journal entry with the given lines.
+
+    ``lines`` is a list of dicts with keys:
+        account_code  – e.g. '1100'
+        debit         – float (0 if credit side)
+        credit        – float (0 if debit side)
+        client_id     – optional int
+        matter_id     – optional int
+        is_trust      – optional bool
+        memo          – optional str
+
+    Returns the saved JournalEntry, or None on failure.
+    """
+    try:
+        entry = JournalEntry(
+            entry_date=entry_date,
+            description=description,
+            source_type=source_type,
+            source_id=source_id,
+            created_by=created_by,
+        )
+        db.session.add(entry)
+        db.session.flush()
+
+        for ln in lines:
+            account = _get_account_by_code(ln['account_code'])
+            if account is None:
+                logger.warning("Journal entry: unknown account code '%s' — skipping line",
+                               ln['account_code'])
+                continue
+            line = JournalLine(
+                entry_id=entry.id,
+                account_id=account.id,
+                debit=round(float(ln.get('debit', 0)), 2),
+                credit=round(float(ln.get('credit', 0)), 2),
+                client_id=ln.get('client_id'),
+                matter_id=ln.get('matter_id'),
+                is_trust=bool(ln.get('is_trust', False)),
+                memo=ln.get('memo'),
+            )
+            db.session.add(line)
+
+        return entry
+    except Exception as exc:
+        logger.warning("Could not create journal entry: %s", exc)
+        return None
+
+
+def _post_invoice_journal(invoice, client):
+    """Auto-post a double-entry journal record when an invoice is finalised.
+
+    Debit  1100 Comptes à recevoir
+    Credit 4010 Honoraires juridiques  (subtotal)
+    Credit 2200 TPS/TVQ à remettre     (taxes, if any)
+    """
+    try:
+        amount = float(invoice.total_amount or 0)
+        if amount <= 0:
+            return
+        matter = Matter.query.get(invoice.matter_id) if invoice.matter_id else None
+        lines = [
+            {
+                'account_code': '1100',
+                'debit': amount,
+                'credit': 0,
+                'client_id': client.id if client else None,
+                'matter_id': invoice.matter_id,
+            },
+        ]
+        subtotal = float(invoice.subtotal or 0)
+        gst = float(invoice.gst_amount or 0)
+        qst = float(invoice.qst_amount or 0)
+        if subtotal > 0:
+            lines.append({
+                'account_code': '4010',
+                'debit': 0,
+                'credit': round(subtotal, 2),
+                'client_id': client.id if client else None,
+                'matter_id': invoice.matter_id,
+            })
+        tax_total = round(gst + qst, 2)
+        if tax_total > 0:
+            lines.append({
+                'account_code': '2200',
+                'debit': 0,
+                'credit': tax_total,
+                'client_id': client.id if client else None,
+                'matter_id': invoice.matter_id,
+            })
+        actor = current_user.display_name if current_user and current_user.is_authenticated else 'system'
+        _create_journal_entry(
+            entry_date=invoice.invoice_date,
+            description=f'Facture {invoice.invoice_number}',
+            source_type='invoice',
+            source_id=invoice.id,
+            lines=lines,
+            created_by=actor,
+        )
+    except Exception as exc:
+        logger.warning("Could not auto-post invoice journal: %s", exc)
+
+
+def _post_payment_journal(invoice, client, payment_amount):
+    """Auto-post the payment journal entry when an invoice is marked paid.
+
+    Debit  1010 Banque – compte opérationnel
+    Credit 1100 Comptes à recevoir
+    """
+    try:
+        if payment_amount <= 0:
+            return
+        actor = current_user.display_name if current_user and current_user.is_authenticated else 'system'
+        _create_journal_entry(
+            entry_date=invoice.invoice_date,
+            description=f'Paiement facture {invoice.invoice_number}',
+            source_type='payment',
+            source_id=invoice.id,
+            lines=[
+                {
+                    'account_code': '1010',
+                    'debit': round(payment_amount, 2),
+                    'credit': 0,
+                    'client_id': client.id if client else None,
+                    'matter_id': invoice.matter_id,
+                },
+                {
+                    'account_code': '1100',
+                    'debit': 0,
+                    'credit': round(payment_amount, 2),
+                    'client_id': client.id if client else None,
+                    'matter_id': invoice.matter_id,
+                },
+            ],
+            created_by=actor,
+        )
+    except Exception as exc:
+        logger.warning("Could not auto-post payment journal: %s", exc)
+
+
+def _post_trust_journal(transaction, matter):
+    """Auto-post a trust transaction to the double-entry journal.
+
+    DEPOT:
+        Debit  1020 Banque fiducie
+        Credit 2300 Fiducie clients (passif)
+
+    RETRAIT / payment from trust:
+        Debit  2300 Fiducie clients (passif)
+        Credit 1020 Banque fiducie
+    """
+    try:
+        amount = float(transaction.montant or 0)
+        if amount <= 0:
+            return
+        client = matter.client if matter else None
+        actor = transaction.created_by or 'system'
+        if transaction.type_trans == 'DEPOT':
+            lines = [
+                {
+                    'account_code': '1020',
+                    'debit': amount,
+                    'credit': 0,
+                    'client_id': client.id if client else None,
+                    'matter_id': matter.id if matter else None,
+                    'is_trust': True,
+                },
+                {
+                    'account_code': '2300',
+                    'debit': 0,
+                    'credit': amount,
+                    'client_id': client.id if client else None,
+                    'matter_id': matter.id if matter else None,
+                    'is_trust': True,
+                },
+            ]
+            description = f'Dépôt fiducie – {matter.matter_number if matter else ""}'
+            source_type = 'trust_deposit'
+        else:
+            lines = [
+                {
+                    'account_code': '2300',
+                    'debit': amount,
+                    'credit': 0,
+                    'client_id': client.id if client else None,
+                    'matter_id': matter.id if matter else None,
+                    'is_trust': True,
+                },
+                {
+                    'account_code': '1020',
+                    'debit': 0,
+                    'credit': amount,
+                    'client_id': client.id if client else None,
+                    'matter_id': matter.id if matter else None,
+                    'is_trust': True,
+                },
+            ]
+            description = (f'Retrait fiducie – {matter.matter_number if matter else ""}'
+                           + (f' (Facture {transaction.invoice_number})' if transaction.invoice_number else ''))
+            source_type = 'trust_withdrawal'
+
+        entry_date = transaction.date_trans.date() if isinstance(transaction.date_trans, datetime) else transaction.date_trans
+        _create_journal_entry(
+            entry_date=entry_date,
+            description=description,
+            source_type=source_type,
+            source_id=transaction.fid_id,
+            lines=lines,
+            created_by=actor,
+        )
+    except Exception as exc:
+        logger.warning("Could not auto-post trust journal: %s", exc)
     """Role-based license enforcement on every request.
 
     Access matrix (all non-VALID statuses treated identically):
@@ -1576,6 +1986,9 @@ def api_fiducie_create(matter_id):
         created_by=current_user.display_name
     )
     db.session.add(nouvelle_t)
+    db.session.commit()
+    # Auto-post corresponding journal entry
+    _post_trust_journal(nouvelle_t, matter)
     db.session.commit()
     return jsonify({'success': True, 'id': nouvelle_t.fid_id}), 201
 
@@ -2363,6 +2776,357 @@ def api_gl():
         'total_credit': round(total_credit, 2),
         'balance': round(running_balance, 2),
     })
+
+
+# ── API: Chart of Accounts ────────────────────────────────────────────────────
+
+@app.route('/accounts')
+@login_required
+def accounts_page():
+    """Plan de comptes management page (manager only)."""
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    firm = FirmInfo.query.first()
+    return render_template('accounts.html', firm=firm)
+
+
+@app.route('/api/accounts', methods=['GET', 'POST'])
+@login_required
+def api_accounts():
+    """List or create chart-of-accounts entries."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'GET':
+        accounts = Account.query.order_by(Account.code).all()
+        return jsonify([a.to_dict() for a in accounts])
+    # POST – create new account
+    data = request.get_json()
+    if not data or not data.get('code') or not data.get('name'):
+        return jsonify({'error': 'code and name are required'}), 400
+    code = data['code'].strip()
+    if Account.query.filter_by(code=code).first():
+        return jsonify({'error': 'Account code already exists'}), 409
+    account = Account(
+        code=code,
+        name=data['name'].strip(),
+        account_type=data.get('account_type', 'expense'),
+        parent_id=data.get('parent_id') or None,
+        is_active=bool(data.get('is_active', True)),
+        is_system=False,
+    )
+    db.session.add(account)
+    db.session.commit()
+    return jsonify(account.to_dict()), 201
+
+
+@app.route('/api/accounts/<int:account_id>', methods=['GET', 'PUT', 'DELETE'])
+@login_required
+def api_account_detail(account_id):
+    """Get, update or delete a single account."""
+    account = Account.query.get_or_404(account_id)
+    if request.method == 'GET':
+        return jsonify(account.to_dict())
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'PUT':
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        if 'code' in data and data['code']:
+            new_code = data['code'].strip()
+            existing = Account.query.filter(Account.code == new_code, Account.id != account_id).first()
+            if existing:
+                return jsonify({'error': 'Account code already exists'}), 409
+            account.code = new_code
+        if 'name' in data:
+            account.name = data['name'].strip()
+        if 'account_type' in data:
+            account.account_type = data['account_type']
+        if 'parent_id' in data:
+            account.parent_id = data['parent_id'] or None
+        if 'is_active' in data:
+            account.is_active = bool(data['is_active'])
+        account.updated_at = datetime.utcnow()
+        db.session.commit()
+        return jsonify(account.to_dict())
+    # DELETE – forbid deleting system accounts or accounts with journal lines
+    if account.is_system:
+        return jsonify({'error': 'Cannot delete a system account'}), 409
+    if JournalLine.query.filter_by(account_id=account_id).first():
+        return jsonify({'error': 'Cannot delete account that has journal lines'}), 409
+    db.session.delete(account)
+    db.session.commit()
+    return '', 204
+
+
+# ── API: Journal Entries ──────────────────────────────────────────────────────
+
+@app.route('/api/journal-entries', methods=['GET', 'POST'])
+@login_required
+def api_journal_entries():
+    """List journal entries with optional filters, or create a manual entry."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+
+    if request.method == 'GET':
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        client_id = request.args.get('client_id')
+        matter_id = request.args.get('matter_id')
+        source_type = request.args.get('source_type', '').strip()
+        is_trust = request.args.get('is_trust', '').strip().lower()
+
+        q = JournalEntry.query
+        if date_from:
+            try:
+                q = q.filter(JournalEntry.entry_date >= datetime.strptime(date_from, '%Y-%m-%d').date())
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                q = q.filter(JournalEntry.entry_date <= datetime.strptime(date_to, '%Y-%m-%d').date())
+            except ValueError:
+                pass
+        if source_type:
+            q = q.filter(JournalEntry.source_type == source_type)
+
+        # Filter by client or matter via journal lines sub-query
+        if client_id or matter_id or is_trust == 'true':
+            line_q = JournalLine.query
+            if client_id:
+                line_q = line_q.filter(JournalLine.client_id == int(client_id))
+            if matter_id:
+                line_q = line_q.filter(JournalLine.matter_id == int(matter_id))
+            if is_trust == 'true':
+                line_q = line_q.filter(JournalLine.is_trust == True)
+            entry_ids = [l.entry_id for l in line_q.all()]
+            if entry_ids:
+                q = q.filter(JournalEntry.id.in_(entry_ids))
+            else:
+                return jsonify([])
+
+        entries = q.order_by(JournalEntry.entry_date.desc()).all()
+        return jsonify([e.to_dict() for e in entries])
+
+    # POST – create a manual journal entry
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    lines_data = data.get('lines', [])
+    if len(lines_data) < 2:
+        return jsonify({'error': 'A journal entry requires at least 2 lines'}), 400
+
+    # Validate balanced entry
+    total_debit = round(sum(float(l.get('debit', 0)) for l in lines_data), 2)
+    total_credit = round(sum(float(l.get('credit', 0)) for l in lines_data), 2)
+    if abs(total_debit - total_credit) > 0.005:
+        return jsonify({'error': f'Journal entry is not balanced (debit {total_debit} ≠ credit {total_credit})'}), 400
+
+    try:
+        entry_date = datetime.fromisoformat(data['entry_date']).date()
+    except (KeyError, ValueError):
+        entry_date = datetime.utcnow().date()
+
+    entry = _create_journal_entry(
+        entry_date=entry_date,
+        description=data.get('description', ''),
+        source_type='manual',
+        source_id=None,
+        lines=lines_data,
+        created_by=current_user.display_name,
+    )
+    if entry is None:
+        return jsonify({'error': 'Could not create journal entry'}), 500
+    db.session.commit()
+    return jsonify(entry.to_dict()), 201
+
+
+@app.route('/api/journal-entries/<int:entry_id>', methods=['GET'])
+@login_required
+def api_journal_entry_detail(entry_id):
+    """Return a single journal entry with all its lines."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    entry = JournalEntry.query.get_or_404(entry_id)
+    return jsonify(entry.to_dict())
+
+
+# ── API: Enhanced GL from journal entries ─────────────────────────────────────
+
+@app.route('/api/gl/journal', methods=['GET'])
+@login_required
+def api_gl_journal():
+    """Return GL lines from journal_entries for a given period.
+
+    Supports optional filters: date_from, date_to, client_id, matter_id,
+    account_id, is_trust.
+    Returns a flat list of journal lines with running balance per line,
+    plus summary totals.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    client_id = request.args.get('client_id')
+    matter_id = request.args.get('matter_id')
+    account_id = request.args.get('account_id')
+    is_trust = request.args.get('is_trust', '').strip().lower()
+
+    # Build a joined query: journal_lines JOIN journal_entries
+    q = (db.session.query(JournalLine, JournalEntry)
+         .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
+         .order_by(JournalEntry.entry_date.asc(), JournalEntry.id.asc(), JournalLine.id.asc()))
+
+    if date_from_str:
+        try:
+            q = q.filter(JournalEntry.entry_date >= datetime.strptime(date_from_str, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            q = q.filter(JournalEntry.entry_date <= datetime.strptime(date_to_str, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if client_id:
+        q = q.filter(JournalLine.client_id == int(client_id))
+    if matter_id:
+        q = q.filter(JournalLine.matter_id == int(matter_id))
+    if account_id:
+        q = q.filter(JournalLine.account_id == int(account_id))
+    if is_trust == 'true':
+        q = q.filter(JournalLine.is_trust == True)
+
+    rows = q.all()
+
+    entries_out = []
+    running_balance = 0.0
+    total_debit = 0.0
+    total_credit = 0.0
+
+    # Group lines by entry
+    from itertools import groupby
+    grouped = {}
+    for line, entry in rows:
+        if entry.id not in grouped:
+            grouped[entry.id] = {'entry': entry, 'lines': []}
+        grouped[entry.id]['lines'].append(line)
+
+    for entry_id_key in sorted(grouped.keys()):
+        grp = grouped[entry_id_key]
+        entry = grp['entry']
+        entry_lines = grp['lines']
+
+        entry_block = {
+            'entry_id': entry.id,
+            'entry_date': entry.entry_date.isoformat() if entry.entry_date else '',
+            'description': entry.description or '',
+            'source_type': entry.source_type or '',
+            'source_id': entry.source_id,
+            'lines': [],
+        }
+
+        for line in entry_lines:
+            d = float(line.debit or 0)
+            c = float(line.credit or 0)
+            running_balance += d - c
+            total_debit += d
+            total_credit += c
+
+            # Resolve client / matter names
+            client_obj = Client.query.get(line.client_id) if line.client_id else None
+            matter_obj = Matter.query.get(line.matter_id) if line.matter_id else None
+
+            entry_block['lines'].append({
+                'line_id': line.id,
+                'account_code': line.account.code if line.account else '',
+                'account_name': line.account.name if line.account else '',
+                'account_type': line.account.account_type if line.account else '',
+                'debit': round(d, 2),
+                'credit': round(c, 2),
+                'balance': round(running_balance, 2),
+                'client_name': client_obj.client_name if client_obj else '',
+                'matter_number': matter_obj.matter_number if matter_obj else '',
+                'is_trust': line.is_trust,
+                'memo': line.memo or '',
+            })
+
+        entries_out.append(entry_block)
+
+    return jsonify({
+        'entries': entries_out,
+        'total_debit': round(total_debit, 2),
+        'total_credit': round(total_credit, 2),
+        'balance': round(running_balance, 2),
+    })
+
+
+# ── API: Trust Reconciliation ─────────────────────────────────────────────────
+
+@app.route('/api/trust/reconciliation', methods=['GET', 'POST'])
+@login_required
+def api_trust_reconciliation():
+    """List all trust reconciliations or create a new one."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+
+    if request.method == 'GET':
+        recs = TrustReconciliation.query.order_by(TrustReconciliation.statement_date.desc()).all()
+        return jsonify([r.to_dict() for r in recs])
+
+    # POST – create new reconciliation
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    try:
+        stmt_date = datetime.strptime(data['statement_date'], '%Y-%m-%d').date()
+    except (KeyError, ValueError):
+        return jsonify({'error': 'statement_date (YYYY-MM-DD) is required'}), 400
+
+    try:
+        bank_balance = round(float(data['bank_balance']), 2)
+    except (KeyError, ValueError, TypeError):
+        return jsonify({'error': 'bank_balance is required'}), 400
+
+    # Compute GL trust balance from journal lines flagged as trust
+    trust_lines = JournalLine.query.filter_by(is_trust=True).all()
+    gl_balance = round(sum(float(l.debit or 0) - float(l.credit or 0) for l in trust_lines), 2)
+
+    # If no journal lines exist yet, fall back to TransactionsFiducie
+    if not trust_lines:
+        all_txns = TransactionsFiducie.query.filter_by(est_annulee=False).all()
+        gl_balance = round(sum(
+            float(t.montant) if t.type_trans == 'DEPOT' else -float(t.montant)
+            for t in all_txns
+        ), 2)
+
+    difference = round(bank_balance - gl_balance, 2)
+
+    rec = TrustReconciliation(
+        statement_date=stmt_date,
+        bank_balance=bank_balance,
+        gl_balance=gl_balance,
+        difference=difference,
+        notes=(data.get('notes') or '').strip() or None,
+        created_by=current_user.display_name,
+    )
+    db.session.add(rec)
+    db.session.commit()
+    return jsonify(rec.to_dict()), 201
+
+
+@app.route('/api/trust/reconciliation/<int:rec_id>', methods=['DELETE'])
+@login_required
+def api_trust_reconciliation_delete(rec_id):
+    """Delete a trust reconciliation record (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    rec = TrustReconciliation.query.get_or_404(rec_id)
+    db.session.delete(rec)
+    db.session.commit()
+    return '', 204
 
 
 @app.route('/invoices/create')
@@ -3622,10 +4386,11 @@ def api_invoices():
                 invoice.status = 'paid'
 
     db.session.commit()
+    # Auto-post journal entry for non-draft invoices
+    if invoice.status != 'draft':
+        _post_invoice_journal(invoice, client)
+        db.session.commit()
     return jsonify(invoice.to_dict()), 201
-
-
-@app.route('/api/invoices/<int:invoice_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 def api_invoice_detail(invoice_id):
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -3635,12 +4400,22 @@ def api_invoice_detail(invoice_id):
         return jsonify(result)
     if request.method == 'PUT':
         data = request.get_json()
+        old_status = invoice.status
         for key, value in data.items():
             if hasattr(invoice, key) and key not in ['id', 'created_at']:
                 setattr(invoice, key, value)
-        #invoice.updated_at = datetime.utcnow()
         invoice.updated_at = datetime.now(UTC)
         db.session.commit()
+        # Auto-post journal entries on relevant status transitions
+        new_status = invoice.status
+        resolved_client = invoice.resolved_client
+        if old_status != 'paid' and new_status == 'paid':
+            _post_payment_journal(invoice, resolved_client,
+                                  float(invoice.total_amount or 0))
+            db.session.commit()
+        elif old_status == 'draft' and new_status not in ('draft', 'cancelled'):
+            _post_invoice_journal(invoice, resolved_client)
+            db.session.commit()
         return jsonify(invoice.to_dict())
     db.session.delete(invoice)
     db.session.commit()

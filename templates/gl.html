@@ -8,7 +8,13 @@
     <button class="btn btn-secondary" onclick="printGL()">{{ t.btn_print_page or '🖨 Print' }}</button>
 </div>
 
-<!-- Filters -->
+<!-- Tab bar -->
+<div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid #e0e0e0;padding-bottom:0;">
+    <button id="tab-classic" class="gl-tab gl-tab-active" onclick="switchTab('classic')">{{ t.btn_gl_classic_tab or '📋 Classic View' }}</button>
+    <button id="tab-journal" class="gl-tab" onclick="switchTab('journal')">{{ t.btn_gl_journal_tab or '📒 Journal Entries' }}</button>
+</div>
+
+<!-- Shared Filters -->
 <div id="gl-filters" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
     <div style="display:flex;flex-direction:column;gap:2px;">
         <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_from or 'Date From' }}</label>
@@ -24,7 +30,7 @@
             <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
         </select>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="loadGL()" style="height:32px;">{{ t.btn_gl_generate or 'Generate' }}</button>
+    <button class="btn btn-sm btn-primary" onclick="loadCurrentTab()" style="height:32px;">{{ t.btn_gl_generate or 'Generate' }}</button>
 </div>
 
 <!-- Print header (visible only during print) -->
@@ -54,37 +60,91 @@
     </div>
 </div>
 
-<!-- Results Table -->
-<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px);padding-top:0;">
-    <table id="gl-table" style="min-width:800px;">
-        <thead>
-            <tr>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_invoice or 'Invoice #' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_description or 'Description' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_debit or 'Debit' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_credit or 'Credit' }}</th>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_balance or 'Balance' }}</th>
-            </tr>
-        </thead>
-        <tbody id="gl-tbody">
-            <tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_gl_entries or 'No entries found for the selected period.' }}</td></tr>
-        </tbody>
-    </table>
+<!-- ── Classic view ── -->
+<div id="view-classic">
+    <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 380px);padding-top:0;">
+        <table id="gl-table" style="min-width:800px;">
+            <thead>
+                <tr>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_invoice or 'Invoice #' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_description or 'Description' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_debit or 'Debit' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_credit or 'Credit' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_balance or 'Balance' }}</th>
+                </tr>
+            </thead>
+            <tbody id="gl-tbody">
+                <tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_gl_entries or 'No entries found for the selected period.' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
 </div>
+
+<!-- ── Journal Entries view (double-entry) ── -->
+<div id="view-journal" style="display:none;">
+    <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 380px);padding-top:0;">
+        <table id="journal-table" style="min-width:900px;">
+            <thead>
+                <tr>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_description or 'Description' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_account or 'Account' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_matter or 'Matter' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;text-align:right;">{{ t.th_gl_debit or 'Debit' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;text-align:right;">{{ t.th_gl_credit or 'Credit' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;text-align:right;">{{ t.th_gl_balance or 'Balance' }}</th>
+                </tr>
+            </thead>
+            <tbody id="journal-tbody">
+                <tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_journal_entries or 'No entries found.' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.gl-tab {
+    padding: 7px 16px;
+    border: 1px solid #e0e0e0;
+    border-bottom: none;
+    background: #f8f9fa;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: background 0.15s;
+}
+.gl-tab:hover { background: #eef0f5; }
+.gl-tab-active {
+    background: #fff;
+    color: var(--primary, #2c7be5);
+    font-weight: 600;
+    border-bottom: 2px solid #fff;
+    margin-bottom: -2px;
+}
+.je-group-row {
+    background: #eef3ff;
+    font-weight: 600;
+    font-size: 12px;
+    color: #2c4a8a;
+}
+.je-trust-row td { color: #2563eb; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
 const GL_STR = {
-    noEntries: {{ (t.msg_no_gl_entries or 'No entries found for the selected period.') | tojson }},
-    allClients: {{ (t.lbl_all_clients or 'All Clients') | tojson }},
-    dateFrom: {{ (t.lbl_gl_date_from or 'Date From') | tojson }},
-    dateTo: {{ (t.lbl_gl_date_to or 'Date To') | tojson }},
-    title: {{ (t.title_gl or 'General Ledger') | tojson }},
-    selectDates: {{ (t.msg_gl_select_dates or 'Please select both a start and end date.') | tojson }},
+    noEntries:      {{ (t.msg_no_gl_entries or 'No entries found for the selected period.') | tojson }},
+    noJournalEntries: {{ (t.msg_no_journal_entries or 'No entries found for the selected period.') | tojson }},
+    allClients:     {{ (t.lbl_all_clients or 'All Clients') | tojson }},
+    selectDates:    {{ (t.msg_gl_select_dates or 'Please select both a start and end date.') | tojson }},
 };
+
+let _currentTab = 'classic';
 
 function fmtMoney(v) {
     return '$' + Number(v || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -93,6 +153,19 @@ function escHtml(s) {
     const d = document.createElement('div');
     d.textContent = s || '';
     return d.innerHTML;
+}
+
+function switchTab(tab) {
+    _currentTab = tab;
+    document.getElementById('view-classic').style.display  = tab === 'classic' ? '' : 'none';
+    document.getElementById('view-journal').style.display  = tab === 'journal' ? '' : 'none';
+    document.getElementById('tab-classic').classList.toggle('gl-tab-active', tab === 'classic');
+    document.getElementById('tab-journal').classList.toggle('gl-tab-active', tab === 'journal');
+}
+
+function loadCurrentTab() {
+    if (_currentTab === 'classic') loadGL();
+    else loadJournal();
 }
 
 async function loadClients() {
@@ -111,15 +184,13 @@ async function loadClients() {
     } catch (err) { console.error(err); }
 }
 
+// ── Classic GL ────────────────────────────────────────────────────────────────
 async function loadGL() {
     const dateFrom = document.getElementById('gl-date-from').value;
-    const dateTo = document.getElementById('gl-date-to').value;
+    const dateTo   = document.getElementById('gl-date-to').value;
     const clientId = document.getElementById('gl-client').value;
 
-    if (!dateFrom || !dateTo) {
-        alert(GL_STR.selectDates);
-        return;
-    }
+    if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
 
     const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo});
     if (clientId) params.set('client_id', clientId);
@@ -129,60 +200,111 @@ async function loadGL() {
         if (!res.ok) throw new Error('API error');
         const data = await res.json();
 
-        document.getElementById('gl-total-debit').textContent = fmtMoney(data.total_debit);
+        document.getElementById('gl-total-debit').textContent  = fmtMoney(data.total_debit);
         document.getElementById('gl-total-credit').textContent = fmtMoney(data.total_credit);
-        document.getElementById('gl-balance').textContent = fmtMoney(data.balance);
+        document.getElementById('gl-balance').textContent      = fmtMoney(data.balance);
 
         const tbody = document.getElementById('gl-tbody');
         if (!data.entries || data.entries.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">' + escHtml(GL_STR.noEntries) + '</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noEntries)}</td></tr>`;
             return;
         }
 
         let html = '';
         data.entries.forEach(e => {
             html += '<tr>';
-            html += '<td>' + escHtml(e.date) + '</td>';
-            html += '<td>' + escHtml(e.invoice_number) + '</td>';
-            html += '<td>' + escHtml(e.client_name) + '</td>';
-            html += '<td>' + escHtml(e.description) + '</td>';
-            html += '<td style="text-align:right;">' + (e.debit ? fmtMoney(e.debit) : '') + '</td>';
-            html += '<td style="text-align:right;">' + (e.credit ? fmtMoney(e.credit) : '') + '</td>';
-            html += '<td style="text-align:right;font-weight:600;">' + fmtMoney(e.balance) + '</td>';
+            html += `<td>${escHtml(e.date)}</td>`;
+            html += `<td>${escHtml(e.invoice_number)}</td>`;
+            html += `<td>${escHtml(e.client_name)}</td>`;
+            html += `<td>${escHtml(e.description)}</td>`;
+            html += `<td style="text-align:right;">${e.debit ? fmtMoney(e.debit) : ''}</td>`;
+            html += `<td style="text-align:right;">${e.credit ? fmtMoney(e.credit) : ''}</td>`;
+            html += `<td style="text-align:right;font-weight:600;">${fmtMoney(e.balance)}</td>`;
             html += '</tr>';
         });
-
-        // Totals row
-        html += '<tr style="font-weight:700;border-top:2px solid #333;">';
-        html += '<td colspan="4" style="text-align:right;">Total</td>';
-        html += '<td style="text-align:right;">' + fmtMoney(data.total_debit) + '</td>';
-        html += '<td style="text-align:right;">' + fmtMoney(data.total_credit) + '</td>';
-        html += '<td style="text-align:right;">' + fmtMoney(data.balance) + '</td>';
-        html += '</tr>';
-
+        html += `<tr style="font-weight:700;border-top:2px solid #333;">
+            <td colspan="4" style="text-align:right;">Total</td>
+            <td style="text-align:right;">${fmtMoney(data.total_debit)}</td>
+            <td style="text-align:right;">${fmtMoney(data.total_credit)}</td>
+            <td style="text-align:right;">${fmtMoney(data.balance)}</td>
+        </tr>`;
         tbody.innerHTML = html;
-    } catch (err) {
-        console.error(err);
-    }
+    } catch (err) { console.error(err); }
+}
+
+// ── Journal Entries GL ────────────────────────────────────────────────────────
+async function loadJournal() {
+    const dateFrom = document.getElementById('gl-date-from').value;
+    const dateTo   = document.getElementById('gl-date-to').value;
+    const clientId = document.getElementById('gl-client').value;
+
+    if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
+
+    const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo});
+    if (clientId) params.set('client_id', clientId);
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/gl/journal?' + params.toString());
+        if (!res.ok) throw new Error('API error');
+        const data = await res.json();
+
+        document.getElementById('gl-total-debit').textContent  = fmtMoney(data.total_debit);
+        document.getElementById('gl-total-credit').textContent = fmtMoney(data.total_credit);
+        document.getElementById('gl-balance').textContent      = fmtMoney(data.balance);
+
+        const tbody = document.getElementById('journal-tbody');
+        if (!data.entries || data.entries.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noJournalEntries)}</td></tr>`;
+            return;
+        }
+
+        let html = '';
+        data.entries.forEach(entry => {
+            // Group header row
+            html += `<tr class="je-group-row">
+                <td>${escHtml(entry.entry_date)}</td>
+                <td colspan="7">${escHtml(entry.description)}</td>
+            </tr>`;
+            entry.lines.forEach(ln => {
+                const trustCls = ln.is_trust ? ' je-trust-row' : '';
+                html += `<tr class="${trustCls}">`;
+                html += `<td></td>`;
+                html += `<td style="padding-left:20px;font-size:12px;">${ln.is_trust ? '🔵 ' : ''}${escHtml(ln.memo || '')}</td>`;
+                html += `<td style="font-size:12px;">${escHtml(ln.account_code)} – ${escHtml(ln.account_name)}</td>`;
+                html += `<td style="font-size:12px;">${escHtml(ln.client_name)}</td>`;
+                html += `<td style="font-size:12px;">${escHtml(ln.matter_number)}</td>`;
+                html += `<td style="text-align:right;color:#1e7e34;">${ln.debit ? fmtMoney(ln.debit) : ''}</td>`;
+                html += `<td style="text-align:right;color:#c0392b;">${ln.credit ? fmtMoney(ln.credit) : ''}</td>`;
+                html += `<td style="text-align:right;font-weight:600;">${fmtMoney(ln.balance)}</td>`;
+                html += '</tr>';
+            });
+        });
+        html += `<tr style="font-weight:700;border-top:2px solid #333;">
+            <td colspan="5" style="text-align:right;">Total</td>
+            <td style="text-align:right;">${fmtMoney(data.total_debit)}</td>
+            <td style="text-align:right;">${fmtMoney(data.total_credit)}</td>
+            <td style="text-align:right;">${fmtMoney(data.balance)}</td>
+        </tr>`;
+        tbody.innerHTML = html;
+    } catch (err) { console.error(err); }
 }
 
 function printGL() {
-    const dateFrom = document.getElementById('gl-date-from').value;
-    const dateTo = document.getElementById('gl-date-to').value;
-    const printHeader = document.getElementById('gl-print-header');
-    const periodEl = document.getElementById('gl-print-period');
-    const filters = document.getElementById('gl-filters');
+    const dateFrom  = document.getElementById('gl-date-from').value;
+    const dateTo    = document.getElementById('gl-date-to').value;
+    const printHdr  = document.getElementById('gl-print-header');
+    const periodEl  = document.getElementById('gl-print-period');
+    const filters   = document.getElementById('gl-filters');
+    const tabs      = document.querySelectorAll('.gl-tab');
 
-    if (dateFrom || dateTo) {
-        periodEl.textContent = (dateFrom || '…') + '  —  ' + (dateTo || '…');
-    }
-    printHeader.style.display = 'block';
-    filters.style.display = 'none';
-
+    if (dateFrom || dateTo) periodEl.textContent = (dateFrom || '…') + '  —  ' + (dateTo || '…');
+    printHdr.style.display = 'block';
+    filters.style.display  = 'none';
+    tabs.forEach(t => t.style.display = 'none');
     window.print();
-
-    printHeader.style.display = 'none';
-    filters.style.display = '';
+    printHdr.style.display = 'none';
+    filters.style.display  = '';
+    tabs.forEach(t => t.style.display = '');
 }
 
 // Default dates: first and last day of current month
@@ -192,7 +314,7 @@ function printGL() {
     const m = String(now.getMonth() + 1).padStart(2, '0');
     const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
     document.getElementById('gl-date-from').value = y + '-' + m + '-01';
-    document.getElementById('gl-date-to').value = y + '-' + m + '-' + String(lastDay).padStart(2, '0');
+    document.getElementById('gl-date-to').value   = y + '-' + m + '-' + String(lastDay).padStart(2, '0');
 })();
 
 loadClients();
