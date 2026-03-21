@@ -289,6 +289,7 @@ class TestPageRendering:
         "/unbilled",
         "/gl",
         "/hr-records",
+        "/accounts",
         "/calendar",
     ]
 

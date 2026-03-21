@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_accounts or 'Chart of Accounts' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 {{ t.title_accounts or 'Chart of Accounts' }}</h1>
+    <button class="btn btn-primary" onclick="openAccountModal()">{{ t.btn_add_account or '+ Add Account' }}</button>
+</div>
+
+<!-- Table -->
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 240px);">
+    <table id="accounts-table" style="min-width:700px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_account_code or 'Code' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_account_name or 'Account Name' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_account_type or 'Type' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_account_parent or 'Parent' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;text-align:center;">{{ t.lbl_account_active or 'Active' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;text-align:center;">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="accounts-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">{{ t.msg_no_accounts or 'No accounts.' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Modal: Add / Edit Account -->
+<div id="account-modal-overlay" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);">
+    <div style="background:#fff;border-radius:8px;padding:28px;width:90%;max-width:480px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);">
+        <h2 id="account-modal-title" style="margin:0 0 20px;font-size:1.05rem;font-weight:600;">{{ t.btn_add_account or '+ Add Account' }}</h2>
+        <form id="account-form" onsubmit="submitAccount(event)">
+            <input type="hidden" id="account-id" value="">
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px 16px;align-items:center;">
+                <label style="font-size:13px;font-weight:500;">{{ t.lbl_account_code or 'Code' }}</label>
+                <input type="text" id="acc-code" placeholder="{{ t.ph_account_code or 'e.g. 5100' }}"
+                    required style="padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+
+                <label style="font-size:13px;font-weight:500;">{{ t.lbl_account_name or 'Account Name' }}</label>
+                <input type="text" id="acc-name" placeholder="{{ t.ph_account_name or 'e.g. Legal Fees' }}"
+                    required style="padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+
+                <label style="font-size:13px;font-weight:500;">{{ t.lbl_account_type or 'Type' }}</label>
+                <select id="acc-type" style="padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                    <option value="asset">{{ t.account_type_asset or 'Asset' }}</option>
+                    <option value="liability">{{ t.account_type_liability or 'Liability' }}</option>
+                    <option value="equity">{{ t.account_type_equity or 'Equity' }}</option>
+                    <option value="revenue">{{ t.account_type_revenue or 'Revenue' }}</option>
+                    <option value="expense" selected>{{ t.account_type_expense or 'Expense' }}</option>
+                </select>
+
+                <label style="font-size:13px;font-weight:500;">{{ t.lbl_account_parent or 'Parent Account' }}</label>
+                <select id="acc-parent" style="padding:7px 10px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                    <option value="">— {{ t.lbl_account_parent or 'Parent Account' }} —</option>
+                </select>
+
+                <label style="font-size:13px;font-weight:500;">{{ t.lbl_account_active or 'Active' }}</label>
+                <input type="checkbox" id="acc-active" checked style="width:16px;height:16px;">
+            </div>
+            <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+                <button type="button" class="btn btn-secondary" onclick="closeAccountModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+                <button type="submit" class="btn btn-primary">{{ t.btn_save_account or 'Save Account' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ACCT_STR = {
+    noAccounts:  {{ (t.msg_no_accounts  or 'No accounts.') | tojson }},
+    saved:       {{ (t.msg_account_saved  or 'Account saved.') | tojson }},
+    deleted:     {{ (t.msg_account_deleted or 'Account deleted.') | tojson }},
+    systemAcct:  {{ (t.msg_account_system  or 'Cannot delete a system account.') | tojson }},
+    hasLines:    {{ (t.msg_account_has_lines or 'Cannot delete account with journal lines.') | tojson }},
+    addTitle:    {{ (t.btn_add_account or '+ Add Account') | tojson }},
+    editTitle:   {{ (t.btn_edit or 'Edit') | tojson }},
+    typeLabels: {
+        asset:     {{ (t.account_type_asset     or 'Asset')     | tojson }},
+        liability: {{ (t.account_type_liability or 'Liability') | tojson }},
+        equity:    {{ (t.account_type_equity    or 'Equity')    | tojson }},
+        revenue:   {{ (t.account_type_revenue   or 'Revenue')   | tojson }},
+        expense:   {{ (t.account_type_expense   or 'Expense')   | tojson }},
+    },
+    confirmDelete: {{ (t.lbl_confirm_delete or 'Delete this account?') | tojson }},
+};
+
+let _allAccounts = [];
+
+function escHtml(s) {
+    const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML;
+}
+function typeBadge(type) {
+    const colors = {asset:'#1a73e8',liability:'#e53935',equity:'#6d28d9',revenue:'#1e7e34',expense:'#e65100'};
+    const c = colors[type] || '#666';
+    return `<span style="background:${c};color:#fff;border-radius:3px;padding:2px 7px;font-size:11px;">${escHtml(ACCT_STR.typeLabels[type] || type)}</span>`;
+}
+
+async function loadAccounts() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/accounts');
+        if (!res.ok) return;
+        _allAccounts = await res.json();
+        renderAccounts(_allAccounts);
+        populateParentSelect(_allAccounts, null);
+    } catch(e) { console.error(e); }
+}
+
+function renderAccounts(list) {
+    const tbody = document.getElementById('accounts-tbody');
+    if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">${escHtml(ACCT_STR.noAccounts)}</td></tr>`;
+        return;
+    }
+    const parentMap = {};
+    list.forEach(a => { parentMap[a.id] = a; });
+
+    let html = '';
+    list.forEach(a => {
+        const parentName = a.parent_id && parentMap[a.parent_id] ? `${parentMap[a.parent_id].code} – ${parentMap[a.parent_id].name}` : '—';
+        const isSystem = a.is_system;
+        const rowStyle = !a.is_active ? 'opacity:0.5;' : '';
+        html += `<tr style="${rowStyle}">`;
+        html += `<td style="font-weight:600;">${escHtml(a.code)}</td>`;
+        html += `<td>${escHtml(a.name)}</td>`;
+        html += `<td>${typeBadge(a.account_type)}</td>`;
+        html += `<td style="font-size:12px;color:var(--text-secondary);">${escHtml(parentName)}</td>`;
+        html += `<td style="text-align:center;">${a.is_active ? '✅' : '—'}</td>`;
+        html += `<td style="text-align:center;white-space:nowrap;">`;
+        html += `<button class="btn btn-sm btn-secondary" onclick="editAccount(${a.id})" style="margin-right:4px;">✏️</button>`;
+        if (!isSystem) {
+            html += `<button class="btn btn-sm btn-danger" onclick="deleteAccount(${a.id})">🗑</button>`;
+        }
+        html += `</td></tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
+function populateParentSelect(list, excludeId) {
+    const sel = document.getElementById('acc-parent');
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">— Parent —</option>`;
+    list.forEach(a => {
+        if (a.id === excludeId) return;
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = `${a.code} – ${a.name}`;
+        if (String(a.id) === String(cur)) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function openAccountModal(acct) {
+    document.getElementById('account-modal-title').textContent = acct ? ACCT_STR.editTitle : ACCT_STR.addTitle;
+    document.getElementById('account-id').value = acct ? acct.id : '';
+    document.getElementById('acc-code').value = acct ? acct.code : '';
+    document.getElementById('acc-name').value = acct ? acct.name : '';
+    document.getElementById('acc-type').value = acct ? acct.account_type : 'expense';
+    document.getElementById('acc-active').checked = acct ? acct.is_active : true;
+    populateParentSelect(_allAccounts, acct ? acct.id : null);
+    document.getElementById('acc-parent').value = acct && acct.parent_id ? acct.parent_id : '';
+    document.getElementById('account-modal-overlay').style.display = 'block';
+}
+
+function closeAccountModal() {
+    document.getElementById('account-modal-overlay').style.display = 'none';
+}
+
+function editAccount(id) {
+    const acct = _allAccounts.find(a => a.id === id);
+    if (acct) openAccountModal(acct);
+}
+
+async function submitAccount(e) {
+    e.preventDefault();
+    const id = document.getElementById('account-id').value;
+    const payload = {
+        code:         document.getElementById('acc-code').value.trim(),
+        name:         document.getElementById('acc-name').value.trim(),
+        account_type: document.getElementById('acc-type').value,
+        parent_id:    document.getElementById('acc-parent').value || null,
+        is_active:    document.getElementById('acc-active').checked,
+    };
+    const url = id ? `${SCRIPT_ROOT}/api/accounts/${id}` : `${SCRIPT_ROOT}/api/accounts`;
+    const method = id ? 'PUT' : 'POST';
+    try {
+        const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || 'Error'); return; }
+        closeAccountModal();
+        loadAccounts();
+    } catch(err) { console.error(err); }
+}
+
+async function deleteAccount(id) {
+    if (!confirm(ACCT_STR.confirmDelete)) return;
+    try {
+        const res = await fetch(`${SCRIPT_ROOT}/api/accounts/${id}`, {method:'DELETE'});
+        if (res.status === 204) {
+            loadAccounts();
+        } else {
+            const data = await res.json();
+            alert(data.error || 'Error');
+        }
+    } catch(err) { console.error(err); }
+}
+
+// Close modal on overlay click
+document.getElementById('account-modal-overlay').addEventListener('click', function(e) {
+    if (e.target === this) closeAccountModal();
+});
+
+loadAccounts();
+</script>
+{% endblock %}

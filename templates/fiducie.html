@@ -52,6 +52,11 @@
                 📊 {{ t.btn_trust_summary or 'Rapport fiducie' }}
             </button>
         </div>
+        <div>
+            <button class="btn btn-secondary" onclick="showReconciliationModal()" style="padding:8px 14px;font-size:14px;">
+                🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire' }}
+            </button>
+        </div>
     </div>
 </div>
 
@@ -231,6 +236,45 @@
     </div>
 </div>
 {% endif %}
+<!-- Trust Reconciliation Modal -->
+<div id="reconciliation-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire – Fiducie' }}</h2>
+            <span onclick="closeReconciliationModal()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <!-- New reconciliation form -->
+        <div style="padding:16px 24px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#f8f9fa;">
+            <h3 style="margin:0 0 12px;font-size:0.95rem;font-weight:600;">{{ t.btn_new_reconciliation or '+ Nouveau rapprochement' }}</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_reconciliation_date or 'Date du relevé' }}</label>
+                    <input type="date" id="rec-date" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_bank_balance or 'Solde bancaire (relevé)' }}</label>
+                    <input type="number" id="rec-bank-balance" step="0.01" min="0" placeholder="0.00"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:140px;">
+                </div>
+                <div style="flex:1;min-width:200px;">
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_reconciliation_notes or 'Notes' }}</label>
+                    <input type="text" id="rec-notes" placeholder="..."
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="saveReconciliation()">{{ t.btn_save_reconciliation or 'Enregistrer' }}</button>
+            </div>
+            <div id="rec-result" style="margin-top:10px;font-size:13px;display:none;"></div>
+        </div>
+        <!-- History -->
+        <div style="overflow-y:auto;padding:16px 24px;flex:1 1 auto;">
+            <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_history or 'Historique' }}</h3>
+            <div id="rec-history-content">
+                <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -521,5 +565,130 @@ function renderTrustSummary(rows, dateFrom, dateTo) {
 function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+// ── Trust Reconciliation ──────────────────────────────────────────────────────
+const REC_STR = {
+    balanced:   {{ (t.msg_reconciliation_balanced   or '✅ Compte réconcilié (différence = 0).') | tojson }},
+    unbalanced: {{ (t.msg_reconciliation_unbalanced or '⚠️ Différence détectée. Veuillez vérifier.') | tojson }},
+    saved:      {{ (t.msg_reconciliation_saved       or '✅ Rapprochement enregistré.') | tojson }},
+    noHistory:  {{ (t.msg_no_reconciliations         or 'Aucun rapprochement enregistré.') | tojson }},
+    glLabel:    {{ (t.lbl_gl_balance_trust           or 'Solde GL fiducie') | tojson }},
+    bankLabel:  {{ (t.lbl_bank_balance               or 'Solde bancaire (relevé)') | tojson }},
+    diffLabel:  {{ (t.lbl_reconciliation_difference  or 'Différence') | tojson }},
+    dateLabel:  {{ (t.lbl_reconciliation_date        or 'Date du relevé') | tojson }},
+    notesLabel: {{ (t.lbl_reconciliation_notes       or 'Notes') | tojson }},
+    deleteConfirm: {{ (t.lbl_confirm_delete or 'Supprimer ce rapprochement?') | tojson }},
+};
+
+function showReconciliationModal() {
+    // Default date to today
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('rec-date').value = today;
+    document.getElementById('rec-bank-balance').value = '';
+    document.getElementById('rec-notes').value = '';
+    document.getElementById('rec-result').style.display = 'none';
+    loadReconciliationHistory();
+    document.getElementById('reconciliation-modal').style.display = 'block';
+}
+
+function closeReconciliationModal() {
+    document.getElementById('reconciliation-modal').style.display = 'none';
+}
+
+async function saveReconciliation() {
+    const stmtDate = document.getElementById('rec-date').value;
+    const bankBal  = document.getElementById('rec-bank-balance').value;
+    const notes    = document.getElementById('rec-notes').value;
+    if (!stmtDate || bankBal === '') {
+        const resultDiv = document.getElementById('rec-result');
+        resultDiv.style.display = 'block';
+        resultDiv.style.color = '#c0392b';
+        resultDiv.textContent = {{ (t.lbl_reconciliation_date or 'Date du relevé') | tojson }} + ' ' +
+            {{ (t.lbl_bank_balance or 'Solde bancaire') | tojson }} + ' — ' +
+            {{ (t.lbl_required or 'requis') | tojson }};
+        return;
+    }
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                statement_date: stmtDate,
+                bank_balance: parseFloat(bankBal),
+                notes: notes,
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || 'Error'); return; }
+        const resultDiv = document.getElementById('rec-result');
+        resultDiv.style.display = 'block';
+        const diff = data.difference;
+        if (Math.abs(diff) < 0.005) {
+            resultDiv.style.color = 'green';
+            resultDiv.textContent = REC_STR.balanced
+                + ' | ' + REC_STR.glLabel + ': $' + data.gl_balance.toFixed(2)
+                + ' | ' + REC_STR.bankLabel + ': $' + data.bank_balance.toFixed(2);
+        } else {
+            resultDiv.style.color = '#c0392b';
+            resultDiv.textContent = REC_STR.unbalanced
+                + ' | ' + REC_STR.diffLabel + ': $' + diff.toFixed(2)
+                + ' | GL: $' + data.gl_balance.toFixed(2)
+                + ' | Banque: $' + data.bank_balance.toFixed(2);
+        }
+        loadReconciliationHistory();
+    } catch(err) { console.error(err); }
+}
+
+async function loadReconciliationHistory() {
+    const cont = document.getElementById('rec-history-content');
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        if (!rows.length) {
+            cont.innerHTML = '<p style="color:#888;">' + escHtml(REC_STR.noHistory) + '</p>';
+            return;
+        }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+            + '<thead><tr style="background:#f3f3f3;">'
+            + '<th style="padding:6px 10px;text-align:left;">' + escHtml(REC_STR.dateLabel) + '</th>'
+            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.bankLabel) + '</th>'
+            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.glLabel) + '</th>'
+            + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.diffLabel) + '</th>'
+            + '<th style="padding:6px 10px;">' + escHtml(REC_STR.notesLabel) + '</th>'
+            + '<th style="padding:6px 10px;"></th>'
+            + '</tr></thead><tbody>';
+        rows.forEach(r => {
+            const balanced = Math.abs(r.difference) < 0.005;
+            const diffStyle = balanced ? 'color:green;' : 'color:#c0392b;font-weight:600;';
+            html += '<tr style="border-bottom:1px solid #f0f0f0;">'
+                + '<td style="padding:6px 10px;">' + escHtml(r.statement_date) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;">$' + r.bank_balance.toFixed(2) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;">$' + r.gl_balance.toFixed(2) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;' + diffStyle + '">$' + r.difference.toFixed(2) + (balanced ? ' ✅' : ' ⚠️') + '</td>'
+                + '<td style="padding:6px 10px;font-size:12px;">' + escHtml(r.notes) + '</td>'
+                + '<td style="padding:6px 10px;text-align:center;"><button class="btn btn-sm btn-danger" onclick="deleteReconciliation(' + r.id + ')">🗑</button></td>'
+                + '</tr>';
+        });
+        html += '</tbody></table>';
+        cont.innerHTML = html;
+    } catch(err) {
+        cont.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
+    }
+}
+
+async function deleteReconciliation(id) {
+    if (!confirm(REC_STR.deleteConfirm)) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation/' + id, {method:'DELETE'});
+        if (res.status === 204) loadReconciliationHistory();
+        else { const d = await res.json(); alert(d.error || 'Error'); }
+    } catch(err) { console.error(err); }
+}
+
+// Close reconciliation modal on overlay click
+document.getElementById('reconciliation-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeReconciliationModal();
+});
 </script>
 {% endblock %}
