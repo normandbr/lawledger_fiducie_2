@@ -259,7 +259,7 @@ function renderInvoices(invoices) {
             <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
             <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
             <td><span class="badge ${statusBadgeClass(inv.status)}">${escHtml(statusLabel(inv.status))}</span></td>
-            <td style="white-space:nowrap;display:flex;gap:4px;flex-wrap:wrap;">
+            <td style="white-space:nowrap;display:flex;gap:4px;">
                 ${printBtn}${markSentBtn}${markPaidBtn}${cancelBtn}
             </td>
         </tr>`;

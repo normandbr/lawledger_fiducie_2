@@ -269,7 +269,7 @@
         <!-- History -->
         <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
             <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_history or 'Historique' }}</h3>
-            <div id="rec-history-content" style="min-width:600px;">
+            <div id="rec-history-content" style="min-width:680px;">
                 <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
             </div>
         </div>
@@ -650,14 +650,14 @@ async function loadReconciliationHistory() {
             cont.innerHTML = '<p style="color:#888;">' + escHtml(REC_STR.noHistory) + '</p>';
             return;
         }
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
+        let html = '<table style="border-collapse:collapse;font-size:13px;width:100%;min-width:680px;">'
             + '<thead><tr style="background:#f3f3f3;">'
             + '<th style="padding:6px 10px;text-align:left;">' + escHtml(REC_STR.dateLabel) + '</th>'
             + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.bankLabel) + '</th>'
             + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.glLabel) + '</th>'
             + '<th style="padding:6px 10px;text-align:right;">' + escHtml(REC_STR.diffLabel) + '</th>'
             + '<th style="padding:6px 10px;">' + escHtml(REC_STR.notesLabel) + '</th>'
-            + '<th style="padding:6px 10px;"></th>'
+            + '<th style="padding:6px 10px;width:50px;"></th>'
             + '</tr></thead><tbody>';
         rows.forEach(r => {
             const balanced = Math.abs(r.difference) < 0.005;
@@ -668,7 +668,7 @@ async function loadReconciliationHistory() {
                 + '<td style="padding:6px 10px;text-align:right;">$' + r.gl_balance.toFixed(2) + '</td>'
                 + '<td style="padding:6px 10px;text-align:right;' + diffStyle + '">$' + r.difference.toFixed(2) + (balanced ? ' ✅' : ' ⚠️') + '</td>'
                 + '<td style="padding:6px 10px;font-size:12px;">' + escHtml(r.notes) + '</td>'
-                + '<td style="padding:6px 10px;text-align:center;"><button class="btn btn-sm btn-danger" onclick="deleteReconciliation(' + r.id + ')">🗑</button></td>'
+                + '<td style="padding:6px 10px;text-align:center;white-space:nowrap;"><button class="btn btn-sm btn-danger" onclick="deleteReconciliation(' + r.id + ')">🗑</button></td>'
                 + '</tr>';
         });
         html += '</tbody></table>';

@@ -889,6 +889,7 @@ class Account(db.Model):
     parent_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     is_system = db.Column(db.Boolean, default=False)   # protected from deletion
+    is_deleted = db.Column(db.Boolean, default=False)  # soft-delete flag
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -904,6 +905,7 @@ class Account(db.Model):
             'parent_id': self.parent_id,
             'is_active': self.is_active,
             'is_system': self.is_system,
+            'is_deleted': self.is_deleted,
         }
 
 
@@ -1182,6 +1184,20 @@ _COLUMN_MIGRATIONS = {
         ('bank_transaction',  'NVARCHAR(255) NULL'),
         ('created_by',        'NVARCHAR(80) NULL'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+    ],
+    'accounts': [
+        ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
+    ],
+    'calendar_events': [
+        ('event_type',  'NVARCHAR(50) NULL'),
+        ('event_time',  'NVARCHAR(10) NULL'),
+        ('location',    'NVARCHAR(255) NULL'),
+        ('notes',       'NVARCHAR(MAX) NULL'),
+        ('is_done',     'BIT NOT NULL DEFAULT 0'),
+        ('assigned_to', 'NVARCHAR(80) NULL'),
+        ('created_by',  'NVARCHAR(80) NULL'),
+        ('is_deleted',  'BIT NOT NULL DEFAULT 0'),
+        ('updated_at',  'DATETIME2(7) NULL'),
     ],
 }
 
@@ -2846,7 +2862,7 @@ def api_accounts():
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     if request.method == 'GET':
-        accounts = Account.query.order_by(Account.code).all()
+        accounts = Account.query.filter(Account.is_deleted == False).order_by(Account.code).all()
         return jsonify([a.to_dict() for a in accounts])
     # POST – create new account
     data = request.get_json()
@@ -2898,12 +2914,11 @@ def api_account_detail(account_id):
         account.updated_at = datetime.utcnow()
         db.session.commit()
         return jsonify(account.to_dict())
-    # DELETE – forbid deleting system accounts or accounts with journal lines
+    # DELETE – forbid deleting system accounts; soft-delete non-system accounts
     if account.is_system:
         return jsonify({'error': 'Cannot delete a system account'}), 409
-    if JournalLine.query.filter_by(account_id=account_id).first():
-        return jsonify({'error': 'Cannot delete account that has journal lines'}), 409
-    db.session.delete(account)
+    account.is_deleted = True
+    account.is_active = False
     db.session.commit()
     return '', 204
 
