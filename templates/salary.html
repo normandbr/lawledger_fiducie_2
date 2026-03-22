@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_salary or 'Salary' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>💰 {{ t.title_salary or 'Salary' }}</h1>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="openConfigModal()">{{ t.btn_salary_config or '⚙ Configuration' }}</button>
+        <button class="btn btn-primary" onclick="openAddEntryModal()">{{ t.btn_add_salary_entry or '+ Add Entry' }}</button>
+    </div>
+</div>
+
+<!-- Filters -->
+<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_from or 'Date From' }}</label>
+        <input type="date" id="sal-date-from" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_to or 'Date To' }}</label>
+        <input type="date" id="sal-date-to" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="loadEntries()" style="height:32px;">{{ t.btn_gl_generate or 'Generate' }}</button>
+</div>
+
+<!-- Entries table -->
+<div class="table-container" style="overflow-x:auto;">
+    <table id="salary-table" style="min-width:700px;">
+        <thead>
+            <tr>
+                <th>{{ t.th_salary_date or 'Date' }}</th>
+                <th>{{ t.th_salary_field or 'Field' }}</th>
+                <th>{{ t.th_salary_account or 'Code comptable' }}</th>
+                <th>{{ t.th_salary_desc or 'Description' }}</th>
+                <th style="text-align:right;">{{ t.th_salary_amount or 'Amount' }}</th>
+                <th style="text-align:center;">{{ t.th_salary_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="salary-tbody">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">{{ t.msg_no_salary_entries or 'No salary entries found.' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ── Configuration Modal ─────────────────────────────────────────────────── -->
+<div id="config-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:700px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_salary_config or 'Salary Field Configuration' }}</span>
+            <span onclick="closeConfigModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
+        </h2>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">#</th>
+                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_field_name or 'Field Name' }}</th>
+                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_account_code or 'Accounting Code' }}</th>
+                    <th style="text-align:center;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_active or 'Active' }}</th>
+                </tr>
+            </thead>
+            <tbody id="config-tbody">
+            </tbody>
+        </table>
+        <div id="config-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveConfig()">{{ t.btn_save_salary_config or 'Save Configuration' }}</button>
+            <button class="btn btn-secondary" onclick="closeConfigModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Add Entry Modal ─────────────────────────────────────────────────────── -->
+<div id="entry-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.2);">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_add_salary_entry or 'Add Salary Entry' }}</span>
+            <span onclick="closeEntryModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
+        </h2>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_field or 'Field' }}</label>
+            <select id="entry-config-id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                <option value="">— {{ t.lbl_select or 'Select' }} —</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_date or 'Date' }}</label>
+            <input type="date" id="entry-date" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_amount or 'Amount' }}</label>
+            <input type="number" id="entry-amount" step="0.01" min="0.01" placeholder="0.00"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_desc or 'Description' }}</label>
+            <input type="text" id="entry-desc" placeholder=""
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div id="entry-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveEntry()">{{ t.btn_save or 'Save' }}</button>
+            <button class="btn btn-secondary" onclick="closeEntryModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SAL_STR = {
+    noEntries:       {{ (t.msg_no_salary_entries or 'No salary entries found.') | tojson }},
+    configSaved:     {{ (t.msg_salary_config_saved or 'Configuration saved.') | tojson }},
+    entrySaved:      {{ (t.msg_salary_entry_saved or 'Entry saved.') | tojson }},
+    entryDeleted:    {{ (t.msg_salary_entry_deleted or 'Entry deleted.') | tojson }},
+    confirmDelete:   {{ (t.confirm_delete or 'Delete this entry?') | tojson }},
+};
+
+let _accounts = [];
+let _configs  = [];
+
+function fmtMoney(v) {
+    return '$' + Number(v || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+}
+
+// ── Load accounts ──────────────────────────────────────────────────────────────
+async function loadAccounts() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/accounts');
+        if (!res.ok) return;
+        _accounts = (await res.json()).filter(a => !a.is_deleted && a.is_active);
+    } catch (err) { console.error(err); }
+}
+
+// ── Config modal ───────────────────────────────────────────────────────────────
+async function openConfigModal() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/config');
+        const existing = res.ok ? await res.json() : [];
+        const byIndex  = {};
+        existing.forEach(c => { byIndex[c.field_index] = c; });
+
+        const tbody = document.getElementById('config-tbody');
+        let html = '';
+        for (let i = 1; i <= 10; i++) {
+            const cfg = byIndex[i] || {};
+            const name = escHtml(cfg.field_name || ('Champ ' + i));
+            const code = escHtml(cfg.account_code || '');
+            const active = cfg.is_active !== false;
+            let opts = `<option value="">—</option>`;
+            _accounts.forEach(a => {
+                const sel = a.code === cfg.account_code ? ' selected' : '';
+                opts += `<option value="${escHtml(a.code)}"${sel}>${escHtml(a.code)} – ${escHtml(a.name)}</option>`;
+            });
+            html += `<tr>
+                <td style="padding:4px;font-size:12px;">${i}</td>
+                <td style="padding:4px;"><input type="text" data-idx="${i}" data-field="name" value="${name}"
+                    style="width:100%;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"></td>
+                <td style="padding:4px;">
+                    <select data-idx="${i}" data-field="code"
+                            style="width:100%;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;">
+                        ${opts}
+                    </select>
+                </td>
+                <td style="padding:4px;text-align:center;">
+                    <input type="checkbox" data-idx="${i}" data-field="active"${active ? ' checked' : ''}>
+                </td>
+            </tr>`;
+        }
+        tbody.innerHTML = html;
+        document.getElementById('config-error').style.display = 'none';
+        document.getElementById('config-modal').style.display = 'flex';
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+function closeConfigModal() {
+    document.getElementById('config-modal').style.display = 'none';
+}
+
+async function saveConfig() {
+    const rows = [];
+    for (let i = 1; i <= 10; i++) {
+        const nameEl   = document.querySelector(`[data-idx="${i}"][data-field="name"]`);
+        const codeEl   = document.querySelector(`[data-idx="${i}"][data-field="code"]`);
+        const activeEl = document.querySelector(`[data-idx="${i}"][data-field="active"]`);
+        rows.push({
+            field_index:  i,
+            field_name:   nameEl ? nameEl.value.trim() || ('Champ ' + i) : ('Champ ' + i),
+            account_code: codeEl ? codeEl.value : '',
+            is_active:    activeEl ? activeEl.checked : true,
+        });
+    }
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(rows),
+        });
+        if (!res.ok) throw new Error('API error');
+        _configs = await res.json();
+        closeConfigModal();
+        refreshEntryConfigSelect();
+        alert(SAL_STR.configSaved);
+    } catch (err) {
+        document.getElementById('config-error').textContent = 'Error: ' + err.message;
+        document.getElementById('config-error').style.display = '';
+    }
+}
+
+// ── Entry modal ────────────────────────────────────────────────────────────────
+function refreshEntryConfigSelect() {
+    const sel = document.getElementById('entry-config-id');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">—</option>';
+    _configs.filter(c => c.is_active).forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.field_name + (c.account_code ? ' (' + c.account_code + ')' : '');
+        sel.appendChild(opt);
+    });
+    sel.value = cur;
+}
+
+async function openAddEntryModal() {
+    if (_configs.length === 0) {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/config');
+        if (res.ok) _configs = await res.json();
+    }
+    refreshEntryConfigSelect();
+    // Default date: today
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('entry-date').value = today;
+    document.getElementById('entry-amount').value = '';
+    document.getElementById('entry-desc').value = '';
+    document.getElementById('entry-error').style.display = 'none';
+    document.getElementById('entry-modal').style.display = 'flex';
+}
+
+function closeEntryModal() {
+    document.getElementById('entry-modal').style.display = 'none';
+}
+
+async function saveEntry() {
+    const configId = document.getElementById('entry-config-id').value;
+    const amount   = parseFloat(document.getElementById('entry-amount').value || '0');
+    const date     = document.getElementById('entry-date').value;
+    const desc     = document.getElementById('entry-desc').value.trim();
+    const errEl    = document.getElementById('entry-error');
+
+    if (!configId) { errEl.textContent = '{{ t.err_salary_select_field or "Please select a field." }}'; errEl.style.display = ''; return; }
+    if (!amount || amount <= 0) { errEl.textContent = '{{ t.err_salary_amount_positive or "Amount must be greater than zero." }}'; errEl.style.display = ''; return; }
+    if (!date) { errEl.textContent = '{{ t.err_salary_date_required or "Date is required." }}'; errEl.style.display = ''; return; }
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/entries', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ config_id: configId, amount, entry_date: date, description: desc }),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.message || 'API error');
+        }
+        closeEntryModal();
+        loadEntries();
+        alert(SAL_STR.entrySaved);
+    } catch (err) {
+        errEl.textContent = 'Error: ' + err.message;
+        errEl.style.display = '';
+    }
+}
+
+async function deleteEntry(id) {
+    if (!confirm(SAL_STR.confirmDelete)) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/entries/' + id, { method: 'DELETE' });
+        if (!res.ok) throw new Error('API error');
+        loadEntries();
+        alert(SAL_STR.entryDeleted);
+    } catch (err) { alert('Error: ' + err.message); }
+}
+
+// ── Load entries ──────────────────────────────────────────────────────────────
+async function loadEntries() {
+    const dateFrom = document.getElementById('sal-date-from').value;
+    const dateTo   = document.getElementById('sal-date-to').value;
+    const params   = new URLSearchParams();
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo)   params.set('date_to', dateTo);
+
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/salary/entries?' + params.toString());
+        if (!res.ok) throw new Error('API error');
+        const entries = await res.json();
+        const tbody = document.getElementById('salary-tbody');
+        if (!entries.length) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary);">${escHtml(SAL_STR.noEntries)}</td></tr>`;
+            return;
+        }
+        let html = '';
+        let total = 0;
+        entries.forEach(e => {
+            total += e.amount;
+            html += `<tr>
+                <td>${escHtml(e.entry_date)}</td>
+                <td>${escHtml(e.field_name)}</td>
+                <td><span style="background:#eef3ff;color:#2c4a8a;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">${escHtml(e.account_code)}</span></td>
+                <td>${escHtml(e.description)}</td>
+                <td style="text-align:right;">${fmtMoney(e.amount)}</td>
+                <td style="text-align:center;">
+                    <button class="btn btn-sm btn-danger" onclick="deleteEntry(${e.id})"
+                            style="padding:3px 10px;font-size:12px;">{{ t.btn_delete or 'Delete' }}</button>
+                </td>
+            </tr>`;
+        });
+        html += `<tr style="font-weight:700;border-top:2px solid #333;">
+            <td colspan="4" style="text-align:right;">Total</td>
+            <td style="text-align:right;">${fmtMoney(total)}</td>
+            <td></td>
+        </tr>`;
+        tbody.innerHTML = html;
+    } catch (err) { console.error(err); }
+}
+
+// Default dates
+(function() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+    document.getElementById('sal-date-from').value = y + '-' + m + '-01';
+    document.getElementById('sal-date-to').value   = y + '-' + m + '-' + String(lastDay).padStart(2, '0');
+})();
+
+// Close modals on outside click
+document.getElementById('config-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeConfigModal();
+});
+document.getElementById('entry-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEntryModal();
+});
+
+// Initialize
+loadAccounts().then(() => {
+    loadEntries();
+});
+</script>
+{% endblock %}

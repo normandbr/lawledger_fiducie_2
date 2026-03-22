@@ -90,6 +90,9 @@
                 {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
                 <li><a href="{{ url_for('suppliers_page') }}"{% if _sup_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">🏢 {{ t.nav_suppliers or 'Suppliers' }}</a></li>
 
+                {% set _salary_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('salary_page') }}"{% if _salary_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_salary or '💰 Salary' }}</a></li>
+
                 {% set _emp_disabled = not current_user.is_manager or license_modules_restricted %}
                 <li><a href="{{ url_for('list_employees') }}"{% if _emp_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_employees or 'Employees' }}</a></li>
 

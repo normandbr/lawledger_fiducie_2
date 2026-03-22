@@ -5,7 +5,10 @@
 {% block content %}
 <div class="page-header">
     <h1>📒 {{ t.title_gl or 'General Ledger' }}</h1>
-    <button class="btn btn-secondary" onclick="printGL()">{{ t.btn_print_page or '🖨 Print' }}</button>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="exportCSV()">{{ t.btn_export_csv or '⬇ Export CSV' }}</button>
+        <button class="btn btn-secondary" onclick="printGL()">{{ t.btn_print_page or '🖨 Print' }}</button>
+    </div>
 </div>
 
 <!-- Tab bar -->
@@ -40,8 +43,21 @@
          style="max-height:60px;max-width:180px;object-fit:contain;margin-bottom:8px;"
          onerror="this.style.display='none'">
     {% endif %}
-    <h2 style="margin:0;">{{ t.title_gl or 'General Ledger' }}</h2>
-    <p id="gl-print-period" style="font-size:12px;color:#666;margin:4px 0 12px;"></p>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:12px;">
+        <div>
+            {% if firm %}
+            <div style="font-size:16px;font-weight:700;">{{ firm.firm_name or '' }}</div>
+            {% if firm.address_line1 %}<div style="font-size:11px;">{{ firm.address_line1 }}</div>{% endif %}
+            {% if firm.address_line2 %}<div style="font-size:11px;">{{ firm.address_line2 }}</div>{% endif %}
+            {% if firm.phone %}<div style="font-size:11px;">{{ firm.phone }}</div>{% endif %}
+            {% if firm.email %}<div style="font-size:11px;">{{ firm.email }}</div>{% endif %}
+            {% endif %}
+        </div>
+        <div style="text-align:right;">
+            <div style="font-size:18px;font-weight:700;">{{ t.title_gl or 'General Ledger' }}</div>
+            <div id="gl-print-period" style="font-size:12px;color:#666;margin-top:4px;"></div>
+        </div>
+    </div>
 </div>
 
 <!-- Summary Cards -->
@@ -85,11 +101,12 @@
 <!-- ── Journal Entries view (double-entry) ── -->
 <div id="view-journal" style="display:none;">
     <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 380px);padding-top:0;">
-        <table id="journal-table" style="min-width:900px;">
+        <table id="journal-table" style="min-width:960px;">
             <thead>
                 <tr>
                     <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_description or 'Description' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_account_code or 'Code comptable' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_account or 'Account' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background:#f3f3f3;">{{ t.lbl_journal_matter or 'Matter' }}</th>
@@ -99,7 +116,7 @@
                 </tr>
             </thead>
             <tbody id="journal-tbody">
-                <tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_journal_entries or 'No entries found.' }}</td></tr>
+                <tr><td colspan="9" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_journal_entries or 'No entries found.' }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -132,6 +149,14 @@
     color: #2c4a8a;
 }
 .je-trust-row td { color: #2563eb; }
+
+@media print {
+    #gl-filters, .gl-tab, .page-header .btn { display: none !important; }
+    #gl-print-header { display: block !important; }
+    .table-container { max-height: none !important; overflow: visible !important; }
+    body { font-size: 11px; }
+    @page { size: letter landscape; margin: 12mm; }
+}
 </style>
 {% endblock %}
 
@@ -254,7 +279,7 @@ async function loadJournal() {
 
         const tbody = document.getElementById('journal-tbody');
         if (!data.entries || data.entries.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noJournalEntries)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noJournalEntries)}</td></tr>`;
             return;
         }
 
@@ -263,14 +288,15 @@ async function loadJournal() {
             // Group header row
             html += `<tr class="je-group-row">
                 <td>${escHtml(entry.entry_date)}</td>
-                <td colspan="7">${escHtml(entry.description)}</td>
+                <td colspan="8">${escHtml(entry.description)}</td>
             </tr>`;
             entry.lines.forEach(ln => {
                 const trustCls = ln.is_trust ? ' je-trust-row' : '';
                 html += `<tr class="${trustCls}">`;
                 html += `<td></td>`;
                 html += `<td style="padding-left:20px;font-size:12px;">${ln.is_trust ? '🔵 ' : ''}${escHtml(ln.memo || '')}</td>`;
-                html += `<td style="font-size:12px;">${escHtml(ln.account_code)} – ${escHtml(ln.account_name)}</td>`;
+                html += `<td style="font-size:12px;font-weight:600;">${escHtml(ln.account_code)}</td>`;
+                html += `<td style="font-size:12px;">${escHtml(ln.account_name)}</td>`;
                 html += `<td style="font-size:12px;">${escHtml(ln.client_name)}</td>`;
                 html += `<td style="font-size:12px;">${escHtml(ln.matter_number)}</td>`;
                 html += `<td style="text-align:right;color:#1e7e34;">${ln.debit ? fmtMoney(ln.debit) : ''}</td>`;
@@ -280,7 +306,7 @@ async function loadJournal() {
             });
         });
         html += `<tr style="font-weight:700;border-top:2px solid #333;">
-            <td colspan="5" style="text-align:right;">Total</td>
+            <td colspan="6" style="text-align:right;">Total</td>
             <td style="text-align:right;">${fmtMoney(data.total_debit)}</td>
             <td style="text-align:right;">${fmtMoney(data.total_credit)}</td>
             <td style="text-align:right;">${fmtMoney(data.balance)}</td>
@@ -289,22 +315,26 @@ async function loadJournal() {
     } catch (err) { console.error(err); }
 }
 
+function exportCSV() {
+    const dateFrom = document.getElementById('gl-date-from').value;
+    const dateTo   = document.getElementById('gl-date-to').value;
+    const clientId = document.getElementById('gl-client').value;
+    if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
+    const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo, view: _currentTab});
+    if (clientId) params.set('client_id', clientId);
+    window.location.href = SCRIPT_ROOT + '/api/gl/export?' + params.toString();
+}
+
 function printGL() {
     const dateFrom  = document.getElementById('gl-date-from').value;
     const dateTo    = document.getElementById('gl-date-to').value;
     const printHdr  = document.getElementById('gl-print-header');
     const periodEl  = document.getElementById('gl-print-period');
-    const filters   = document.getElementById('gl-filters');
-    const tabs      = document.querySelectorAll('.gl-tab');
 
     if (dateFrom || dateTo) periodEl.textContent = (dateFrom || '…') + '  —  ' + (dateTo || '…');
     printHdr.style.display = 'block';
-    filters.style.display  = 'none';
-    tabs.forEach(t => t.style.display = 'none');
     window.print();
     printHdr.style.display = 'none';
-    filters.style.display  = '';
-    tabs.forEach(t => t.style.display = '');
 }
 
 // Default dates: first and last day of current month
