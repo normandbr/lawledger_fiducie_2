@@ -314,6 +314,7 @@ class Client(db.Model):
     email = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    accounting_code = db.Column(db.String(20), nullable=True, default='1100')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -333,6 +334,7 @@ class Client(db.Model):
             'phone': self.phone or '',
             'email': self.email or '',
             'is_active': self.is_active,
+            'accounting_code': self.accounting_code or '1100',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -811,6 +813,7 @@ class Supplier(db.Model):
     notes = db.Column(db.Text, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    accounting_code = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -828,6 +831,7 @@ class Supplier(db.Model):
             'service_provided': self.service_provided or '',
             'notes': self.notes or '',
             'is_active': bool(self.is_active),
+            'accounting_code': self.accounting_code or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1049,6 +1053,62 @@ class CalendarEvent(db.Model):
         }
 
 
+class SalaryConfig(db.Model):
+    """Configuration for a salary field (up to 10 per firm).
+
+    Each field has a user-defined label and an associated accounting code.
+    """
+    __tablename__ = 'salary_configs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    field_index = db.Column(db.Integer, nullable=False)   # 1-10
+    field_name = db.Column(db.String(255), nullable=False)
+    account_code = db.Column(db.String(20), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    entries = db.relationship('SalaryEntry', backref='config', lazy=True,
+                               cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'field_index': self.field_index,
+            'field_name': self.field_name,
+            'account_code': self.account_code or '',
+            'is_active': bool(self.is_active),
+        }
+
+
+class SalaryEntry(db.Model):
+    """A monetary entry for one salary configuration field."""
+    __tablename__ = 'salary_entries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    config_id = db.Column(db.Integer, db.ForeignKey('salary_configs.id'), nullable=False)
+    entry_date = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Numeric(12, 2), nullable=False, default=0.00)
+    description = db.Column(db.String(500), nullable=True)
+    created_by = db.Column(db.String(80), nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'config_id': self.config_id,
+            'field_name': self.config.field_name if self.config else '',
+            'account_code': self.config.account_code if self.config else '',
+            'entry_date': self.entry_date.isoformat() if self.entry_date else None,
+            'amount': float(self.amount) if self.amount else 0.00,
+            'description': self.description or '',
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 # ── Schema migrations (no Alembic – add missing columns on startup) ───────────
 
 # Columns that may be missing from existing tables after a schema upgrade.
@@ -1070,6 +1130,7 @@ _COLUMN_MIGRATIONS = {
         ('postal_code',  'NVARCHAR(20) NULL'),
         ('country',      'NVARCHAR(100) NULL'),
         ('contact_name', 'NVARCHAR(255) NULL'),
+        ('accounting_code', 'NVARCHAR(20) NULL DEFAULT \'1100\''),
     ],
     'matters': [
         ('is_active',            'BIT NOT NULL DEFAULT 1'),
@@ -1176,6 +1237,7 @@ _COLUMN_MIGRATIONS = {
         ('notes',             'NVARCHAR(MAX) NULL'),
         ('is_active',         'BIT NOT NULL DEFAULT 1'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+        ('accounting_code',   'NVARCHAR(20) NULL'),
     ],
     'supplier_payments': [
         ('description',       'NVARCHAR(500) NULL'),
@@ -1569,9 +1631,50 @@ def _post_trust_journal(transaction, matter):
         )
     except Exception as exc:
         logger.warning("Could not auto-post trust journal: %s", exc)
-    """Role-based license enforcement on every request.
 
-    Access matrix (all non-VALID statuses treated identically):
+
+def _post_supplier_payment_journal(payment, supplier):
+    """Auto-post a supplier payment to the double-entry journal.
+
+    Debit  <supplier accounting_code or 2010 Comptes à payer>
+    Credit 1010 Banque – compte opérationnel
+    """
+    try:
+        amount = float(payment.amount or 0)
+        if amount <= 0:
+            return
+        actor = current_user.display_name if current_user and current_user.is_authenticated else 'system'
+        expense_code = (supplier.accounting_code or '2010') if supplier else '2010'
+        entry_date = payment.payment_date or payment.invoice_date or datetime.utcnow().date()
+        if isinstance(entry_date, datetime):
+            entry_date = entry_date.date()
+        _create_journal_entry(
+            entry_date=entry_date,
+            description=f'Paiement fournisseur {supplier.name if supplier else ""}'
+                        + (f' – {payment.invoice_number}' if payment.invoice_number else ''),
+            source_type='supplier_payment',
+            source_id=payment.id,
+            lines=[
+                {
+                    'account_code': expense_code,
+                    'debit': round(amount, 2),
+                    'credit': 0,
+                },
+                {
+                    'account_code': '1010',
+                    'debit': 0,
+                    'credit': round(amount, 2),
+                },
+            ],
+            created_by=actor,
+        )
+    except Exception as exc:
+        logger.warning("Could not auto-post supplier payment journal: %s", exc)
+
+
+@app.before_request
+def _enforce_license_restrictions():
+    """Role-based license enforcement on every request.
 
     A) Manager + VALID        → all modules accessible
     B) Manager + INVALID      → Home, Clients & Matters, Timer allowed;
@@ -3123,6 +3226,109 @@ def api_gl_journal():
         'total_credit': round(total_credit, 2),
         'balance': round(running_balance, 2),
     })
+
+
+@app.route('/api/gl/export', methods=['GET'])
+@login_required
+def api_gl_export():
+    """Export GL data as CSV.
+
+    Query params: date_from, date_to, client_id, view (classic|journal).
+    Returns a downloadable CSV file.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    client_id = request.args.get('client_id')
+    view = request.args.get('view', 'journal')
+
+    if not date_from or not date_to:
+        return jsonify({'error': 'date_from and date_to are required'}), 400
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    if view == 'classic':
+        inv_q = Invoice.query.filter(
+            Invoice.invoice_date >= date_from,
+            Invoice.invoice_date <= date_to,
+            Invoice.status != 'cancelled',
+        )
+        if client_id:
+            matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
+            inv_q = inv_q.filter(
+                db.or_(Invoice.matter_id.in_(matter_ids), Invoice.client_id == int(client_id))
+            )
+        invoices = inv_q.order_by(Invoice.invoice_date.asc()).all()
+
+        writer.writerow(['Date', 'No Facture', 'Client', 'Description', 'Débit', 'Crédit', 'Solde'])
+        running = 0.0
+        for inv in invoices:
+            client = inv.resolved_client
+            client_name = client.client_name if client else ''
+            amt = float(inv.total_amount or 0)
+            running += amt
+            writer.writerow([
+                inv.invoice_date.isoformat() if inv.invoice_date else '',
+                inv.invoice_number,
+                client_name,
+                f'Facture {inv.invoice_number}',
+                f'{amt:.2f}', '', f'{running:.2f}',
+            ])
+            if inv.status == 'paid':
+                running -= amt
+                writer.writerow([
+                    inv.invoice_date.isoformat() if inv.invoice_date else '',
+                    inv.invoice_number,
+                    client_name,
+                    f'Paiement – {inv.invoice_number}',
+                    '', f'{amt:.2f}', f'{running:.2f}',
+                ])
+    else:
+        # Journal view
+        from sqlalchemy.orm import joinedload
+        q = (
+            JournalLine.query
+            .join(JournalEntry, JournalLine.entry_id == JournalEntry.id)
+            .filter(
+                JournalEntry.entry_date >= date_from,
+                JournalEntry.entry_date <= date_to,
+            )
+            .options(joinedload(JournalLine.account))
+            .order_by(JournalEntry.entry_date.asc(), JournalEntry.id.asc(), JournalLine.id.asc())
+        )
+        if client_id:
+            q = q.filter(JournalLine.client_id == int(client_id))
+
+        writer.writerow([
+            'Date', 'Description', 'Code comptable', 'Compte',
+            'Client', 'Dossier', 'Débit', 'Crédit', 'Fiducie',
+        ])
+        for line in q.all():
+            entry = line.entry
+            client_obj = Client.query.get(line.client_id) if line.client_id else None
+            matter_obj = Matter.query.get(line.matter_id) if line.matter_id else None
+            writer.writerow([
+                entry.entry_date.isoformat() if entry.entry_date else '',
+                entry.description or '',
+                line.account.code if line.account else '',
+                line.account.name if line.account else '',
+                client_obj.client_name if client_obj else '',
+                matter_obj.matter_number if matter_obj else '',
+                f'{float(line.debit):.2f}' if line.debit else '',
+                f'{float(line.credit):.2f}' if line.credit else '',
+                'Oui' if line.is_trust else 'Non',
+            ])
+
+    output.seek(0)
+    filename = f'grand_livre_{date_from}_{date_to}.csv'
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+    )
 
 
 # ── API: Trust Reconciliation ─────────────────────────────────────────────────
@@ -5255,6 +5461,7 @@ def api_suppliers():
         email=data.get('email', ''),
         service_provided=data.get('service_provided', ''),
         notes=data.get('notes', ''),
+        accounting_code=data.get('accounting_code', ''),
         is_active=True,
     )
     db.session.add(supplier)
@@ -5279,7 +5486,7 @@ def api_supplier_detail(supplier_id):
             if not name:
                 return jsonify({'error': 'name_required', 'message': 'Supplier name is required.'}), 400
             supplier.name = name
-        for field in ('account_number', 'address', 'phone', 'email', 'service_provided', 'notes'):
+        for field in ('account_number', 'address', 'phone', 'email', 'service_provided', 'notes', 'accounting_code'):
             if field in data:
                 setattr(supplier, field, data[field])
         if 'is_active' in data:
@@ -5341,6 +5548,7 @@ def api_supplier_payments(supplier_id):
     )
     db.session.add(payment)
     db.session.commit()
+    _post_supplier_payment_journal(payment, supplier)
     return jsonify(payment.to_dict()), 201
 
 
@@ -5502,6 +5710,137 @@ def api_calendar_event_detail(event_id):
 
     # DELETE – soft delete
     event.is_deleted = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ── Salary Module ─────────────────────────────────────────────────────────────
+
+@app.route('/salary')
+@login_required
+def salary_page():
+    """Salary management page (manager only)."""
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    firm = FirmInfo.query.first()
+    return render_template('salary.html', firm=firm)
+
+
+@app.route('/api/salary/config', methods=['GET', 'POST'])
+@login_required
+def api_salary_config():
+    """List all salary configuration fields or save the configuration."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'GET':
+        configs = SalaryConfig.query.order_by(SalaryConfig.field_index).all()
+        return jsonify([c.to_dict() for c in configs])
+    # POST – bulk upsert: client sends list of {field_index, field_name, account_code}
+    data = request.get_json() or []
+    if not isinstance(data, list):
+        return jsonify({'error': 'Expected a list of config items.'}), 400
+    for item in data:
+        idx = int(item.get('field_index', 0))
+        if idx < 1 or idx > 10:
+            continue
+        cfg = SalaryConfig.query.filter_by(field_index=idx).first()
+        if cfg is None:
+            cfg = SalaryConfig(field_index=idx)
+            db.session.add(cfg)
+        cfg.field_name = (item.get('field_name') or '').strip() or f'Champ {idx}'
+        cfg.account_code = (item.get('account_code') or '').strip()
+        cfg.is_active = bool(item.get('is_active', True))
+    db.session.commit()
+    configs = SalaryConfig.query.order_by(SalaryConfig.field_index).all()
+    return jsonify([c.to_dict() for c in configs])
+
+
+@app.route('/api/salary/config/<int:config_id>', methods=['PUT', 'DELETE'])
+@login_required
+def api_salary_config_detail(config_id):
+    """Update or delete a single salary config."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    cfg = db.session.get(SalaryConfig, config_id)
+    if not cfg:
+        return jsonify({'error': 'not_found'}), 404
+    if request.method == 'PUT':
+        data = request.get_json() or {}
+        if 'field_name' in data:
+            cfg.field_name = data['field_name'].strip() or cfg.field_name
+        if 'account_code' in data:
+            cfg.account_code = data['account_code']
+        if 'is_active' in data:
+            cfg.is_active = bool(data['is_active'])
+        db.session.commit()
+        return jsonify(cfg.to_dict())
+    # DELETE
+    db.session.delete(cfg)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/salary/entries', methods=['GET', 'POST'])
+@login_required
+def api_salary_entries():
+    """List salary entries or add a new one."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    if request.method == 'GET':
+        date_from = request.args.get('date_from', '').strip()
+        date_to = request.args.get('date_to', '').strip()
+        q = SalaryEntry.query.filter(SalaryEntry.is_deleted == False)
+        if date_from:
+            q = q.filter(SalaryEntry.entry_date >= date_from)
+        if date_to:
+            q = q.filter(SalaryEntry.entry_date <= date_to)
+        entries = q.order_by(SalaryEntry.entry_date.desc(), SalaryEntry.id.desc()).all()
+        return jsonify([e.to_dict() for e in entries])
+    # POST
+    data = request.get_json() or {}
+    config_id = data.get('config_id')
+    if not config_id:
+        return jsonify({'error': 'config_id is required.'}), 400
+    cfg = db.session.get(SalaryConfig, int(config_id))
+    if not cfg:
+        return jsonify({'error': 'not_found', 'message': 'Salary config not found.'}), 404
+    try:
+        amount = float(data.get('amount') or 0)
+    except (ValueError, TypeError):
+        return jsonify({'error': 'invalid_amount'}), 400
+    if amount <= 0:
+        return jsonify({'error': 'invalid_amount', 'message': 'Amount must be greater than zero.'}), 400
+    entry_date = None
+    if data.get('entry_date'):
+        try:
+            entry_date = datetime.strptime(data['entry_date'], '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    if not entry_date:
+        entry_date = datetime.utcnow().date()
+    entry = SalaryEntry(
+        config_id=cfg.id,
+        entry_date=entry_date,
+        amount=amount,
+        description=data.get('description', ''),
+        created_by=current_user.username,
+    )
+    db.session.add(entry)
+    db.session.commit()
+    return jsonify(entry.to_dict()), 201
+
+
+@app.route('/api/salary/entries/<int:entry_id>', methods=['DELETE'])
+@login_required
+def api_salary_entry_detail(entry_id):
+    """Soft-delete a salary entry."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    entry = db.session.get(SalaryEntry, entry_id)
+    if not entry or entry.is_deleted:
+        return jsonify({'error': 'not_found'}), 404
+    entry.is_deleted = True
     db.session.commit()
     return jsonify({'success': True})
 

@@ -82,6 +82,13 @@
             <textarea id="sup-notes" rows="3"
                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
         </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_accounting_code or 'Code comptable' }}</label>
+            <select id="sup-accounting-code"
+                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                <option value="">— {{ t.lbl_select or 'Select' }} —</option>
+            </select>
+        </div>
         <div id="supplier-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
         <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="saveSupplier()">{{ t.btn_save_supplier or 'Save Supplier' }}</button>
@@ -280,6 +287,7 @@ function openAddSupplierModal() {
     document.getElementById('sup-email').value = '';
     document.getElementById('sup-service').value = '';
     document.getElementById('sup-notes').value = '';
+    document.getElementById('sup-accounting-code').value = '';
     document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalAdd;
     document.getElementById('supplier-modal-error').style.display = 'none';
     document.getElementById('supplier-modal').style.display = 'flex';
@@ -298,6 +306,7 @@ async function openEditSupplierModal(supplierId) {
         document.getElementById('sup-email').value = s.email || '';
         document.getElementById('sup-service').value = s.service_provided || '';
         document.getElementById('sup-notes').value = s.notes || '';
+        document.getElementById('sup-accounting-code').value = s.accounting_code || '';
         document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalEdit;
         document.getElementById('supplier-modal-error').style.display = 'none';
         document.getElementById('supplier-modal').style.display = 'flex';
@@ -327,6 +336,7 @@ async function saveSupplier() {
         email: document.getElementById('sup-email').value,
         service_provided: document.getElementById('sup-service').value,
         notes: document.getElementById('sup-notes').value,
+        accounting_code: document.getElementById('sup-accounting-code').value,
     };
     try {
         const url = id ? SCRIPT_ROOT + '/api/suppliers/' + id : SCRIPT_ROOT + '/api/suppliers';
@@ -590,7 +600,24 @@ document.getElementById('payment-form-modal').addEventListener('click', function
     if (e.target === this) closePaymentFormModal();
 });
 
+// Load accounts into the accounting_code dropdown
+async function loadAccountOptions() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/accounts');
+        if (!res.ok) return;
+        const accounts = await res.json();
+        const sel = document.getElementById('sup-accounting-code');
+        accounts.filter(a => !a.is_deleted && a.is_active).forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.code;
+            opt.textContent = a.code + ' – ' + a.name;
+            sel.appendChild(opt);
+        });
+    } catch (err) { console.error('Could not load accounts:', err); }
+}
+
 // Initialize
 loadSuppliers();
+loadAccountOptions();
 </script>
 {% endblock %}

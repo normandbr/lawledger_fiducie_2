@@ -774,9 +774,9 @@ LEXICON = {
         'lbl_total_draft': 'Total brouillons',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Plan de comptes',
-        'title_accounts': 'Plan de comptes',
-        'card_accounts_desc': 'Gérez le plan de comptes utilisé par le grand livre général.',
+        'nav_accounts': '📊 Code comptable',
+        'title_accounts': 'Code comptable',
+        'card_accounts_desc': 'Gérez les codes comptables utilisés par le grand livre général.',
         'btn_add_account': '+ Ajouter un compte',
         'lbl_account_code': 'Code',
         'lbl_account_name': 'Nom du compte',
@@ -882,6 +882,37 @@ LEXICON = {
         'modal_add_payment': 'Ajouter un paiement',
         'modal_edit_payment': 'Modifier le paiement',
         'lbl_supplier_active': 'Actif',
+        'lbl_supplier_accounting_code': 'Code comptable',
+        'ph_accounting_code': 'Ex : 2010',
+
+        # Salary module
+        'nav_salary': '💰 Salaires',
+        'title_salary': 'Salaires',
+        'btn_salary_config': '⚙ Configuration',
+        'modal_salary_config': 'Configuration des champs de salaire',
+        'lbl_salary_field_name': 'Nom du champ',
+        'lbl_salary_account_code': 'Code comptable',
+        'lbl_salary_active': 'Actif',
+        'btn_save_salary_config': 'Enregistrer la configuration',
+        'btn_add_salary_entry': '+ Ajouter une entrée',
+        'modal_add_salary_entry': 'Ajouter une entrée de salaire',
+        'lbl_salary_entry_field': 'Champ',
+        'lbl_salary_entry_date': 'Date',
+        'lbl_salary_entry_amount': 'Montant',
+        'lbl_salary_entry_desc': 'Description',
+        'th_salary_field': 'Champ',
+        'th_salary_account': 'Code comptable',
+        'th_salary_date': 'Date',
+        'th_salary_amount': 'Montant',
+        'th_salary_desc': 'Description',
+        'th_salary_actions': 'Actions',
+        'msg_no_salary_entries': 'Aucune entrée de salaire trouvée.',
+        'msg_salary_config_saved': 'Configuration enregistrée.',
+        'msg_salary_entry_saved': 'Entrée enregistrée.',
+        'msg_salary_entry_deleted': 'Entrée supprimée.',
+
+        # GL Export
+        'btn_export_csv': '⬇ Exporter CSV',
 
     },
     
@@ -1659,9 +1690,9 @@ LEXICON = {
         'lbl_total_draft': 'Draft Total',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Chart of Accounts',
-        'title_accounts': 'Chart of Accounts',
-        'card_accounts_desc': 'Manage the chart of accounts used by the general ledger.',
+        'nav_accounts': '📊 Accounting Codes',
+        'title_accounts': 'Accounting Codes',
+        'card_accounts_desc': 'Manage the accounting codes used by the general ledger.',
         'btn_add_account': '+ Add Account',
         'lbl_account_code': 'Code',
         'lbl_account_name': 'Account Name',
@@ -1767,6 +1798,37 @@ LEXICON = {
         'modal_add_payment': 'Add Payment',
         'modal_edit_payment': 'Edit Payment',
         'lbl_supplier_active': 'Active',
+        'lbl_supplier_accounting_code': 'Accounting Code',
+        'ph_accounting_code': 'E.g.: 2010',
+
+        # Salary module
+        'nav_salary': '💰 Salary',
+        'title_salary': 'Salary',
+        'btn_salary_config': '⚙ Configuration',
+        'modal_salary_config': 'Salary Field Configuration',
+        'lbl_salary_field_name': 'Field Name',
+        'lbl_salary_account_code': 'Accounting Code',
+        'lbl_salary_active': 'Active',
+        'btn_save_salary_config': 'Save Configuration',
+        'btn_add_salary_entry': '+ Add Entry',
+        'modal_add_salary_entry': 'Add Salary Entry',
+        'lbl_salary_entry_field': 'Field',
+        'lbl_salary_entry_date': 'Date',
+        'lbl_salary_entry_amount': 'Amount',
+        'lbl_salary_entry_desc': 'Description',
+        'th_salary_field': 'Field',
+        'th_salary_account': 'Accounting Code',
+        'th_salary_date': 'Date',
+        'th_salary_amount': 'Amount',
+        'th_salary_desc': 'Description',
+        'th_salary_actions': 'Actions',
+        'msg_no_salary_entries': 'No salary entries found.',
+        'msg_salary_config_saved': 'Configuration saved.',
+        'msg_salary_entry_saved': 'Entry saved.',
+        'msg_salary_entry_deleted': 'Entry deleted.',
+
+        # GL Export
+        'btn_export_csv': '⬇ Export CSV',
 
     }
 }
