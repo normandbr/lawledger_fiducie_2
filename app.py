@@ -1092,6 +1092,7 @@ class SalaryEntry(db.Model):
     description = db.Column(db.String(500), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    is_posted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1105,6 +1106,7 @@ class SalaryEntry(db.Model):
             'amount': float(self.amount) if self.amount else 0.00,
             'description': self.description or '',
             'created_by': self.created_by or '',
+            'is_posted': bool(self.is_posted),
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -1260,6 +1262,9 @@ _COLUMN_MIGRATIONS = {
         ('created_by',  'NVARCHAR(80) NULL'),
         ('is_deleted',  'BIT NOT NULL DEFAULT 0'),
         ('updated_at',  'DATETIME2(7) NULL'),
+    ],
+    'salary_entries': [
+        ('is_posted', 'BIT NOT NULL DEFAULT 0'),
     ],
 }
 
@@ -2371,7 +2376,65 @@ def api_fiducie_summary():
     return jsonify(results)
 
 
-@app.route('/fiducie/<int:matter_id>/print')
+@app.route('/api/fiducie/summary-by-account', methods=['GET'])
+@login_required
+def api_fiducie_summary_by_account():
+    """Return trust transaction totals grouped by GL account code.
+
+    Supports optional date_from / date_to filters and optional client_id filter.
+    Each row contains: account_code, account_name, total_debit, total_credit, net.
+    """
+    date_from_str = request.args.get('date_from', '').strip()
+    date_to_str = request.args.get('date_to', '').strip()
+    client_id = request.args.get('client_id')
+
+    date_from = None
+    date_to = None
+    if date_from_str:
+        try:
+            date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
+    # Build journal line query filtered to trust lines
+    line_q = JournalLine.query.join(JournalEntry, JournalLine.entry_id == JournalEntry.id).filter(
+        JournalLine.is_trust == True
+    )
+    if date_from:
+        line_q = line_q.filter(JournalEntry.entry_date >= date_from)
+    if date_to:
+        line_q = line_q.filter(JournalEntry.entry_date <= date_to)
+    if client_id:
+        line_q = line_q.filter(JournalLine.client_id == int(client_id))
+
+    lines = line_q.all()
+
+    # Aggregate by account
+    account_totals = {}
+    for line in lines:
+        account = db.session.get(Account, line.account_id) if line.account_id else None
+        code = account.code if account else 'UNKNOWN'
+        name = account.name if account else ''
+        if code not in account_totals:
+            account_totals[code] = {'account_code': code, 'account_name': name, 'total_debit': 0.0, 'total_credit': 0.0}
+        account_totals[code]['total_debit'] += float(line.debit or 0)
+        account_totals[code]['total_credit'] += float(line.credit or 0)
+
+    results = []
+    for row in sorted(account_totals.values(), key=lambda r: r['account_code']):
+        row['total_debit'] = round(row['total_debit'], 2)
+        row['total_credit'] = round(row['total_credit'], 2)
+        row['net'] = round(row['total_debit'] - row['total_credit'], 2)
+        results.append(row)
+
+    return jsonify(results)
+
+
 @login_required
 def fiducie_print(matter_id):
     """Render a printable trust statement for a matter with optional date filtering."""
@@ -3416,6 +3479,14 @@ def print_invoice(invoice_id):
     firm = FirmInfo.query.first()
     applied_credits = CreditNote.query.filter_by(applied_invoice_id=invoice_id).all()
     return render_template('invoice_print.html', invoice=invoice, firm=firm, applied_credits=applied_credits)
+
+
+@app.route('/invoices/by-number/<path:invoice_number>/print')
+@login_required
+def print_invoice_by_number(invoice_number):
+    """Look up an invoice by its number and redirect to the print page."""
+    invoice = Invoice.query.filter_by(invoice_number=invoice_number).first_or_404()
+    return redirect(url_for('print_invoice', invoice_id=invoice.id))
 
 
 @app.route('/test-db')
@@ -5850,7 +5921,73 @@ def api_salary_entry_detail(entry_id):
     return jsonify({'success': True})
 
 
-# --- DIAGNOSTIC FINAL DE LA LICENCE ---
+@app.route('/api/salary/entries/post-to-gl', methods=['POST'])
+@login_required
+def api_salary_post_to_gl():
+    """Post unposted salary entries to the GL journal and mark them as posted."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    data = request.get_json() or {}
+    date_from_str = data.get('date_from', '').strip()
+    date_to_str = data.get('date_to', '').strip()
+
+    q = SalaryEntry.query.filter(
+        SalaryEntry.is_deleted == False,
+        SalaryEntry.is_posted == False,
+    )
+    if date_from_str:
+        try:
+            q = q.filter(SalaryEntry.entry_date >= datetime.strptime(date_from_str, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if date_to_str:
+        try:
+            q = q.filter(SalaryEntry.entry_date <= datetime.strptime(date_to_str, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    entries = q.order_by(SalaryEntry.entry_date, SalaryEntry.id).all()
+    if not entries:
+        return jsonify({'posted': 0, 'message': 'No unposted entries found for this period.'})
+
+    actor = current_user.display_name if current_user.is_authenticated else 'system'
+    posted_count = 0
+    for entry in entries:
+        cfg = entry.config
+        account_code = cfg.account_code if cfg else ''
+        if not account_code:
+            continue
+        amount = float(entry.amount or 0)
+        if amount <= 0:
+            continue
+        try:
+            _create_journal_entry(
+                entry_date=entry.entry_date,
+                description=f'Salaire – {cfg.field_name if cfg else ""}',
+                source_type='salary',
+                source_id=entry.id,
+                lines=[
+                    {
+                        'account_code': account_code,
+                        'debit': amount,
+                        'credit': 0,
+                    },
+                    {
+                        'account_code': '2100',
+                        'debit': 0,
+                        'credit': amount,
+                    },
+                ],
+                created_by=actor,
+            )
+            entry.is_posted = True
+            posted_count += 1
+        except Exception as exc:
+            logger.warning("Could not post salary entry %s to GL: %s", entry.id, exc)
+    db.session.commit()
+    return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
+
+
+
 
 def _run_license_diagnostic():
     """Run a one-time licence diagnostic at startup."""

@@ -53,6 +53,11 @@
             </button>
         </div>
         <div>
+            <button class="btn btn-secondary" onclick="showSummaryByAccount()" style="padding:8px 14px;font-size:14px;">
+                📑 {{ t.btn_trust_summary_by_account or 'Sommaire par code comptable' }}
+            </button>
+        </div>
+        <div>
             <button class="btn btn-secondary" onclick="showReconciliationModal()" style="padding:8px 14px;font-size:14px;">
                 🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire' }}
             </button>
@@ -151,7 +156,7 @@
                             <small style="color:var(--text-secondary);">{{ trans.motif or '' }}</small>
                         </td>
                         <td>{{ trans.ref_bancaire or '' }}</td>
-                        <td>{{ trans.invoice_number or '' }}</td>
+                        <td>{% if trans.invoice_number %}<a href="{{ url_for('print_invoice_by_number', invoice_number=trans.invoice_number) }}" target="_blank" style="color:#0078d4;text-decoration:underline;">{{ trans.invoice_number }}</a>{% endif %}</td>
                         <td style="text-align:right;color:var(--success);">{% if trans.type_trans == 'DEPOT' %}+{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
                         <td style="text-align:right;color:var(--danger);">{% if trans.type_trans == 'RETRAIT' %}-{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
                         <td>{{ trans.created_by or '' }}</td>
@@ -214,7 +219,40 @@
     </div>
 </div>
 
-<!-- Print by Date Range Modal -->
+<!-- Trust Summary by Account Modal -->
+<div id="trust-account-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.5);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">📑 {{ t.btn_trust_summary_by_account or 'Sommaire par code comptable' }}</h2>
+            <span onclick="closeSummaryByAccount()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;padding:12px 24px;align-items:flex-end;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#fff;">
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_filter_client or 'Client' }}</label>
+                <select id="acct-client-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;min-width:180px;">
+                    <option value="">{{ t.lbl_all_clients or '— Tous les clients —' }}</option>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}">{{ c.client_number }} – {{ c.client_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_from or 'Du' }}</label>
+                <input type="date" id="acct-date-from" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_to or 'Au' }}</label>
+                <input type="date" id="acct-date-to" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadSummaryByAccount()">{{ t.btn_filter_action or 'Filtrer' }}</button>
+        </div>
+        <div id="trust-account-content" style="overflow-y:auto;padding:16px 24px;flex:1 1 auto;">
+            <p style="color:#888;">{{ t.msg_select_filters or 'Sélectionnez des filtres et cliquez sur Filtrer.' }}</p>
+        </div>
+    </div>
+</div>
+
+
 {% if dossier %}
 <div id="print-range-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);">
     <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:420px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);">
@@ -540,14 +578,19 @@ function renderTrustSummary(rows, dateFrom, dateTo) {
         '</tr></thead><tbody>';
     rows.forEach(function(r) {
         var rowStyle = r.closing_balance < 0 ? 'color:#c42b1c;' : '';
-        var invoiceNums = (r.invoice_numbers && r.invoice_numbers.length) ? r.invoice_numbers.join(', ') : '';
+        var invoiceLinks = '';
+        if (r.invoice_numbers && r.invoice_numbers.length) {
+            invoiceLinks = r.invoice_numbers.map(function(n) {
+                return '<a href="' + SCRIPT_ROOT + '/invoices/by-number/' + encodeURIComponent(n) + '/print" target="_blank" style="color:#0078d4;text-decoration:underline;white-space:nowrap;">' + escHtml(n) + '</a>';
+            }).join('<br>');
+        }
         html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
             '<td style="padding:6px 10px;">' + escHtml(r.client_number) + ' – ' + escHtml(r.client_name) + '</td>' +
             '<td style="padding:6px 10px;">' + escHtml(r.matter_number) + (r.matter_description ? ' – ' + escHtml(r.matter_description) : '') + '</td>' +
             '<td style="padding:6px 10px;text-align:right;' + rowStyle + '">' + r.opening_balance.toFixed(2) + '$</td>' +
             '<td style="padding:6px 10px;text-align:right;color:green;">+' + r.period_deposits.toFixed(2) + '$</td>' +
             '<td style="padding:6px 10px;text-align:right;color:#c42b1c;">-' + r.period_withdrawals.toFixed(2) + '$</td>' +
-            '<td style="padding:6px 10px;font-size:12px;color:#0078d4;">' + escHtml(invoiceNums) + '</td>' +
+            '<td style="padding:6px 10px;font-size:12px;">' + invoiceLinks + '</td>' +
             '<td style="padding:6px 10px;text-align:right;font-weight:600;' + (r.closing_balance < 0 ? 'color:#c42b1c;' : 'color:green;') + '">' + r.closing_balance.toFixed(2) + '$</td>' +
             '</tr>';
     });
@@ -567,7 +610,91 @@ function escHtml(str) {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Trust Reconciliation ──────────────────────────────────────────────────────
+// ── Summary by Account Code ───────────────────────────────────────────────────
+function showSummaryByAccount() {
+    var dateFrom = document.getElementById('fid-date-from').value;
+    var dateTo = document.getElementById('fid-date-to').value;
+    if (dateFrom) document.getElementById('acct-date-from').value = dateFrom;
+    if (dateTo) document.getElementById('acct-date-to').value = dateTo;
+    {% if dossier %}
+    var clientSel = document.getElementById('fid-client-select');
+    if (clientSel && clientSel.value) {
+        document.getElementById('acct-client-filter').value = clientSel.value;
+    }
+    {% endif %}
+    document.getElementById('trust-account-modal').style.display = 'block';
+    loadSummaryByAccount();
+}
+
+function closeSummaryByAccount() {
+    document.getElementById('trust-account-modal').style.display = 'none';
+}
+
+async function loadSummaryByAccount() {
+    var content = document.getElementById('trust-account-content');
+    content.innerHTML = '<p style="color:#888;">{{ t.msg_loading or "Chargement..." }}</p>';
+    var clientId = document.getElementById('acct-client-filter').value;
+    var dateFrom = document.getElementById('acct-date-from').value;
+    var dateTo = document.getElementById('acct-date-to').value;
+    var url = SCRIPT_ROOT + '/api/fiducie/summary-by-account?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+    try {
+        var res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var rows = await res.json();
+        renderSummaryByAccount(rows, dateFrom, dateTo);
+    } catch (err) {
+        content.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
+    }
+}
+
+function renderSummaryByAccount(rows, dateFrom, dateTo) {
+    var content = document.getElementById('trust-account-content');
+    if (!rows.length) {
+        content.innerHTML = '<p style="color:#888;">{{ t.msg_no_results or "Aucun résultat." }}</p>';
+        return;
+    }
+    var period = '';
+    if (dateFrom || dateTo) period = (dateFrom || '…') + ' → ' + (dateTo || '…');
+    var html = '';
+    if (period) html += '<p style="font-size:12px;color:#888;margin-bottom:8px;">{{ t.lbl_period or "Période" }}: ' + period + '</p>';
+    var totalDebit = rows.reduce(function(s,r){return s+r.total_debit;},0);
+    var totalCredit = rows.reduce(function(s,r){return s+r.total_credit;},0);
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px;">';
+    html += '<thead><tr style="background:#f3f3f3;">' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.lbl_trust_account_code or "Code comptable" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.lbl_trust_account_name or "Nom du compte" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_debit or "Débit" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_credit or "Crédit" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_net or "Net" }}</th>' +
+        '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+        var netStyle = r.net < 0 ? 'color:#c42b1c;' : r.net > 0 ? 'color:green;' : '';
+        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+            '<td style="padding:6px 10px;"><span style="background:#eef3ff;color:#2c4a8a;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">' + escHtml(r.account_code) + '</span></td>' +
+            '<td style="padding:6px 10px;">' + escHtml(r.account_name) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;">' + r.total_debit.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;">' + r.total_credit.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-weight:600;' + netStyle + '">' + r.net.toFixed(2) + '$</td>' +
+            '</tr>';
+    });
+    html += '<tr style="background:#f8f9fa;font-weight:700;border-top:2px solid #e0e0e0;">' +
+        '<td style="padding:6px 10px;" colspan="2">{{ t.lbl_total or "Total" }}</td>' +
+        '<td style="padding:6px 10px;text-align:right;">' + totalDebit.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;text-align:right;">' + totalCredit.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;"></td>' +
+        '</tr>';
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+}
+
+document.getElementById('trust-account-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSummaryByAccount();
+});
+
+
 const REC_STR = {
     balanced:   {{ (t.msg_reconciliation_balanced   or '✅ Compte réconcilié (différence = 0).') | tojson }},
     unbalanced: {{ (t.msg_reconciliation_unbalanced or '⚠️ Différence détectée. Veuillez vérifier.') | tojson }},
