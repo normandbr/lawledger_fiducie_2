@@ -2910,6 +2910,7 @@ def api_gl():
     for inv in invoices:
         client = inv.resolved_client
         client_name = client.client_name if client else ''
+        accounting_code = (client.accounting_code or '1100') if client else '1100'
         amount = float(inv.total_amount or 0)
 
         # Invoice = debit (amount owed)
@@ -2919,6 +2920,7 @@ def api_gl():
             'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
             'invoice_number': inv.invoice_number,
             'client_name': client_name,
+            'accounting_code': accounting_code,
             'description': f'Invoice {inv.invoice_number}',
             'debit': round(amount, 2),
             'credit': 0,
@@ -2933,6 +2935,7 @@ def api_gl():
                 'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
                 'invoice_number': inv.invoice_number,
                 'client_name': client_name,
+                'accounting_code': accounting_code,
                 'description': f'Payment - {inv.invoice_number}',
                 'debit': 0,
                 'credit': round(amount, 2),
@@ -2952,7 +2955,7 @@ def api_gl():
 @app.route('/accounts')
 @login_required
 def accounts_page():
-    """Plan de comptes management page (manager only)."""
+    """Codes comptable management page (manager only)."""
     if not current_user.is_manager:
         flash('Access restricted to managers.', 'danger')
         return redirect(url_for('index'))

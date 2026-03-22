@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-header">
     <h1>💰 {{ t.title_salary or 'Salary' }}</h1>
-    <div style="display:flex;gap:8px;">
+    <div class="page-header-actions">
         <button class="btn btn-secondary" onclick="openConfigModal()">{{ t.btn_salary_config or '⚙ Configuration' }}</button>
         <button class="btn btn-primary" onclick="openAddEntryModal()">{{ t.btn_add_salary_entry or '+ Add Entry' }}</button>
     </div>
@@ -72,33 +72,21 @@
 
 <!-- ── Add Entry Modal ─────────────────────────────────────────────────────── -->
 <div id="entry-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.2);">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:560px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
         <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
             <span>{{ t.modal_add_salary_entry or 'Add Salary Entry' }}</span>
             <span onclick="closeEntryModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
         </h2>
-        <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_field or 'Field' }}</label>
-            <select id="entry-config-id" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-                <option value="">— {{ t.lbl_select or 'Select' }} —</option>
-            </select>
-        </div>
-        <div class="form-group" style="margin-bottom:12px;">
+        <div class="form-group" style="margin-bottom:16px;">
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_date or 'Date' }}</label>
             <input type="date" id="entry-date" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
         </div>
-        <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_amount or 'Amount' }}</label>
-            <input type="number" id="entry-amount" step="0.01" min="0.01" placeholder="0.00"
-                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div class="form-group" style="margin-bottom:16px;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_salary_entry_desc or 'Description' }}</label>
-            <input type="text" id="entry-desc" placeholder=""
-                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        <!-- Dynamic field rows populated from active config -->
+        <div id="entry-fields-container">
+            <p style="color:var(--text-secondary);font-size:13px;">{{ t.msg_no_salary_config or 'No fields configured. Please set up salary fields first.' }}</p>
         </div>
         <div id="entry-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;margin-top:16px;">
             <button class="btn btn-primary" onclick="saveEntry()">{{ t.btn_save or 'Save' }}</button>
             <button class="btn btn-secondary" onclick="closeEntryModal()">{{ t.btn_cancel or 'Cancel' }}</button>
         </div>
@@ -205,7 +193,6 @@ async function saveConfig() {
         if (!res.ok) throw new Error('API error');
         _configs = await res.json();
         closeConfigModal();
-        refreshEntryConfigSelect();
         alert(SAL_STR.configSaved);
     } catch (err) {
         document.getElementById('config-error').textContent = 'Error: ' + err.message;
@@ -214,30 +201,62 @@ async function saveConfig() {
 }
 
 // ── Entry modal ────────────────────────────────────────────────────────────────
-function refreshEntryConfigSelect() {
-    const sel = document.getElementById('entry-config-id');
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">—</option>';
-    _configs.filter(c => c.is_active).forEach(c => {
-        const opt = document.createElement('option');
-        opt.value = c.id;
-        opt.textContent = c.field_name + (c.account_code ? ' (' + c.account_code + ')' : '');
-        sel.appendChild(opt);
+function buildEntryFields(activeConfigs) {
+    const container = document.getElementById('entry-fields-container');
+    if (!activeConfigs.length) {
+        container.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">{{ t.msg_no_salary_config or 'No fields configured. Please set up salary fields first.' }}</p>`;
+        return;
+    }
+    let html = `<table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+        <thead>
+            <tr>
+                <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.th_salary_field or 'Field' }}</th>
+                <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.th_salary_account or 'Code comptable' }}</th>
+                <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.th_salary_amount or 'Amount' }}</th>
+                <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.th_salary_desc or 'Description' }}</th>
+            </tr>
+        </thead>
+        <tbody>`;
+    activeConfigs.forEach(c => {
+        html += `<tr>
+            <td style="padding:6px 4px;font-size:13px;font-weight:500;">${escHtml(c.field_name)}</td>
+            <td style="padding:6px 4px;"><span style="background:#eef3ff;color:#2c4a8a;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">${escHtml(c.account_code || '')}</span></td>
+            <td style="padding:6px 4px;">
+                <input type="number" data-config-id="${c.id}" data-field="amount"
+                       step="0.01" min="0" placeholder="0.00"
+                       style="width:90px;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;">
+            </td>
+            <td style="padding:6px 4px;">
+                <input type="text" data-config-id="${c.id}" data-field="desc" placeholder=""
+                       style="width:100%;min-width:100px;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;">
+            </td>
+        </tr>`;
     });
-    sel.value = cur;
+    html += `</tbody></table>`;
+    container.innerHTML = html;
 }
 
 async function openAddEntryModal() {
-    if (_configs.length === 0) {
+    // Always reload configs to reflect the latest configuration
+    try {
         const res = await fetch(SCRIPT_ROOT + '/api/salary/config');
-        if (res.ok) _configs = await res.json();
+        if (res.ok) {
+            _configs = await res.json();
+        } else {
+            alert('{{ t.err_load_config or "Error loading configuration." }}');
+            return;
+        }
+    } catch (err) {
+        alert('{{ t.err_load_config or "Error loading configuration." }}');
+        return;
     }
-    refreshEntryConfigSelect();
+
+    const activeConfigs = _configs.filter(c => c.is_active);
+    buildEntryFields(activeConfigs);
+
     // Default date: today
     const today = new Date().toISOString().slice(0, 10);
     document.getElementById('entry-date').value = today;
-    document.getElementById('entry-amount').value = '';
-    document.getElementById('entry-desc').value = '';
     document.getElementById('entry-error').style.display = 'none';
     document.getElementById('entry-modal').style.display = 'flex';
 }
@@ -247,25 +266,44 @@ function closeEntryModal() {
 }
 
 async function saveEntry() {
-    const configId = document.getElementById('entry-config-id').value;
-    const amount   = parseFloat(document.getElementById('entry-amount').value || '0');
-    const date     = document.getElementById('entry-date').value;
-    const desc     = document.getElementById('entry-desc').value.trim();
-    const errEl    = document.getElementById('entry-error');
+    const date  = document.getElementById('entry-date').value;
+    const errEl = document.getElementById('entry-error');
 
-    if (!configId) { errEl.textContent = '{{ t.err_salary_select_field or "Please select a field." }}'; errEl.style.display = ''; return; }
-    if (!amount || amount <= 0) { errEl.textContent = '{{ t.err_salary_amount_positive or "Amount must be greater than zero." }}'; errEl.style.display = ''; return; }
     if (!date) { errEl.textContent = '{{ t.err_salary_date_required or "Date is required." }}'; errEl.style.display = ''; return; }
 
+    const activeConfigs = _configs.filter(c => c.is_active);
+    const toSave = [];
+    activeConfigs.forEach(c => {
+        const amountEl = document.querySelector(`[data-config-id="${c.id}"][data-field="amount"]`);
+        const descEl   = document.querySelector(`[data-config-id="${c.id}"][data-field="desc"]`);
+        const amount   = parseFloat(amountEl ? amountEl.value || '0' : '0');
+        if (amount > 0) {
+            toSave.push({
+                config_id:  c.id,
+                amount,
+                entry_date: date,
+                description: descEl ? descEl.value.trim() : '',
+            });
+        }
+    });
+
+    if (!toSave.length) {
+        errEl.textContent = '{{ t.err_salary_min_one_amount or "Please enter at least one amount greater than zero." }}';
+        errEl.style.display = '';
+        return;
+    }
+
     try {
-        const res = await fetch(SCRIPT_ROOT + '/api/salary/entries', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ config_id: configId, amount, entry_date: date, description: desc }),
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.message || 'API error');
+        for (const payload of toSave) {
+            const res = await fetch(SCRIPT_ROOT + '/api/salary/entries', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.message || 'API error');
+            }
         }
         closeEntryModal();
         loadEntries();

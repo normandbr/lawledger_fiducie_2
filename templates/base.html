@@ -69,52 +69,56 @@
         <ul class="nav-dropdown-list">
             {% if not _timer_only %}
                 <li><a href="{{ url_for('index') }}" onclick="closeNavMenu()">{{ t.nav_home or 'Home' }}</a></li>
-
-                {% set _clients_disabled = license_modules_restricted and not current_user.is_manager %}
-                <li><a href="{{ url_for('list_clients') }}"{% if _clients_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_matters or 'Clients & Matters' }}</a></li>
-
-                {% set _cc_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('list_cost_codes') }}"{% if _cc_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_cost_codes or 'Cost Codes' }}</a></li>
-
-                <li><a href="{{ url_for('list_invoices') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_billing or 'Invoices' }}</a></li>
-
-                <li><a href="{{ url_for('unbilled_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_unbilled or 'Unbilled' }}</a></li>
-
-                <li><a href="{{ url_for('statement_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_statement or 'Account Statement' }}</a></li>
-
-                <li><a href="{{ url_for('gl_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">📒 {{ t.nav_gl or 'General Ledger' }}</a></li>
-
-                {% set _accounts_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('accounts_page') }}"{% if _accounts_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_accounts or '📊 Chart of Accounts' }}</a></li>
-
-                {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('suppliers_page') }}"{% if _sup_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">🏢 {{ t.nav_suppliers or 'Suppliers' }}</a></li>
-
-                {% set _salary_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('salary_page') }}"{% if _salary_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_salary or '💰 Salary' }}</a></li>
-
-                {% set _emp_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('list_employees') }}"{% if _emp_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_employees or 'Employees' }}</a></li>
-
-                {% set _hr_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('hr_records_page') }}"{% if _hr_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_hr or 'HR Records' }}</a></li>
-
-                {% set _import_disabled = not current_user.is_manager or license_modules_restricted %}
-                <li><a href="{{ url_for('import_page') }}"{% if _import_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_import or 'Import' }}</a></li>
-
-                <li><a href="{{ url_for('fiducie_select') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">💼 {{ t.nav_trust or 'Fiducie' }}</a></li>
             {% endif %}
 
             {% if current_user.is_user or current_user.is_manager %}
                 <li><a href="{{ url_for('calendar_page') }}" onclick="closeNavMenu()">📅 {{ t.nav_calendar or 'Calendar' }}</a></li>
             {% endif %}
 
+            {% if current_user.timer_user %}
+                <li><a href="{{ url_for('timer_page') }}" onclick="closeNavMenu()">⏱ {{ t.nav_timer or 'Timer' }}</a></li>
+            {% endif %}
+
+            {% if not _timer_only %}
+                {% set _clients_disabled = license_modules_restricted and not current_user.is_manager %}
+                <li><a href="{{ url_for('list_clients') }}"{% if _clients_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_matters or 'Clients & Matters' }}</a></li>
+
+                {% set _accounts_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('accounts_page') }}"{% if _accounts_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_accounts or '📊 Chart of Accounts' }}</a></li>
+
+                {% set _cc_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('list_cost_codes') }}"{% if _cc_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_cost_codes or 'Cost Codes' }}</a></li>
+
+                {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('suppliers_page') }}"{% if _sup_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">🏢 {{ t.nav_suppliers or 'Suppliers' }}</a></li>
+
+                <li><a href="{{ url_for('unbilled_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_unbilled or 'Unbilled' }}</a></li>
+
+                {% set _hr_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('hr_records_page') }}"{% if _hr_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_hr or 'HR Records' }}</a></li>
+
+                {% set _emp_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('list_employees') }}"{% if _emp_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_employees or 'Employees' }}</a></li>
+
+                <li><a href="{{ url_for('statement_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_statement or 'Account Statement' }}</a></li>
+
+                <li><a href="{{ url_for('list_invoices') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_billing or 'Invoices' }}</a></li>
+            {% endif %}
+
             {% if current_user.timer_user or current_user.is_user or current_user.is_manager %}
                 <li><a href="{{ url_for('time_logs_page') }}" onclick="closeNavMenu()">📋 {{ t.nav_timelogs or 'Time Logs' }}</a></li>
             {% endif %}
 
-            {% if current_user.timer_user %}
-                <li><a href="{{ url_for('timer_page') }}" onclick="closeNavMenu()">⏱ {{ t.nav_timer or 'Timer' }}</a></li>
+            {% if not _timer_only %}
+                <li><a href="{{ url_for('fiducie_select') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">💼 {{ t.nav_trust or 'Fiducie' }}</a></li>
+
+                <li><a href="{{ url_for('gl_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">📒 {{ t.nav_gl or 'General Ledger' }}</a></li>
+
+                {% set _import_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('import_page') }}"{% if _import_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_import or 'Import' }}</a></li>
+
+                {% set _salary_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('salary_page') }}"{% if _salary_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_salary or '💰 Salary' }}</a></li>
             {% endif %}
         </ul>
     </div>
