@@ -802,7 +802,7 @@ LEXICON = {
         'btn_new_journal_entry': '+ Nouvelle écriture',
         'btn_gl_journal_tab': '📒 Écritures (double entrée)',
         'btn_gl_classic_tab': '📋 Vue classique',
-        'btn_gl_accounts_tab': '📊 Plan de comptes',
+        'btn_gl_accounts_tab': '📊 Codes comptable',
         'lbl_journal_source': 'Source',
         'lbl_journal_entry_date': 'Date écriture',
         'lbl_journal_description': 'Description',
@@ -907,9 +907,12 @@ LEXICON = {
         'th_salary_desc': 'Description',
         'th_salary_actions': 'Actions',
         'msg_no_salary_entries': 'Aucune entrée de salaire trouvée.',
+        'msg_no_salary_config': 'Aucun champ configuré. Veuillez configurer les champs de salaire en premier.',
         'msg_salary_config_saved': 'Configuration enregistrée.',
         'msg_salary_entry_saved': 'Entrée enregistrée.',
         'msg_salary_entry_deleted': 'Entrée supprimée.',
+        'err_load_config': 'Erreur lors du chargement de la configuration.',
+        'err_salary_min_one_amount': 'Veuillez saisir au moins un montant supérieur à zéro.',
 
         # GL Export
         'btn_export_csv': '⬇ Exporter CSV',
@@ -1718,7 +1721,7 @@ LEXICON = {
         'btn_new_journal_entry': '+ New Entry',
         'btn_gl_journal_tab': '📒 Entries (double-entry)',
         'btn_gl_classic_tab': '📋 Classic View',
-        'btn_gl_accounts_tab': '📊 Chart of Accounts',
+        'btn_gl_accounts_tab': '📊 Accounting Codes',
         'lbl_journal_source': 'Source',
         'lbl_journal_entry_date': 'Entry Date',
         'lbl_journal_description': 'Description',
@@ -1823,9 +1826,12 @@ LEXICON = {
         'th_salary_desc': 'Description',
         'th_salary_actions': 'Actions',
         'msg_no_salary_entries': 'No salary entries found.',
+        'msg_no_salary_config': 'No fields configured. Please set up salary fields first.',
         'msg_salary_config_saved': 'Configuration saved.',
         'msg_salary_entry_saved': 'Entry saved.',
         'msg_salary_entry_deleted': 'Entry deleted.',
+        'err_load_config': 'Error loading configuration.',
+        'err_salary_min_one_amount': 'Please enter at least one amount greater than zero.',
 
         # GL Export
         'btn_export_csv': '⬇ Export CSV',

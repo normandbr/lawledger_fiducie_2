@@ -79,12 +79,13 @@
 <!-- ── Classic view ── -->
 <div id="view-classic">
     <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 380px);padding-top:0;">
-        <table id="gl-table" style="min-width:800px;">
+        <table id="gl-table" style="min-width:900px;">
             <thead>
                 <tr>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_date or 'Date' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_invoice or 'Invoice #' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_client or 'Client' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_account_code or 'Code comptable' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_description or 'Description' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_debit or 'Debit' }}</th>
                     <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_gl_credit or 'Credit' }}</th>
@@ -92,7 +93,7 @@
                 </tr>
             </thead>
             <tbody id="gl-tbody">
-                <tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_gl_entries or 'No entries found for the selected period.' }}</td></tr>
+                <tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">{{ t.msg_no_gl_entries or 'No entries found for the selected period.' }}</td></tr>
             </tbody>
         </table>
     </div>
@@ -231,7 +232,7 @@ async function loadGL() {
 
         const tbody = document.getElementById('gl-tbody');
         if (!data.entries || data.entries.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noEntries)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-secondary);text-align:center;">${escHtml(GL_STR.noEntries)}</td></tr>`;
             return;
         }
 
@@ -241,6 +242,7 @@ async function loadGL() {
             html += `<td>${escHtml(e.date)}</td>`;
             html += `<td>${escHtml(e.invoice_number)}</td>`;
             html += `<td>${escHtml(e.client_name)}</td>`;
+            html += `<td><span style="background:#eef3ff;color:#2c4a8a;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">${escHtml(e.accounting_code || '')}</span></td>`;
             html += `<td>${escHtml(e.description)}</td>`;
             html += `<td style="text-align:right;">${e.debit ? fmtMoney(e.debit) : ''}</td>`;
             html += `<td style="text-align:right;">${e.credit ? fmtMoney(e.credit) : ''}</td>`;
@@ -248,7 +250,7 @@ async function loadGL() {
             html += '</tr>';
         });
         html += `<tr style="font-weight:700;border-top:2px solid #333;">
-            <td colspan="4" style="text-align:right;">Total</td>
+            <td colspan="5" style="text-align:right;">Total</td>
             <td style="text-align:right;">${fmtMoney(data.total_debit)}</td>
             <td style="text-align:right;">${fmtMoney(data.total_credit)}</td>
             <td style="text-align:right;">${fmtMoney(data.balance)}</td>
