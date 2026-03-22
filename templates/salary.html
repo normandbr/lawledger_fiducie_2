@@ -253,9 +253,9 @@ async function saveEntry() {
     const desc     = document.getElementById('entry-desc').value.trim();
     const errEl    = document.getElementById('entry-error');
 
-    if (!configId) { errEl.textContent = '{{ t.lbl_salary_entry_field or "Please select a field." }}'; errEl.style.display = ''; return; }
-    if (!amount || amount <= 0) { errEl.textContent = '{{ t.lbl_salary_entry_amount or "Amount must be greater than zero." }}'; errEl.style.display = ''; return; }
-    if (!date) { errEl.textContent = '{{ t.lbl_salary_entry_date or "Date is required." }}'; errEl.style.display = ''; return; }
+    if (!configId) { errEl.textContent = '{{ t.err_salary_select_field or "Please select a field." }}'; errEl.style.display = ''; return; }
+    if (!amount || amount <= 0) { errEl.textContent = '{{ t.err_salary_amount_positive or "Amount must be greater than zero." }}'; errEl.style.display = ''; return; }
+    if (!date) { errEl.textContent = '{{ t.err_salary_date_required or "Date is required." }}'; errEl.style.display = ''; return; }
 
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/salary/entries', {

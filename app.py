@@ -1676,6 +1676,8 @@ def _post_supplier_payment_journal(payment, supplier):
 def _enforce_license_restrictions():
     """Role-based license enforcement on every request.
 
+    Access matrix (all non-VALID statuses treated identically):
+
     A) Manager + VALID        → all modules accessible
     B) Manager + INVALID      → Home, Clients & Matters, Timer allowed;
                                  Cost Codes, Invoices, Employees, Import blocked
