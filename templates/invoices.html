@@ -8,6 +8,7 @@
     <div style="display:flex;gap:8px;align-items:center;">
         <button class="btn btn-secondary" onclick="printInvoicePage()">{{ t.btn_print_page or '🖨 Print' }}</button>
         <button class="btn btn-secondary" onclick="printARFromInvoices()">{{ t.print_ar_title or 'Accounts Receivable' }}</button>
+        <button class="btn btn-success" onclick="postInvoicesToGL()" style="background:#28a745;color:#fff;border:none;">{{ t.btn_post_invoices_to_gl or '📤 Soumettre au GL' }}</button>
         <a href="{{ url_for('create_invoice_page') }}" class="btn btn-primary">{{ t.btn_create_invoice or '+ Create Invoice' }}</a>
     </div>
 </div>
@@ -45,6 +46,7 @@
     <button id="btn-show-draft" class="btn btn-sm btn-secondary" onclick="toggleShowDraft()" style="height:32px;">{{ t.inv_show_draft or 'Afficher Brouillon' }}</button>
     <button id="btn-show-paid" class="btn btn-sm btn-secondary" onclick="toggleShowPaid()" style="height:32px;">{{ t.inv_show_paid or 'Show Paid' }}</button>
     <button id="btn-show-cancelled" class="btn btn-sm btn-secondary" onclick="toggleShowCancelled()" style="height:32px;">{{ t.inv_show_cancelled or 'Show Cancelled' }}</button>
+    <button id="btn-show-unpaid-only" class="btn btn-sm btn-secondary" onclick="toggleShowUnpaidOnly()" style="height:32px;">{{ t.inv_show_unpaid_only or 'Non Payées Seulement' }}</button>
 </div>
 
 <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
@@ -102,6 +104,7 @@ let allInvoices = [];
 let showPaid = false;
 let showCancelled = false;
 let showDraft = false;
+let showUnpaidOnly = false;
 
 function toggleShowDraft() {
     showDraft = !showDraft;
@@ -127,6 +130,20 @@ function toggleShowCancelled() {
     btn.style.fontWeight = showCancelled ? '700' : '';
     btn.style.borderColor = showCancelled ? 'var(--danger)' : '';
     btn.style.color = showCancelled ? 'var(--danger)' : '';
+    applyFilters();
+}
+
+function toggleShowUnpaidOnly() {
+    showUnpaidOnly = !showUnpaidOnly;
+    const btn = document.getElementById('btn-show-unpaid-only');
+    btn.style.fontWeight = showUnpaidOnly ? '700' : '';
+    btn.style.borderColor = showUnpaidOnly ? 'var(--warning, #ffc107)' : '';
+    btn.style.color = showUnpaidOnly ? 'var(--warning, #856404)' : '';
+    if (showUnpaidOnly) {
+        // Hide paid/cancelled when switching to unpaid-only mode
+        showPaid = false;
+        showCancelled = false;
+    }
     applyFilters();
 }
 
@@ -181,9 +198,14 @@ function applyFilters() {
     const dateTo = document.getElementById('filter-date-to').value;
 
     const filtered = allInvoices.filter(inv => {
-        if (!showPaid && inv.status === 'paid') return false;
-        if (!showCancelled && inv.status === 'cancelled') return false;
-        if (!showDraft && inv.status === 'draft') return false;
+        if (showUnpaidOnly) {
+            // Show only sent/draft invoices (not paid, not cancelled)
+            if (inv.status === 'paid' || inv.status === 'cancelled') return false;
+        } else {
+            if (!showPaid && inv.status === 'paid') return false;
+            if (!showCancelled && inv.status === 'cancelled') return false;
+            if (!showDraft && inv.status === 'draft') return false;
+        }
         if (numFilter && !inv.invoice_number.toLowerCase().includes(numFilter)) return false;
         if (clientFilter && String(inv.client_id) !== clientFilter) return false;
         if (dateFrom && inv.invoice_date && inv.invoice_date < dateFrom) return false;
@@ -202,6 +224,7 @@ function clearFilters() {
     showPaid = false;
     showCancelled = false;
     showDraft = false;
+    showUnpaidOnly = false;
     const btnPaid = document.getElementById('btn-show-paid');
     btnPaid.style.fontWeight = '';
     btnPaid.style.borderColor = '';
@@ -214,6 +237,10 @@ function clearFilters() {
     btnDraft.style.fontWeight = '';
     btnDraft.style.borderColor = '';
     btnDraft.style.color = '';
+    const btnUnpaid = document.getElementById('btn-show-unpaid-only');
+    btnUnpaid.style.fontWeight = '';
+    btnUnpaid.style.borderColor = '';
+    btnUnpaid.style.color = '';
     applyFilters();
 }
 
@@ -317,6 +344,16 @@ function printARFromInvoices() {
     var url = SCRIPT_ROOT + '/unbilled/print';
     if (clientId) url += '?client_id=' + encodeURIComponent(clientId);
     window.location.href = url;
+}
+
+async function postInvoicesToGL() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/invoices/post-to-gl', {method: 'POST'});
+        const data = await res.json();
+        alert(data.message || 'Done.');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
 }
 
 loadInvoices();

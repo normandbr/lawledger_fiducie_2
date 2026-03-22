@@ -5,7 +5,11 @@
 {% block content %}
 <div class="page-header">
     <h1>🏢 {{ t.title_suppliers or 'Suppliers' }}</h1>
-    <button class="btn btn-primary" onclick="openAddSupplierModal()">{{ t.btn_add_supplier or '+ Add Supplier' }}</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="window.location.href=SCRIPT_ROOT+'/suppliers/unpaid/print'">{{ t.btn_print_unpaid or '🖨 Imprimer Non Payés' }}</button>
+        <button class="btn btn-success" onclick="postSuppliersToGL()" style="background:#28a745;color:#fff;border:none;">{{ t.btn_post_suppliers_to_gl or '📤 Soumettre au GL' }}</button>
+        <button class="btn btn-primary" onclick="openAddSupplierModal()">{{ t.btn_add_supplier or '+ Add Supplier' }}</button>
+    </div>
 </div>
 
 <!-- Search bar -->
@@ -619,5 +623,15 @@ async function loadAccountOptions() {
 // Initialize
 loadSuppliers();
 loadAccountOptions();
+
+async function postSuppliersToGL() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/payments/post-to-gl', {method: 'POST'});
+        const data = await res.json();
+        alert(data.message || 'Done.');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
 </script>
 {% endblock %}

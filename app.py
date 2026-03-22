@@ -853,6 +853,7 @@ class SupplierPayment(db.Model):
     bank_transaction = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    is_posted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -870,6 +871,7 @@ class SupplierPayment(db.Model):
             'cheque_number': self.cheque_number or '',
             'bank_transaction': self.bank_transaction or '',
             'created_by': self.created_by or '',
+            'is_posted': bool(self.is_posted),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1248,6 +1250,7 @@ _COLUMN_MIGRATIONS = {
         ('bank_transaction',  'NVARCHAR(255) NULL'),
         ('created_by',        'NVARCHAR(80) NULL'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+        ('is_posted',         'BIT NOT NULL DEFAULT 0'),
     ],
     'accounts': [
         ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
@@ -2937,73 +2940,121 @@ def gl_page():
 def api_gl():
     """Return general-ledger style entries for a date range.
 
-    Query params: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD), client_id (optional).
-    Returns invoiced amounts as debits and payments as credits.
+    Query params: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD).
+    Returns invoices, salary entries and supplier payments as debits/credits.
+    Trust/fiducie entries are excluded — they are managed in a separate module.
+    Requires manager access.
     """
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     date_from = request.args.get('date_from', '').strip()
     date_to = request.args.get('date_to', '').strip()
-    client_id = request.args.get('client_id')
 
     if not date_from or not date_to:
         return jsonify({'error': 'date_from and date_to are required'}), 400
 
-    # Fetch invoices in the period
+    raw_entries = []
+
+    # ── 1. Invoices ───────────────────────────────────────────────────────────
     inv_q = Invoice.query.filter(
         Invoice.invoice_date >= date_from,
         Invoice.invoice_date <= date_to,
         Invoice.status != 'cancelled'
     )
-    if client_id:
-        matter_ids = [m.id for m in Matter.query.filter_by(client_id=int(client_id)).all()]
-        inv_q = inv_q.filter(
-            db.or_(
-                Invoice.matter_id.in_(matter_ids),
-                Invoice.client_id == int(client_id)
-            )
-        )
     invoices = inv_q.order_by(Invoice.invoice_date.asc()).all()
-
-    entries = []
-    running_balance = 0.0
-    total_debit = 0.0
-    total_credit = 0.0
 
     for inv in invoices:
         client = inv.resolved_client
         client_name = client.client_name if client else ''
         accounting_code = (client.accounting_code or '1100') if client else '1100'
         amount = float(inv.total_amount or 0)
+        inv_date = inv.invoice_date.isoformat() if inv.invoice_date else ''
 
-        # Invoice = debit (amount owed)
-        running_balance += amount
-        total_debit += amount
-        entries.append({
-            'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
+        raw_entries.append({
+            'date': inv_date,
             'invoice_number': inv.invoice_number,
             'client_name': client_name,
             'accounting_code': accounting_code,
-            'description': f'Invoice {inv.invoice_number}',
+            'description': f'Facture {inv.invoice_number}',
             'debit': round(amount, 2),
             'credit': 0,
-            'balance': round(running_balance, 2),
         })
 
-        # If paid, add credit entry
         if inv.status == 'paid':
-            running_balance -= amount
-            total_credit += amount
-            entries.append({
-                'date': inv.invoice_date.isoformat() if inv.invoice_date else '',
+            raw_entries.append({
+                'date': inv_date,
                 'invoice_number': inv.invoice_number,
                 'client_name': client_name,
                 'accounting_code': accounting_code,
-                'description': f'Payment - {inv.invoice_number}',
+                'description': f'Paiement – {inv.invoice_number}',
                 'debit': 0,
                 'credit': round(amount, 2),
-                'balance': round(running_balance, 2),
             })
+
+    # ── 2. Salary entries ─────────────────────────────────────────────────────
+    salary_q = SalaryEntry.query.filter(
+        SalaryEntry.is_deleted == False,
+        SalaryEntry.entry_date >= date_from,
+        SalaryEntry.entry_date <= date_to,
+    ).order_by(SalaryEntry.entry_date.asc())
+
+    for entry in salary_q.all():
+        cfg = entry.config
+        account_code = (cfg.account_code or '') if cfg else ''
+        field_name = (cfg.field_name or 'Salaire') if cfg else 'Salaire'
+        desc = f'Salaire – {field_name}'
+        if entry.description:
+            desc += f' – {entry.description}'
+        raw_entries.append({
+            'date': entry.entry_date.isoformat() if entry.entry_date else '',
+            'invoice_number': '',
+            'client_name': 'Salaire',
+            'accounting_code': account_code,
+            'description': desc,
+            'debit': round(float(entry.amount or 0), 2),
+            'credit': 0,
+        })
+
+    # ── 3. Supplier payments ──────────────────────────────────────────────────
+    # Use payment_date when available, fall back to invoice_date for filtering.
+    sup_all = SupplierPayment.query.filter(
+        SupplierPayment.is_deleted == False,
+    ).all()
+
+    for payment in sup_all:
+        pay_date = payment.payment_date or payment.invoice_date
+        if not pay_date:
+            continue
+        pay_date_str = pay_date.isoformat()
+        if pay_date_str < date_from or pay_date_str > date_to:
+            continue
+        supplier = payment.supplier
+        sup_name = supplier.name if supplier else ''
+        account_code = (supplier.accounting_code or '2010') if supplier else '2010'
+        desc = payment.description or f'Paiement fournisseur {sup_name}'
+        raw_entries.append({
+            'date': pay_date_str,
+            'invoice_number': payment.invoice_number or '',
+            'client_name': sup_name,
+            'accounting_code': account_code,
+            'description': desc,
+            'debit': round(float(payment.amount or 0), 2),
+            'credit': 0,
+        })
+
+    # ── Sort by date, then compute running balance ────────────────────────────
+    raw_entries.sort(key=lambda x: x.get('date', ''))
+
+    running_balance = 0.0
+    total_debit = 0.0
+    total_credit = 0.0
+    entries = []
+    for e in raw_entries:
+        running_balance += e['debit'] - e['credit']
+        total_debit += e['debit']
+        total_credit += e['credit']
+        e['balance'] = round(running_balance, 2)
+        entries.append(e)
 
     return jsonify({
         'entries': entries,
@@ -4793,6 +4844,41 @@ def api_invoice_cancel(invoice_id):
     return jsonify(invoice.to_dict())
 
 
+@app.route('/api/invoices/post-to-gl', methods=['POST'])
+@login_required
+def api_invoices_post_to_gl():
+    """Post invoices and payments that have no journal entry yet to the GL."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    # Find invoices not yet present in the journal (no JournalEntry with source_type='invoice')
+    posted_invoice_ids = {
+        je.source_id
+        for je in JournalEntry.query.filter_by(source_type='invoice').all()
+    }
+    posted_payment_ids = {
+        je.source_id
+        for je in JournalEntry.query.filter_by(source_type='payment').all()
+    }
+    invoices = Invoice.query.filter(Invoice.status != 'cancelled').all()
+    posted_count = 0
+    for inv in invoices:
+        client = inv.resolved_client
+        if inv.id not in posted_invoice_ids:
+            try:
+                _post_invoice_journal(inv, client)
+                posted_count += 1
+            except Exception as exc:
+                logger.warning("Could not post invoice %s to GL: %s", inv.id, exc)
+        if inv.status == 'paid' and inv.id not in posted_payment_ids:
+            try:
+                _post_payment_journal(inv, client, float(inv.total_amount or 0))
+                posted_count += 1
+            except Exception as exc:
+                logger.warning("Could not post payment for invoice %s to GL: %s", inv.id, exc)
+    db.session.commit()
+    return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
+
+
 @app.route('/import')
 @login_required
 def import_page():
@@ -5667,6 +5753,47 @@ def api_supplier_payment_detail(payment_id):
     payment.is_deleted = True
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/api/suppliers/payments/post-to-gl', methods=['POST'])
+@login_required
+def api_supplier_payments_post_to_gl():
+    """Post unposted supplier payments to the GL journal and mark them as posted."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    payments = SupplierPayment.query.filter(
+        SupplierPayment.is_deleted == False,
+        SupplierPayment.is_posted == False,
+    ).all()
+    if not payments:
+        return jsonify({'posted': 0, 'message': 'Aucune entrée non soumise trouvée.'})
+    posted_count = 0
+    for payment in payments:
+        supplier = payment.supplier
+        try:
+            _post_supplier_payment_journal(payment, supplier)
+            payment.is_posted = True
+            posted_count += 1
+        except Exception as exc:
+            logger.warning("Could not post supplier payment %s to GL: %s", payment.id, exc)
+    db.session.commit()
+    return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
+
+
+@app.route('/suppliers/unpaid/print')
+@login_required
+def suppliers_unpaid_print():
+    """Print view of all unpaid supplier invoices (payment_date is NULL)."""
+    if not current_user.is_manager:
+        flash('Access restricted to managers.', 'danger')
+        return redirect(url_for('index'))
+    firm = FirmInfo.query.first()
+    payments = SupplierPayment.query.filter(
+        SupplierPayment.is_deleted == False,
+        SupplierPayment.payment_date.is_(None),
+    ).order_by(SupplierPayment.invoice_date.asc(), SupplierPayment.id.asc()).all()
+    now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    return render_template('suppliers_unpaid_print.html', firm=firm, payments=payments, now=now_str)
 
 
 # ── Calendar / Agenda Module ─────────────────────────────────────────────────

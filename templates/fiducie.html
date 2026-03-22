@@ -156,7 +156,7 @@
                             <small style="color:var(--text-secondary);">{{ trans.motif or '' }}</small>
                         </td>
                         <td>{{ trans.ref_bancaire or '' }}</td>
-                        <td>{% if trans.invoice_number %}<a href="{{ url_for('print_invoice_by_number', invoice_number=trans.invoice_number) }}" target="_blank" style="color:#0078d4;text-decoration:underline;">{{ trans.invoice_number }}</a>{% endif %}</td>
+                        <td>{% if trans.invoice_number %}<a href="{{ url_for('print_invoice_by_number', invoice_number=trans.invoice_number) }}" style="color:#0078d4;text-decoration:underline;">{{ trans.invoice_number }}</a>{% endif %}</td>
                         <td style="text-align:right;color:var(--success);">{% if trans.type_trans == 'DEPOT' %}+{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
                         <td style="text-align:right;color:var(--danger);">{% if trans.type_trans == 'RETRAIT' %}-{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
                         <td>{{ trans.created_by or '' }}</td>
@@ -581,7 +581,7 @@ function renderTrustSummary(rows, dateFrom, dateTo) {
         var invoiceLinks = '';
         if (r.invoice_numbers && r.invoice_numbers.length) {
             invoiceLinks = r.invoice_numbers.map(function(n) {
-                return '<a href="' + SCRIPT_ROOT + '/invoices/by-number/' + encodeURIComponent(n) + '/print" target="_blank" style="color:#0078d4;text-decoration:underline;white-space:nowrap;">' + escHtml(n) + '</a>';
+                return '<a href="' + SCRIPT_ROOT + '/invoices/by-number/' + encodeURIComponent(n) + '/print" style="color:#0078d4;text-decoration:underline;white-space:nowrap;">' + escHtml(n) + '</a>';
             }).join('<br>');
         }
         html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
