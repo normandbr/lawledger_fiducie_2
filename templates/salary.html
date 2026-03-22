@@ -105,7 +105,7 @@ const SAL_STR = {
     entrySaved:      {{ (t.msg_salary_entry_saved or 'Entry saved.') | tojson }},
     entryDeleted:    {{ (t.msg_salary_entry_deleted or 'Entry deleted.') | tojson }},
     confirmDelete:   {{ (t.confirm_delete or 'Delete this entry?') | tojson }},
-    confirmPostGL:   {{ (t.confirm_delete or 'Soumettre les entrées non soumises de cette période au GL?') | tojson }},
+    confirmPostGL:   {{ (t.confirm_post_salary_gl or 'Soumettre les entrées non soumises de cette période au GL?') | tojson }},
     postedLabel:     {{ (t.lbl_salary_posted or 'Soumis') | tojson }},
     notPostedLabel:  '—',
 };
@@ -379,7 +379,8 @@ async function loadEntries() {
 async function postToGL() {
     const dateFrom = document.getElementById('sal-date-from').value;
     const dateTo   = document.getElementById('sal-date-to').value;
-    const msg = '{{ t.btn_post_salary_to_gl or "Post to GL" }}' + (dateFrom || dateTo ? ` (${dateFrom || '…'} → ${dateTo || '…'})` : '') + '?';
+    const period = (dateFrom || dateTo) ? ` (${dateFrom || '…'} → ${dateTo || '…'})` : '';
+    const msg = SAL_STR.confirmPostGL + period;
     if (!confirm(msg)) return;
     const btn = document.getElementById('btn-post-gl');
     btn.disabled = true;
