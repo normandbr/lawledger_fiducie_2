@@ -853,6 +853,7 @@ class SupplierPayment(db.Model):
     bank_transaction = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    is_posted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -870,6 +871,7 @@ class SupplierPayment(db.Model):
             'cheque_number': self.cheque_number or '',
             'bank_transaction': self.bank_transaction or '',
             'created_by': self.created_by or '',
+            'is_posted': bool(self.is_posted),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
