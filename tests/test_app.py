@@ -554,3 +554,151 @@ class TestCalendarModule:
         assert b"openRoomConfigModal" in resp.data
         logout(client)
 
+
+# ---------------------------------------------------------------------------
+# 10. Supplier payments – mark-as-paid with is_paid / date_paid tracking
+# ---------------------------------------------------------------------------
+
+class TestSupplierPayments:
+    """Tests for the accounts-payable (Comptes à payer) mark-as-paid flow."""
+
+    def _create_supplier(self, app, name="Acme Corp"):
+        from app import db, Supplier
+        with app.app_context():
+            supplier = Supplier(name=name, is_active=True)
+            db.session.add(supplier)
+            db.session.commit()
+            return supplier.id
+
+    def test_create_unpaid_invoice_is_paid_false(self, client, manager_user, app):
+        """Creating an invoice without a payment_date sets is_paid=False."""
+        from app import db, SupplierPayment
+        supplier_id = self._create_supplier(app)
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={"invoice_number": "INV-001", "amount": 100.00, "invoice_date": "2024-01-15"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["is_paid"] is False
+        assert data["date_paid"] is None
+        assert data["is_posted"] is False
+        with app.app_context():
+            SupplierPayment.query.filter_by(supplier_id=supplier_id).delete()
+            db.session.commit()
+        logout(client)
+
+    def test_create_paid_invoice_sets_is_paid_and_date_paid(self, client, manager_user, app):
+        """Creating an invoice with a payment_date sets is_paid=True and date_paid."""
+        from app import db, SupplierPayment
+        supplier_id = self._create_supplier(app, "Beta Ltd")
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={
+                "invoice_number": "INV-002",
+                "amount": 200.00,
+                "invoice_date": "2024-02-01",
+                "payment_date": "2024-02-10",
+            },
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["is_paid"] is True
+        assert data["date_paid"] == "2024-02-10"
+        assert data["is_posted"] is True
+        with app.app_context():
+            SupplierPayment.query.filter_by(supplier_id=supplier_id).delete()
+            db.session.commit()
+        logout(client)
+
+    def test_mark_as_paid_updates_is_paid_and_date_paid(self, client, manager_user, app):
+        """PUT /api/supplier-payments/<id> with payment_date sets is_paid=True and date_paid."""
+        from app import db, SupplierPayment
+        supplier_id = self._create_supplier(app, "Gamma Inc")
+        login(client, "test_manager", "Pass1234!")
+        # Create an unpaid invoice
+        create_resp = client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={"invoice_number": "INV-003", "amount": 300.00, "invoice_date": "2024-03-01"},
+            content_type="application/json",
+        )
+        assert create_resp.status_code == 201
+        payment_id = create_resp.get_json()["id"]
+        # Mark it as paid
+        put_resp = client.put(
+            f"/api/supplier-payments/{payment_id}",
+            json={"payment_date": "2024-03-05", "payment_method": "cheque"},
+            content_type="application/json",
+        )
+        assert put_resp.status_code == 200
+        result = put_resp.get_json()
+        assert result["is_paid"] is True
+        assert result["date_paid"] == "2024-03-05"
+        assert result["payment_date"] == "2024-03-05"
+        # is_posted must remain False – it's pending GL posting
+        assert result["is_posted"] is False
+        with app.app_context():
+            SupplierPayment.query.filter_by(supplier_id=supplier_id).delete()
+            db.session.commit()
+        logout(client)
+
+    def test_unpaid_api_returns_only_unpaid(self, client, manager_user, app):
+        """GET /api/suppliers/payments/unpaid returns only is_paid=False invoices."""
+        from app import db, SupplierPayment
+        supplier_id = self._create_supplier(app, "Delta SA")
+        login(client, "test_manager", "Pass1234!")
+        # Create one unpaid and one paid invoice
+        client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={"invoice_number": "UNPD-1", "amount": 50.00, "invoice_date": "2024-04-01"},
+            content_type="application/json",
+        )
+        client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={"invoice_number": "PAID-1", "amount": 75.00, "payment_date": "2024-04-01"},
+            content_type="application/json",
+        )
+        resp = client.get("/api/suppliers/payments/unpaid")
+        assert resp.status_code == 200
+        items = resp.get_json()
+        invoice_numbers = [p["invoice_number"] for p in items]
+        assert "UNPD-1" in invoice_numbers
+        assert "PAID-1" not in invoice_numbers
+        with app.app_context():
+            SupplierPayment.query.filter_by(supplier_id=supplier_id).delete()
+            db.session.commit()
+        logout(client)
+
+    def test_paid_invoice_absent_from_unpaid_after_mark(self, client, manager_user, app):
+        """After marking an invoice as paid, it no longer appears in the unpaid list."""
+        from app import db, SupplierPayment
+        supplier_id = self._create_supplier(app, "Epsilon SARL")
+        login(client, "test_manager", "Pass1234!")
+        create_resp = client.post(
+            f"/api/suppliers/{supplier_id}/payments",
+            json={"invoice_number": "INV-PEND", "amount": 500.00, "invoice_date": "2024-05-01"},
+            content_type="application/json",
+        )
+        payment_id = create_resp.get_json()["id"]
+        # Confirm it is in the unpaid list
+        before = client.get("/api/suppliers/payments/unpaid").get_json()
+        assert any(p["id"] == payment_id for p in before)
+        # Mark it as paid
+        client.put(
+            f"/api/supplier-payments/{payment_id}",
+            json={"payment_date": "2024-05-01"},
+            content_type="application/json",
+        )
+        # Confirm it is no longer in the unpaid list
+        after = client.get("/api/suppliers/payments/unpaid").get_json()
+        assert not any(p["id"] == payment_id for p in after)
+        with app.app_context():
+            SupplierPayment.query.filter_by(supplier_id=supplier_id).delete()
+            db.session.commit()
+        logout(client)
+
+

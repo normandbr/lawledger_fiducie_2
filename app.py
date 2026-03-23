@@ -853,6 +853,8 @@ class SupplierPayment(db.Model):
     bank_transaction = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    is_paid = db.Column(db.Boolean, default=False)   # explicitly marked paid by a user
+    date_paid = db.Column(db.Date, nullable=True)    # date when invoice was marked as paid
     is_posted = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -871,6 +873,8 @@ class SupplierPayment(db.Model):
             'cheque_number': self.cheque_number or '',
             'bank_transaction': self.bank_transaction or '',
             'created_by': self.created_by or '',
+            'is_paid': bool(self.is_paid),
+            'date_paid': self.date_paid.isoformat() if self.date_paid else None,
             'is_posted': bool(self.is_posted),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -1280,6 +1284,8 @@ _COLUMN_MIGRATIONS = {
         ('bank_transaction',  'NVARCHAR(255) NULL'),
         ('created_by',        'NVARCHAR(80) NULL'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+        ('is_paid',           'BIT NOT NULL DEFAULT 0'),
+        ('date_paid',         'DATE NULL'),
         ('is_posted',         'BIT NOT NULL DEFAULT 0'),
     ],
     'accounts': [
@@ -1348,6 +1354,17 @@ def _apply_schema_migrations():
                     "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
                 ))
                 logger.info("Schema migration: backfilled is_user=1 for existing managers")
+
+        # Backfill is_paid and date_paid for supplier_payments that already have
+        # a payment_date – those were paid before the is_paid column was added.
+        if 'supplier_payments' in existing_tables:
+            with db.engine.begin() as conn:
+                conn.execute(sa_text(
+                    "UPDATE [supplier_payments] "
+                    "SET [is_paid] = 1, [date_paid] = [payment_date] "
+                    "WHERE [payment_date] IS NOT NULL AND [is_paid] = 0"
+                ))
+                logger.info("Schema migration: backfilled is_paid/date_paid for paid supplier_payments")
 
         # Add CHECK constraint for timer_user / hourly_rate requirement
         if 'employees' in existing_tables:
@@ -5739,10 +5756,15 @@ def api_supplier_payments(supplier_id):
         cheque_number=data.get('cheque_number', ''),
         bank_transaction=data.get('bank_transaction', ''),
         created_by=current_user.username,
+        is_paid=payment_date is not None,
+        date_paid=payment_date,
     )
     db.session.add(payment)
     db.session.commit()
-    _post_supplier_payment_journal(payment, supplier)
+    if payment_date:
+        _post_supplier_payment_journal(payment, supplier)
+        payment.is_posted = True
+        db.session.commit()
     return jsonify(payment.to_dict()), 201
 
 
@@ -5776,7 +5798,12 @@ def api_supplier_payment_detail(payment_id):
                 pass  # Invalid date format from client; leave field unchanged
         if 'payment_date' in data:
             try:
-                payment.payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date() if data['payment_date'] else None
+                new_payment_date = datetime.strptime(data['payment_date'], '%Y-%m-%d').date() if data['payment_date'] else None
+                payment.payment_date = new_payment_date
+                # Mark the invoice as paid and record the date it was paid
+                if new_payment_date:
+                    payment.is_paid = True
+                    payment.date_paid = new_payment_date
             except ValueError:
                 pass  # Invalid date format from client; leave field unchanged
         db.session.commit()
@@ -5795,6 +5822,7 @@ def api_supplier_payments_post_to_gl():
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     payments = SupplierPayment.query.filter(
         SupplierPayment.is_deleted == False,
+        SupplierPayment.is_paid == True,
         SupplierPayment.is_posted == False,
     ).all()
     if not payments:
@@ -5815,12 +5843,12 @@ def api_supplier_payments_post_to_gl():
 @app.route('/api/suppliers/payments/unpaid', methods=['GET'])
 @login_required
 def api_suppliers_payments_unpaid():
-    """Return all unpaid supplier invoices (payment_date is NULL) as JSON."""
+    """Return all unpaid supplier invoices (is_paid=False) as JSON."""
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     payments = SupplierPayment.query.filter(
         SupplierPayment.is_deleted == False,
-        SupplierPayment.payment_date.is_(None),
+        SupplierPayment.is_paid == False,
     ).order_by(SupplierPayment.invoice_date.asc(), SupplierPayment.id.asc()).all()
     return jsonify([p.to_dict() for p in payments])
 
@@ -5828,14 +5856,14 @@ def api_suppliers_payments_unpaid():
 @app.route('/suppliers/unpaid/print')
 @login_required
 def suppliers_unpaid_print():
-    """Print view of all unpaid supplier invoices (payment_date is NULL)."""
+    """Print view of all unpaid supplier invoices (is_paid=False)."""
     if not current_user.is_manager:
         flash('Access restricted to managers.', 'danger')
         return redirect(url_for('index'))
     firm = FirmInfo.query.first()
     payments = SupplierPayment.query.filter(
         SupplierPayment.is_deleted == False,
-        SupplierPayment.payment_date.is_(None),
+        SupplierPayment.is_paid == False,
     ).order_by(SupplierPayment.invoice_date.asc(), SupplierPayment.id.asc()).all()
     now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
     return render_template('suppliers_unpaid_print.html', firm=firm, payments=payments, now=now_str)

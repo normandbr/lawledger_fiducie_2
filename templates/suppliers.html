@@ -137,15 +137,17 @@
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_desc or 'Description' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_amount or 'Amount' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_date or 'Payment Date' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date_paid or 'Date Payé' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_method or 'Method' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_cheque_number or 'Cheque #' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_bank_transaction or 'Transaction' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_status or 'Statut GL' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_created_by or 'Added by' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
                     </tr>
                 </thead>
                 <tbody id="payments-tbody">
-                    <tr><td colspan="10" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+                    <tr><td colspan="12" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
                 </tbody>
             </table>
         </div>
@@ -489,7 +491,7 @@ function closePaymentsModal() {
 function renderPaymentRows(payments) {
     const tbody = document.getElementById('payments-tbody');
     if (!payments.length) {
-        tbody.innerHTML = '<tr><td colspan="10" style="color:var(--text-secondary)">' + SUP_STR.noPayments + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="color:var(--text-secondary)">' + SUP_STR.noPayments + '</td></tr>';
         document.getElementById('payments-total').textContent = '';
         return;
     }
@@ -502,9 +504,11 @@ function renderPaymentRows(payments) {
             <td>${escHtml(p.description) || '—'}</td>
             <td>$${parseFloat(p.amount || 0).toFixed(2)}</td>
             <td>${p.payment_date ? new Date(p.payment_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>${p.date_paid ? new Date(p.date_paid + 'T00:00:00').toLocaleDateString() : '—'}</td>
             <td>${escHtml(p.payment_method) || '—'}</td>
             <td>${escHtml(p.cheque_number) || '—'}</td>
             <td>${escHtml(p.bank_transaction) || '—'}</td>
+            <td>${p.is_paid && !p.is_posted ? '<span style="color:#e67e22;font-size:11px;font-weight:600;">⏳ En attente GL</span>' : p.is_posted ? '<span style="color:#27ae60;font-size:11px;font-weight:600;">✔ Posté GL</span>' : '<span style="color:#888;font-size:11px;">—</span>'}</td>
             <td>${escHtml(p.created_by) || '—'}</td>
             <td style="white-space:nowrap;">
                 <button class="btn btn-sm btn-secondary" onclick="openEditPaymentModal(${p.id})" style="font-size:11px;padding:2px 8px;margin-right:4px;">${SUP_STR.btnEdit}</button>
@@ -543,7 +547,7 @@ function filterPayments() {
 async function loadPayments() {
     if (!currentSupplierId) return;
     const tbody = document.getElementById('payments-tbody');
-    tbody.innerHTML = '<tr><td colspan="10" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + currentSupplierId + '/payments');
         if (!res.ok) throw new Error('Failed');
@@ -551,7 +555,7 @@ async function loadPayments() {
         document.getElementById('payments-total').textContent = '';
         filterPayments();
     } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="10" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
     }
 }
 
