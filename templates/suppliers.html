@@ -186,35 +186,11 @@
                 <input type="number" id="pay-amount" min="0" step="0.01"
                        style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
             </div>
-            <div style="flex:1;">
-                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_date or 'Payment Date' }}</label>
-                <input type="date" id="pay-payment-date"
-                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-            </div>
-        </div>
-        <div class="form-group" style="margin-bottom:12px;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_method or 'Payment Method' }}</label>
-            <select id="pay-method" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" onchange="togglePaymentRefField()">
-                <option value="">—</option>
-                <option value="cheque">{{ t.opt_payment_cheque or 'Cheque' }}</option>
-                <option value="virement">{{ t.opt_payment_virement or 'Bank Transfer' }}</option>
-                <option value="cash">{{ t.opt_payment_cash or 'Cash' }}</option>
-                <option value="other">{{ t.opt_payment_other or 'Other' }}</option>
-            </select>
-        </div>
-        <div id="pay-cheque-row" style="margin-bottom:16px;display:none;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cheque_number or 'No de chèque' }}</label>
-            <input type="text" id="pay-cheque-number"
-                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-        </div>
-        <div id="pay-bank-row" style="margin-bottom:16px;display:none;">
-            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_bank_transaction or 'No de transaction bancaire' }}</label>
-            <input type="text" id="pay-bank-transaction"
-                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
         </div>
         <div id="payment-form-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
         <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="savePayment()">{{ t.btn_save or 'Save' }}</button>
+            <button class="btn btn-success" onclick="saveAndMarkPaid()">{{ t.btn_mark_paid or '✔ Marquer payé' }}</button>
             <button class="btn btn-secondary" onclick="closePaymentFormModal()">{{ t.btn_cancel or 'Cancel' }}</button>
         </div>
     </div>
@@ -236,11 +212,12 @@
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_inv_date or 'Date facture' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_desc or 'Description' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_amount or 'Montant' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date_paid or 'Date payé' }}</th>
                         <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
                     </tr>
                 </thead>
                 <tbody id="unpaid-tbody">
-                    <tr><td colspan="6" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+                    <tr><td colspan="7" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
                 </tbody>
             </table>
         </div>
@@ -259,7 +236,7 @@
         <input type="hidden" id="mark-paid-payment-id">
         <div style="display:flex;gap:12px;margin-bottom:12px;">
             <div style="flex:1;">
-                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_date or 'Date du paiement' }} *</label>
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_date_paid or 'Date payé' }} *</label>
                 <input type="date" id="mark-paid-date"
                        style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
             </div>
@@ -318,6 +295,7 @@ const SUP_STR = {
 };
 
 let currentSupplierId = null;
+let currentSupplierName = '';
 let allPayments = [];
 
 function escHtml(str) {
@@ -458,22 +436,20 @@ async function deleteSupplier(supplierId) {
 // Directly open the Add Payment form for a given supplier (bypasses the payments list)
 function quickAddPayment(supplierId, supplierName) {
     currentSupplierId = supplierId;
+    currentSupplierName = supplierName;
     document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payAdd + ' — ' + supplierName;
     document.getElementById('payment-id').value = '';
     document.getElementById('pay-invoice-number').value = '';
     document.getElementById('pay-invoice-date').value = '';
     document.getElementById('pay-description').value = '';
     document.getElementById('pay-amount').value = '';
-    document.getElementById('pay-payment-date').value = '';
-    document.getElementById('pay-method').value = '';
-    document.getElementById('pay-cheque-number').value = '';
-    document.getElementById('pay-bank-transaction').value = '';
     document.getElementById('payment-form-error').style.display = 'none';
     document.getElementById('payment-form-modal').style.display = 'flex';
 }
 
 async function openPaymentsModal(supplierId, supplierName) {
     currentSupplierId = supplierId;
+    currentSupplierName = supplierName;
     document.getElementById('payments-supplier-name').textContent = supplierName;
     document.getElementById('payments-search').value = '';
     document.getElementById('payments-date-from').value = '';
@@ -578,11 +554,6 @@ function openAddPaymentModal() {
     document.getElementById('pay-invoice-date').value = '';
     document.getElementById('pay-description').value = '';
     document.getElementById('pay-amount').value = '';
-    document.getElementById('pay-payment-date').value = '';
-    document.getElementById('pay-method').value = '';
-    document.getElementById('pay-cheque-number').value = '';
-    document.getElementById('pay-bank-transaction').value = '';
-    togglePaymentRefField();
     document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payAdd;
     document.getElementById('payment-form-error').style.display = 'none';
     document.getElementById('payment-form-modal').style.display = 'flex';
@@ -598,11 +569,6 @@ async function openEditPaymentModal(paymentId) {
         document.getElementById('pay-invoice-date').value = p.invoice_date || '';
         document.getElementById('pay-description').value = p.description || '';
         document.getElementById('pay-amount').value = p.amount || '';
-        document.getElementById('pay-payment-date').value = p.payment_date || '';
-        document.getElementById('pay-method').value = p.payment_method || '';
-        document.getElementById('pay-cheque-number').value = p.cheque_number || '';
-        document.getElementById('pay-bank-transaction').value = p.bank_transaction || '';
-        togglePaymentRefField();
         document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payEdit;
         document.getElementById('payment-form-error').style.display = 'none';
         document.getElementById('payment-form-modal').style.display = 'flex';
@@ -615,51 +581,78 @@ function closePaymentFormModal() {
     document.getElementById('payment-form-modal').style.display = 'none';
 }
 
-async function savePayment() {
+// Helper: saves the current payment form data; returns {paymentId, invoiceNumber, amount} or null on error.
+async function _submitPaymentForm() {
     const id = document.getElementById('payment-id').value;
     const amount = parseFloat(document.getElementById('pay-amount').value);
     const errEl = document.getElementById('payment-form-error');
     if (!amount || amount <= 0) {
         errEl.textContent = '{{ t.lbl_payment_amount or "Amount is required." }}';
         errEl.style.display = '';
-        return;
+        return null;
     }
+    const invoiceNumber = document.getElementById('pay-invoice-number').value;
     const data = {
-        invoice_number: document.getElementById('pay-invoice-number').value,
+        invoice_number: invoiceNumber,
         invoice_date: document.getElementById('pay-invoice-date').value || null,
         description: document.getElementById('pay-description').value,
         amount,
-        payment_date: document.getElementById('pay-payment-date').value || null,
-        payment_method: document.getElementById('pay-method').value,
-        cheque_number: document.getElementById('pay-cheque-number').value,
-        bank_transaction: document.getElementById('pay-bank-transaction').value,
     };
     try {
-        let url, method;
+        let paymentId;
         if (id) {
-            url = SCRIPT_ROOT + '/api/supplier-payments/' + id;
-            method = 'PUT';
+            const res = await fetch(SCRIPT_ROOT + '/api/supplier-payments/' + id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                errEl.textContent = err.message || 'Error saving payment.';
+                errEl.style.display = '';
+                return null;
+            }
+            paymentId = id;
         } else {
-            url = SCRIPT_ROOT + '/api/suppliers/' + currentSupplierId + '/payments';
-            method = 'POST';
+            const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + currentSupplierId + '/payments', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                errEl.textContent = err.message || 'Error saving payment.';
+                errEl.style.display = '';
+                return null;
+            }
+            const created = await res.json();
+            paymentId = created.id;
         }
-        const res = await fetch(url, {
-            method,
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data),
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            errEl.textContent = err.message || 'Error saving payment.';
-            errEl.style.display = '';
-            return;
-        }
-        closePaymentFormModal();
-        await loadPayments();
+        return {paymentId, invoiceNumber, amount};
     } catch (err) {
-        errEl.textContent = 'Error: ' + err.message;
-        errEl.style.display = '';
+        document.getElementById('payment-form-error').textContent = 'Error: ' + err.message;
+        document.getElementById('payment-form-error').style.display = '';
+        return null;
     }
+}
+
+async function savePayment() {
+    const result = await _submitPaymentForm();
+    if (!result) return;
+    closePaymentFormModal();
+    await loadPayments();
+}
+
+async function saveAndMarkPaid() {
+    const result = await _submitPaymentForm();
+    if (!result) return;
+    const {paymentId, invoiceNumber, amount} = result;
+    closePaymentFormModal();
+    if (document.getElementById('payments-modal').style.display === 'flex') {
+        await loadPayments();
+    }
+    const invoiceInfo = (currentSupplierName || '') + (invoiceNumber ? ' \u2013 ' + invoiceNumber : '') + ' ($' + amount.toFixed(2) + ')';
+    openMarkPaidModal(paymentId, invoiceInfo, currentSupplierId);
 }
 
 async function deletePayment(paymentId) {
@@ -736,7 +729,7 @@ function closeUnpaidInvoicesModal() {
 
 async function loadUnpaidInvoices() {
     const tbody = document.getElementById('unpaid-tbody');
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
     document.getElementById('unpaid-total').textContent = '';
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/suppliers/payments/unpaid');
@@ -744,28 +737,40 @@ async function loadUnpaidInvoices() {
         allUnpaidPayments = await res.json();
         renderUnpaidRows(allUnpaidPayments);
     } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
     }
 }
 
 function renderUnpaidRows(payments) {
     const tbody = document.getElementById('unpaid-tbody');
     if (!payments.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-secondary)">' + SUP_STR.noUnpaid + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary)">' + SUP_STR.noUnpaid + '</td></tr>';
         document.getElementById('unpaid-total').textContent = '';
         return;
     }
     let total = 0;
     tbody.innerHTML = payments.map(p => {
         total += p.amount || 0;
-        return `<tr>
+        const isPaid = p.is_paid;
+        const datePaidDisplay = p.date_paid ? new Date(p.date_paid + 'T00:00:00').toLocaleDateString() : '—';
+        const btnStyle = isPaid
+            ? 'font-size:11px;padding:2px 8px;opacity:0.5;cursor:not-allowed;'
+            : 'font-size:11px;padding:2px 8px;';
+        const btnDisabled = isPaid ? 'disabled' : '';
+        return `<tr id="unpaid-row-${p.id}">
             <td>${escHtml(p.supplier_name) || '—'}</td>
             <td>${escHtml(p.invoice_number) || '—'}</td>
             <td>${p.invoice_date ? new Date(p.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
             <td>${escHtml(p.description) || '—'}</td>
             <td>$${parseFloat(p.amount || 0).toFixed(2)}</td>
+            <td id="unpaid-date-paid-${p.id}">${datePaidDisplay}</td>
             <td style="white-space:nowrap;">
-                <button class="btn btn-sm btn-success" onclick="openMarkPaidModal(${p.id}, ${JSON.stringify((p.supplier_name||'') + (p.invoice_number ? ' \u2013 ' + p.invoice_number : '') + ' ($' + parseFloat(p.amount||0).toFixed(2) + ')')}, ${p.supplier_id})" style="font-size:11px;padding:2px 8px;">${SUP_STR.btnMarkPaid}</button>
+                <button id="unpaid-btn-${p.id}" class="btn btn-sm btn-success"
+                    data-payment-id="${p.id}"
+                    data-invoice-info="${escHtml(p.supplier_name||'')}${p.invoice_number ? ' \u2013 ' + escHtml(p.invoice_number) : ''} ($${parseFloat(p.amount||0).toFixed(2)})"
+                    data-supplier-id="${p.supplier_id}"
+                    onclick="openMarkPaidModal(+this.dataset.paymentId, this.dataset.invoiceInfo, +this.dataset.supplierId)"
+                    style="${btnStyle}" ${btnDisabled}>${SUP_STR.btnMarkPaid}</button>
             </td>
         </tr>`;
     }).join('');
@@ -832,7 +837,21 @@ async function confirmMarkPaid() {
             return;
         }
         closeMarkPaidModal();
-        await loadUnpaidInvoices();
+        // Update the row inline in the unpaid invoices table
+        const datePaidCell = document.getElementById('unpaid-date-paid-' + paymentId);
+        const markBtn = document.getElementById('unpaid-btn-' + paymentId);
+        if (datePaidCell) {
+            datePaidCell.textContent = new Date(paymentDate + 'T00:00:00').toLocaleDateString();
+        }
+        if (markBtn) {
+            markBtn.disabled = true;
+            markBtn.style.opacity = '0.5';
+            markBtn.style.cursor = 'not-allowed';
+        }
+        // Also reload payments modal if open
+        if (document.getElementById('payments-modal').style.display === 'flex') {
+            await loadPayments();
+        }
     } catch (err) {
         errEl.textContent = 'Error: ' + err.message;
         errEl.style.display = '';
