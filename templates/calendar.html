@@ -95,13 +95,13 @@
                 <span onclick="closeRoomConfigModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
             </h2>
         </div>
-        <div style="padding:24px;overflow-y:auto;">
+        <div id="room-config-modal-body" style="padding:24px;overflow-y:auto;">
         <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
             <thead>
                 <tr>
-                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">#</th>
-                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_name or 'Nom de la salle' }}</th>
-                    <th style="text-align:center;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_active or 'Actif' }}</th>
+                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">#</th>
+                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_name or 'Nom de la salle' }}</th>
+                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:center;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_active or 'Actif' }}</th>
                 </tr>
             </thead>
             <tbody id="room-config-tbody">
@@ -676,6 +676,7 @@ async function openRoomConfigModal() {
             </tr>`;
         }
         document.getElementById('room-config-error').style.display = 'none';
+        document.getElementById('room-config-modal-body').scrollTop = 0;
         document.getElementById('room-config-modal').style.display = 'flex';
     } catch(e) {
         alert(I18N.err_room_load || 'Erreur lors du chargement de la configuration des salles.');
