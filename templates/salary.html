@@ -145,7 +145,7 @@ async function openConfigModal() {
 
         const tbody = document.getElementById('config-tbody');
         let html = '';
-        for (let i = 1; i <= 10; i++) {
+        for (let i = 1; i <= 16; i++) {
             const cfg = byIndex[i] || {};
             const name = escHtml(cfg.field_name || ('Champ ' + i));
             const code = escHtml(cfg.account_code || '');
@@ -183,7 +183,7 @@ function closeConfigModal() {
 
 async function saveConfig() {
     const rows = [];
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 16; i++) {
         const nameEl   = document.querySelector(`[data-idx="${i}"][data-field="name"]`);
         const codeEl   = document.querySelector(`[data-idx="${i}"][data-field="code"]`);
         const activeEl = document.querySelector(`[data-idx="${i}"][data-field="active"]`);
