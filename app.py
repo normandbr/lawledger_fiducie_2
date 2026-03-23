@@ -3113,6 +3113,113 @@ def api_gl():
     })
 
 
+@app.route('/api/gl/summary', methods=['GET'])
+@login_required
+def api_gl_summary():
+    """Return GL entries aggregated by accounting code for a date range.
+
+    Query params: date_from (YYYY-MM-DD), date_to (YYYY-MM-DD).
+    Returns one row per accounting code with total debits, total credits,
+    and net balance (debit − credit).
+    Requires manager access.
+    """
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+
+    if not date_from or not date_to:
+        return jsonify({'error': 'date_from and date_to are required'}), 400
+
+    # Reuse the full GL data by calling api_gl internally via a direct query
+    # (avoids an HTTP round-trip while keeping logic in one place).
+    # We build the same raw_entries list as api_gl does.
+    raw_entries = []
+
+    # ── 1. Invoices ───────────────────────────────────────────────────────────
+    invoices = Invoice.query.filter(
+        Invoice.invoice_date >= date_from,
+        Invoice.invoice_date <= date_to,
+        Invoice.status != 'cancelled'
+    ).order_by(Invoice.invoice_date.asc()).all()
+
+    for inv in invoices:
+        client = inv.resolved_client
+        accounting_code = (client.accounting_code or '1100') if client else '1100'
+        amount = float(inv.total_amount or 0)
+        raw_entries.append({'accounting_code': accounting_code, 'debit': round(amount, 2), 'credit': 0})
+        if inv.status == 'paid':
+            raw_entries.append({'accounting_code': accounting_code, 'debit': 0, 'credit': round(amount, 2)})
+
+    # ── 2. Salary entries ─────────────────────────────────────────────────────
+    for entry in SalaryEntry.query.filter(
+        SalaryEntry.is_deleted == False,
+        SalaryEntry.entry_date >= date_from,
+        SalaryEntry.entry_date <= date_to,
+    ).all():
+        cfg = entry.config
+        account_code = (cfg.account_code or '') if cfg else ''
+        raw_entries.append({
+            'accounting_code': account_code,
+            'debit': round(float(entry.amount or 0), 2),
+            'credit': 0,
+        })
+
+    # ── 3. Supplier payments ──────────────────────────────────────────────────
+    for payment in SupplierPayment.query.filter(SupplierPayment.is_deleted == False).all():
+        pay_date = payment.payment_date or payment.invoice_date
+        if not pay_date:
+            continue
+        pay_date_str = pay_date.isoformat()
+        if pay_date_str < date_from or pay_date_str > date_to:
+            continue
+        supplier = payment.supplier
+        account_code = (supplier.accounting_code or '2010') if supplier else '2010'
+        raw_entries.append({
+            'accounting_code': account_code,
+            'debit': round(float(payment.amount or 0), 2),
+            'credit': 0,
+        })
+
+    # ── Aggregate by accounting code ──────────────────────────────────────────
+    totals: dict = {}
+    for e in raw_entries:
+        code = e['accounting_code'] or ''
+        if code not in totals:
+            totals[code] = {'total_debit': 0.0, 'total_credit': 0.0}
+        totals[code]['total_debit'] += e['debit']
+        totals[code]['total_credit'] += e['credit']
+
+    # Look up account names from the chart of accounts
+    account_names: dict = {}
+    for acc in Account.query.filter(Account.is_deleted == False).all():
+        account_names[acc.code] = acc.name
+
+    summary = []
+    grand_debit = 0.0
+    grand_credit = 0.0
+    for code in sorted(totals.keys()):
+        total_debit = round(totals[code]['total_debit'], 2)
+        total_credit = round(totals[code]['total_credit'], 2)
+        balance = round(total_debit - total_credit, 2)
+        grand_debit += total_debit
+        grand_credit += total_credit
+        summary.append({
+            'accounting_code': code,
+            'account_name': account_names.get(code, ''),
+            'total_debit': total_debit,
+            'total_credit': total_credit,
+            'balance': balance,
+        })
+
+    return jsonify({
+        'summary': summary,
+        'total_debit': round(grand_debit, 2),
+        'total_credit': round(grand_credit, 2),
+        'balance': round(grand_debit - grand_credit, 2),
+    })
+
+
 # ── API: Chart of Accounts ────────────────────────────────────────────────────
 
 @app.route('/accounts')
