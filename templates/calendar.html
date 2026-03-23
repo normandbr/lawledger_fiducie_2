@@ -57,12 +57,12 @@
 
 <!-- ── Room Availability Modal ────────────────────────────────────────────── -->
 <div id="room-avail-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:620px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:820px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
         <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
             <span>{{ t.modal_room_availability or 'Disponibilité des salles' }}</span>
             <span onclick="closeRoomAvailabilityModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
         </h2>
-        <!-- Room selector -->
+        <!-- Room selector + month navigation -->
         <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
             <div style="flex:1;min-width:160px;">
                 <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_cal_room or 'Salle' }}</label>
@@ -70,16 +70,13 @@
                     <option value="">{{ t.ph_select_room or '— Choisir une salle —' }}</option>
                 </select>
             </div>
-            <div style="flex:1;min-width:130px;">
-                <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_date_from or 'Date From' }}</label>
-                <input type="date" id="avail-date-from" oninput="loadRoomReservations()" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-            </div>
-            <div style="flex:1;min-width:130px;">
-                <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_date_to or 'Date To' }}</label>
-                <input type="date" id="avail-date-to" oninput="loadRoomReservations()" style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <button class="btn btn-secondary" onclick="changeCalMonth(-1)" style="padding:6px 12px;font-size:16px;line-height:1;">&#8249;</button>
+                <span id="avail-month-label" style="font-weight:600;font-size:14px;min-width:150px;text-align:center;"></span>
+                <button class="btn btn-secondary" onclick="changeCalMonth(1)" style="padding:6px 12px;font-size:16px;line-height:1;">&#8250;</button>
             </div>
         </div>
-        <!-- Reservations list -->
+        <!-- Calendar view -->
         <div id="avail-reservations-container">
             <p style="color:var(--text-secondary);font-size:13px;">{{ t.ph_select_room or '— Choisir une salle —' }}</p>
         </div>
@@ -143,7 +140,7 @@
             </select>
         </div>
 
-        <!-- Date + Time row -->
+        <!-- Date + Time + Duration row -->
         <div style="display:flex;gap:12px;margin-bottom:12px;">
             <div style="flex:1;">
                 <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_date or 'Date' }} *</label>
@@ -152,6 +149,10 @@
             <div style="flex:1;">
                 <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_time or 'Time (optional)' }}</label>
                 <input type="time" id="ev-time" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_duration or 'Duration (min)' }}</label>
+                <input type="number" id="ev-duration" min="15" step="15" placeholder="60" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
             </div>
         </div>
 
@@ -163,8 +164,8 @@
             </select>
         </div>
 
-        <!-- Location -->
-        <div class="form-group" style="margin-bottom:12px;">
+        <!-- Location (hidden when type = meeting) -->
+        <div id="ev-location-group" class="form-group" style="margin-bottom:12px;">
             <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_location or 'Location (optional)' }}</label>
             <input type="text" id="ev-location" placeholder="{{ t.ph_cal_location or 'e.g. Courtroom 12…' }}"
                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
@@ -315,12 +316,16 @@ function escHtml(s) {
 // ── Modal helpers ────────────────────────────────────────────────────────────
 function onEventTypeChange() {
     const type = document.getElementById('ev-type').value;
-    const roomGroup = document.getElementById('ev-room-group');
+    const roomGroup     = document.getElementById('ev-room-group');
+    const locationGroup = document.getElementById('ev-location-group');
     if (type === 'meeting') {
-        roomGroup.style.display = '';
+        roomGroup.style.display     = '';
+        locationGroup.style.display = 'none';
+        document.getElementById('ev-location').value = '';
         checkRoomAvailability();
     } else {
-        roomGroup.style.display = 'none';
+        roomGroup.style.display     = 'none';
+        locationGroup.style.display = '';
         document.getElementById('ev-room').value = '';
         document.getElementById('ev-room-warning').style.display = 'none';
     }
@@ -349,13 +354,15 @@ function openAddEventModal() {
     document.getElementById('ev-type').value     = '';
     document.getElementById('ev-date').value     = new Date().toISOString().split('T')[0];
     document.getElementById('ev-time').value     = '';
+    document.getElementById('ev-duration').value = '';
     document.getElementById('ev-matter').value   = '';
     document.getElementById('ev-location').value = '';
     document.getElementById('ev-assigned').value = '';
     document.getElementById('ev-notes').value    = '';
     document.getElementById('ev-room').value     = '';
-    document.getElementById('ev-room-group').style.display = 'none';
-    document.getElementById('ev-room-warning').style.display = 'none';
+    document.getElementById('ev-room-group').style.display     = 'none';
+    document.getElementById('ev-location-group').style.display = '';
+    document.getElementById('ev-room-warning').style.display   = 'none';
     document.getElementById('event-modal-error').style.display = 'none';
     document.getElementById('event-modal').style.display = 'flex';
 }
@@ -371,16 +378,24 @@ async function openEditEventModal(id) {
         document.getElementById('ev-type').value     = ev.event_type || '';
         document.getElementById('ev-date').value     = ev.event_date || '';
         document.getElementById('ev-time').value     = ev.event_time || '';
+        document.getElementById('ev-duration').value = ev.duration_minutes || '';
         document.getElementById('ev-matter').value   = ev.matter_id || '';
         document.getElementById('ev-location').value = ev.location || '';
         document.getElementById('ev-assigned').value = ev.assigned_to || '';
         document.getElementById('ev-notes').value    = ev.notes || '';
         document.getElementById('ev-room').value     = ev.room_id || '';
         document.getElementById('ev-room-warning').style.display = 'none';
-        // Show/hide room group based on type
-        const roomGroup = document.getElementById('ev-room-group');
-        roomGroup.style.display = ev.event_type === 'meeting' ? '' : 'none';
-        if (ev.event_type === 'meeting') checkRoomAvailability();
+        // Show/hide room group and location group based on type
+        const roomGroup     = document.getElementById('ev-room-group');
+        const locationGroup = document.getElementById('ev-location-group');
+        if (ev.event_type === 'meeting') {
+            roomGroup.style.display     = '';
+            locationGroup.style.display = 'none';
+            checkRoomAvailability();
+        } else {
+            roomGroup.style.display     = 'none';
+            locationGroup.style.display = '';
+        }
         document.getElementById('event-modal-error').style.display = 'none';
         document.getElementById('event-modal').style.display = 'flex';
     } catch(e) { alert('Error loading event.'); }
@@ -413,6 +428,7 @@ async function saveEvent() {
         assigned_to: document.getElementById('ev-assigned').value || '',
         notes:       document.getElementById('ev-notes').value    || '',
         room_id:     roomId ? parseInt(roomId) : null,
+        duration_minutes: document.getElementById('ev-duration').value ? parseInt(document.getElementById('ev-duration').value) : null,
     };
 
     const url    = id ? SCRIPT_ROOT + `/api/calendar/events/${id}` : SCRIPT_ROOT + '/api/calendar/events';
@@ -459,6 +475,24 @@ function clearFilters() {
 
 // ── Room Availability ────────────────────────────────────────────────────────
 let _allRooms = [];
+let _currentCalYear  = null;
+let _currentCalMonth = null; // 0-based
+
+function updateCalMonthLabel() {
+    if (_currentCalYear === null) return;
+    const date = new Date(_currentCalYear, _currentCalMonth, 1);
+    const label = date.toLocaleDateString('fr-CA', { month: 'long', year: 'numeric' });
+    document.getElementById('avail-month-label').textContent = label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function changeCalMonth(delta) {
+    if (_currentCalYear === null) return;
+    _currentCalMonth += delta;
+    if (_currentCalMonth < 0)  { _currentCalMonth = 11; _currentCalYear--; }
+    if (_currentCalMonth > 11) { _currentCalMonth = 0;  _currentCalYear++; }
+    updateCalMonthLabel();
+    loadRoomReservations();
+}
 
 async function openRoomAvailabilityModal() {
     try {
@@ -479,13 +513,11 @@ async function openRoomAvailabilityModal() {
     // Populate room dropdown in event modal too
     populateEventRoomDropdown(activeRooms);
 
-    // Default date range: current month
+    // Initialize to current month
     const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
-    document.getElementById('avail-date-from').value = `${y}-${m}-01`;
-    document.getElementById('avail-date-to').value   = `${y}-${m}-${String(lastDay).padStart(2,'0')}`;
+    _currentCalYear  = today.getFullYear();
+    _currentCalMonth = today.getMonth(); // 0-based
+    updateCalMonthLabel();
 
     document.getElementById('avail-reservations-container').innerHTML =
         `<p style="color:var(--text-secondary);font-size:13px;">${I18N.ph_select_room || '— Choisir une salle —'}</p>`;
@@ -497,55 +529,100 @@ function closeRoomAvailabilityModal() {
 }
 
 async function loadRoomReservations() {
-    const roomId   = document.getElementById('avail-room-select').value;
-    const dateFrom = document.getElementById('avail-date-from').value;
-    const dateTo   = document.getElementById('avail-date-to').value;
+    const roomId    = document.getElementById('avail-room-select').value;
     const container = document.getElementById('avail-reservations-container');
 
     if (!roomId) {
         container.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">${I18N.ph_select_room || '— Choisir une salle —'}</p>`;
         return;
     }
+    if (_currentCalYear === null) return;
 
     container.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">${I18N.inv_loading || 'Loading…'}</p>`;
-    let url = SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations`;
-    const params = [];
-    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
-    if (dateTo)   params.push('date_to='   + encodeURIComponent(dateTo));
-    if (params.length) url += '?' + params.join('&');
+
+    // Build date range for the current month
+    const firstDay = new Date(_currentCalYear, _currentCalMonth, 1);
+    const lastDay  = new Date(_currentCalYear, _currentCalMonth + 1, 0);
+    const dateFrom = firstDay.toISOString().split('T')[0];
+    const dateTo   = lastDay.toISOString().split('T')[0];
+
+    let url = SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`;
 
     try {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const events = await resp.json();
-        if (!events.length) {
-            container.innerHTML = `<p style="color:var(--text-secondary);font-size:13px;">${I18N.msg_no_room_reservations || 'Aucune réservation pour cette salle.'}</p>`;
-            return;
-        }
-        const rows = events.map(ev => {
-            const timeStr = ev.event_time ? ' ' + ev.event_time : '';
-            const matterStr = ev.client_number && ev.matter_number ? `${ev.client_number} / ${ev.matter_number}` : '—';
-            return `<tr>
-                <td style="padding:6px 8px;font-size:13px;white-space:nowrap;">${formatDate(ev.event_date)}${timeStr}</td>
-                <td style="padding:6px 8px;font-size:13px;">${escHtml(ev.title)}</td>
-                <td style="padding:6px 8px;font-size:12px;">${escHtml(matterStr)}</td>
-                <td style="padding:6px 8px;font-size:12px;">${escHtml(ev.assigned_to || '—')}</td>
-            </tr>`;
-        }).join('');
-        container.innerHTML = `<table style="width:100%;border-collapse:collapse;">
-            <thead>
-                <tr>
-                    <th style="text-align:left;font-size:12px;padding:4px 8px;border-bottom:1px solid #e0e0e0;">${I18N.th_cal_date || 'Date'}</th>
-                    <th style="text-align:left;font-size:12px;padding:4px 8px;border-bottom:1px solid #e0e0e0;">${I18N.th_cal_title || 'Titre'}</th>
-                    <th style="text-align:left;font-size:12px;padding:4px 8px;border-bottom:1px solid #e0e0e0;">${I18N.th_cal_matter || 'Dossier'}</th>
-                    <th style="text-align:left;font-size:12px;padding:4px 8px;border-bottom:1px solid #e0e0e0;">${I18N.th_cal_assigned || 'Assigné'}</th>
-                </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-        </table>`;
+        renderRoomCalendar(events, firstDay, lastDay);
     } catch(e) {
         container.innerHTML = `<p style="color:var(--danger);font-size:13px;">${I18N.err_load_reservations || 'Erreur lors du chargement des réservations.'}</p>`;
     }
+}
+
+function renderRoomCalendar(events, firstDay, lastDay) {
+    // Group events by date string
+    const byDate = {};
+    for (const ev of events) {
+        if (!byDate[ev.event_date]) byDate[ev.event_date] = [];
+        byDate[ev.event_date].push(ev);
+    }
+
+    const startDow   = firstDay.getDay(); // 0=Sun
+    const daysInMonth = lastDay.getDate();
+    const todayStr   = new Date().toISOString().split('T')[0];
+
+    const dayNames = (I18N.cal_day_names || 'Dim,Lun,Mar,Mer,Jeu,Ven,Sam').split(',');
+
+    let html = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;"><thead><tr>`;
+    for (const d of dayNames) {
+        html += `<th style="padding:4px 2px;font-size:11px;color:var(--text-secondary);text-align:center;font-weight:500;border-bottom:2px solid #e0e0e0;">${d}</th>`;
+    }
+    html += `</tr></thead><tbody><tr>`;
+
+    // Empty cells before first day
+    for (let i = 0; i < startDow; i++) {
+        html += `<td style="padding:4px;border:1px solid #f0f0f0;height:70px;vertical-align:top;background:#fafafa;"></td>`;
+    }
+
+    let col = startDow;
+    for (let day = 1; day <= daysInMonth; day++) {
+        if (col === 7) { html += `</tr><tr>`; col = 0; }
+
+        const dateStr  = `${_currentCalYear}-${String(_currentCalMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayEvs   = byDate[dateStr] || [];
+        const isToday  = dateStr === todayStr;
+        const hasEvs   = dayEvs.length > 0;
+
+        const cellBg   = isToday ? '#e3f2fd' : (hasEvs ? '#fff8e1' : '#fff');
+        const numStyle = `font-size:12px;font-weight:${isToday ? '700' : '500'};color:${isToday ? '#1565c0' : 'inherit'};`;
+
+        html += `<td style="padding:4px;border:1px solid #e0e0e0;height:70px;vertical-align:top;background:${cellBg};">`;
+        html += `<div style="${numStyle}">${day}</div>`;
+
+        for (const ev of dayEvs.slice(0, 2)) {
+            const timeStr = ev.event_time ? ev.event_time + ' ' : '';
+            const durStr  = ev.duration_minutes ? ` (${ev.duration_minutes}min)` : '';
+            html += `<div title="${escHtml(ev.title + durStr)}" style="font-size:10px;background:#ffc107;color:#212529;border-radius:3px;padding:1px 4px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(timeStr + ev.title + durStr)}</div>`;
+        }
+        if (dayEvs.length > 2) {
+            html += `<div style="font-size:10px;color:var(--text-secondary);">+${dayEvs.length - 2}…</div>`;
+        }
+
+        html += `</td>`;
+        col++;
+    }
+
+    // Fill remaining cells to complete the last row
+    while (col < 7 && col > 0) {
+        html += `<td style="padding:4px;border:1px solid #f0f0f0;height:70px;vertical-align:top;background:#fafafa;"></td>`;
+        col++;
+    }
+    html += `</tr></tbody></table>`;
+
+    if (!events.length) {
+        html += `<p style="color:var(--text-secondary);font-size:12px;margin-top:8px;text-align:center;">${I18N.msg_no_room_reservations || 'Aucune réservation pour cette salle.'}</p>`;
+    }
+
+    document.getElementById('avail-reservations-container').innerHTML = html;
 }
 
 function populateEventRoomDropdown(rooms) {
