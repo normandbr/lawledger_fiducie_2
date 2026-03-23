@@ -1025,6 +1025,7 @@ class CalendarEvent(db.Model):
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
     room_id = db.Column(db.Integer, db.ForeignKey('room_configs.id'), nullable=True)
+    duration_minutes = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1054,6 +1055,7 @@ class CalendarEvent(db.Model):
             'created_by': self.created_by or '',
             'room_id': self.room_id,
             'room_name': self.room.room_name if self.room else '',
+            'duration_minutes': self.duration_minutes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1284,16 +1286,17 @@ _COLUMN_MIGRATIONS = {
         ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
     ],
     'calendar_events': [
-        ('event_type',  'NVARCHAR(50) NULL'),
-        ('event_time',  'NVARCHAR(10) NULL'),
-        ('location',    'NVARCHAR(255) NULL'),
-        ('notes',       'NVARCHAR(MAX) NULL'),
-        ('is_done',     'BIT NOT NULL DEFAULT 0'),
-        ('assigned_to', 'NVARCHAR(80) NULL'),
-        ('created_by',  'NVARCHAR(80) NULL'),
-        ('is_deleted',  'BIT NOT NULL DEFAULT 0'),
-        ('updated_at',  'DATETIME2(7) NULL'),
-        ('room_id',     'INT NULL'),
+        ('event_type',       'NVARCHAR(50) NULL'),
+        ('event_time',       'NVARCHAR(10) NULL'),
+        ('location',         'NVARCHAR(255) NULL'),
+        ('notes',            'NVARCHAR(MAX) NULL'),
+        ('is_done',          'BIT NOT NULL DEFAULT 0'),
+        ('assigned_to',      'NVARCHAR(80) NULL'),
+        ('created_by',       'NVARCHAR(80) NULL'),
+        ('is_deleted',       'BIT NOT NULL DEFAULT 0'),
+        ('updated_at',       'DATETIME2(7) NULL'),
+        ('room_id',          'INT NULL'),
+        ('duration_minutes', 'INT NULL'),
     ],
     'salary_entries': [
         ('is_posted', 'BIT NOT NULL DEFAULT 0'),
@@ -5912,6 +5915,7 @@ def api_calendar_events():
         assigned_to=data.get('assigned_to', '') or None,
         created_by=current_user.username,
         room_id=room_id_val,
+        duration_minutes=int(data['duration_minutes']) if data.get('duration_minutes') else None,
     )
     db.session.add(event)
     db.session.commit()
@@ -5959,6 +5963,11 @@ def api_calendar_event_detail(event_id):
         for field in ('event_type', 'event_time', 'location', 'notes', 'assigned_to'):
             if field in data:
                 setattr(event, field, data[field] or None)
+        if 'duration_minutes' in data:
+            try:
+                event.duration_minutes = int(data['duration_minutes']) if data['duration_minutes'] else None
+            except (ValueError, TypeError):
+                event.duration_minutes = None
         if 'is_done' in data:
             event.is_done = bool(data['is_done'])
         db.session.commit()
