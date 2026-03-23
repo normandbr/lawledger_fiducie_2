@@ -158,7 +158,7 @@
                         <td>{{ trans.ref_bancaire or '' }}</td>
                         <td>{% if trans.invoice_number %}<a href="{{ url_for('print_invoice_by_number', invoice_number=trans.invoice_number) }}" style="color:#0078d4;text-decoration:underline;">{{ trans.invoice_number }}</a>{% endif %}</td>
                         <td style="text-align:right;color:var(--success);">{% if trans.type_trans == 'DEPOT' %}+{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
-                        <td style="text-align:right;color:var(--danger);">{% if trans.type_trans == 'RETRAIT' %}-{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
+                        <td style="text-align:right;color:var(--danger);">{% if trans.type_trans in ('RETRAIT', 'REMBOURSEMENT') %}-{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
                         <td>{{ trans.created_by or '' }}</td>
                     </tr>
                     {% endfor %}
@@ -397,7 +397,7 @@ document.getElementById('fiducie-form').addEventListener('submit', async functio
     const montant = parseFloat(document.getElementById('montant').value) || 0;
 
     // Client-side withdrawal validation
-    if (type_trans === 'RETRAIT' && montant > currentBalance) {
+    if ((type_trans === 'RETRAIT' || type_trans === 'REMBOURSEMENT') && montant > currentBalance) {
         const msg = FID_STR.noFunds
             .replace('{balance}', currentBalance.toFixed(2))
             .replace('{amount}', montant.toFixed(2));
