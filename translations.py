@@ -893,6 +893,14 @@ LEXICON = {
         'lbl_supplier_active': 'Actif',
         'lbl_supplier_accounting_code': 'Code comptable',
         'ph_accounting_code': 'Ex : 2010',
+        'btn_unpaid_invoices': '📋 Factures non payées',
+        'modal_unpaid_invoices': 'Factures non payées',
+        'btn_mark_paid': '✔ Marquer payé',
+        'modal_mark_paid': 'Enregistrer le paiement',
+        'msg_no_unpaid_invoices': 'Aucune facture non payée.',
+        'msg_invoice_marked_paid': 'Facture marquée comme payée.',
+        'err_payment_date_required': 'La date de paiement est requise.',
+        'th_created_by': 'Ajouté par',
 
         # Salary module
         'nav_salary': '💰 Salaires',
@@ -1832,6 +1840,14 @@ LEXICON = {
         'lbl_supplier_active': 'Active',
         'lbl_supplier_accounting_code': 'Accounting Code',
         'ph_accounting_code': 'E.g.: 2010',
+        'btn_unpaid_invoices': '📋 Unpaid Invoices',
+        'modal_unpaid_invoices': 'Unpaid Invoices',
+        'btn_mark_paid': '✔ Mark as Paid',
+        'modal_mark_paid': 'Record Payment',
+        'msg_no_unpaid_invoices': 'No unpaid invoices found.',
+        'msg_invoice_marked_paid': 'Invoice marked as paid.',
+        'err_payment_date_required': 'Payment date is required.',
+        'th_created_by': 'Added by',
 
         # Salary module
         'nav_salary': '💰 Salary',
