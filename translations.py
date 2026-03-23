@@ -543,6 +543,9 @@ LEXICON = {
         'btn_add_matter_client': '+ Ajouter un dossier',
         'opt_none': '— Aucun —',
         'lbl_show_billed_expenses': 'Afficher les frais facturés',
+        'lbl_expense_billed': 'Facturé',
+        'lbl_expense_unbilled': 'Non facturé',
+        'title_unbilled_expenses': 'Frais non facturés',
 
         # Cost Codes page
         'title_cost_codes_page': 'Codes de frais',
@@ -787,7 +790,7 @@ LEXICON = {
         'title_accounts': 'Code comptable',
         'card_accounts_desc': 'Gérez les codes comptables utilisés par le grand livre général.',
         'btn_add_account': '+ Ajouter un compte',
-        'lbl_account_code': 'Code',
+        'lbl_account_code': 'Code comptable',
         'lbl_account_name': 'Nom du compte',
         'lbl_account_type': 'Type',
         'lbl_account_parent': 'Compte parent',
@@ -1492,6 +1495,9 @@ LEXICON = {
         'btn_add_matter_client': '+ Add Matter',
         'opt_none': '— None —',
         'lbl_show_billed_expenses': 'Show billed expenses',
+        'lbl_expense_billed': 'Billed',
+        'lbl_expense_unbilled': 'Unbilled',
+        'title_unbilled_expenses': 'Unbilled Expenses',
 
         # Cost Codes page
         'title_cost_codes_page': 'Cost Codes',
