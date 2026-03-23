@@ -219,6 +219,50 @@ class TestAccessControl:
         assert isinstance(data['summary'], list)
         logout(client)
 
+    def test_gl_export_summary_returns_csv(self, client, manager_user):
+        """Export with view=summary must return a CSV with summary-by-code columns."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get(
+            "/api/gl/export?date_from=2025-01-01&date_to=2025-12-31&view=summary"
+        )
+        assert resp.status_code == 200
+        assert 'text/csv' in resp.content_type
+        content = resp.data.decode('utf-8')
+        assert 'Code comptable' in content
+        assert 'Compte' in content
+        assert 'Débit Total' in content
+        assert 'Crédit Total' in content
+        assert 'Solde' in content
+        logout(client)
+
+    def test_gl_export_classic_returns_csv(self, client, manager_user):
+        """Export with view=classic must return a CSV with classic GL columns."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get(
+            "/api/gl/export?date_from=2025-01-01&date_to=2025-12-31&view=classic"
+        )
+        assert resp.status_code == 200
+        assert 'text/csv' in resp.content_type
+        content = resp.data.decode('utf-8')
+        assert 'No Facture' in content
+        assert 'Débit' in content
+        assert 'Crédit' in content
+        logout(client)
+
+    def test_gl_export_requires_dates(self, client, manager_user):
+        """Missing date params must return 400 from /api/gl/export."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/gl/export?view=summary")
+        assert resp.status_code == 400
+        logout(client)
+
+    def test_gl_export_blocked_for_staff(self, client, staff_user):
+        """Non-managers must receive 403 from /api/gl/export."""
+        login(client, "test_staff", "Pass1234!")
+        resp = client.get("/api/gl/export?date_from=2025-01-01&date_to=2025-12-31&view=summary")
+        assert resp.status_code == 403
+        logout(client)
+
     def test_hr_records_blocked_for_staff(self, client, staff_user):
         """Non-managers must be redirected from /hr-records."""
         login(client, "test_staff", "Pass1234!")
