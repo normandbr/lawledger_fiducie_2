@@ -192,6 +192,33 @@ class TestAccessControl:
         assert resp.status_code == 403
         logout(client)
 
+    def test_gl_summary_blocked_for_staff(self, client, staff_user):
+        """Non-managers must receive 403 from /api/gl/summary."""
+        login(client, "test_staff", "Pass1234!")
+        resp = client.get("/api/gl/summary?date_from=2025-01-01&date_to=2025-12-31")
+        assert resp.status_code == 403
+        logout(client)
+
+    def test_gl_summary_requires_dates(self, client, manager_user):
+        """Missing date params must return 400 from /api/gl/summary."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/gl/summary")
+        assert resp.status_code == 400
+        logout(client)
+
+    def test_gl_summary_returns_json(self, client, manager_user):
+        """Managers must get a valid JSON summary from /api/gl/summary."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/gl/summary?date_from=2025-01-01&date_to=2025-12-31")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'summary' in data
+        assert 'total_debit' in data
+        assert 'total_credit' in data
+        assert 'balance' in data
+        assert isinstance(data['summary'], list)
+        logout(client)
+
     def test_hr_records_blocked_for_staff(self, client, staff_user):
         """Non-managers must be redirected from /hr-records."""
         login(client, "test_staff", "Pass1234!")
