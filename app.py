@@ -1536,7 +1536,7 @@ def _post_invoice_journal(invoice, client):
         amount = float(invoice.total_amount or 0)
         if amount <= 0:
             return
-        matter = Matter.query.get(invoice.matter_id) if invoice.matter_id else None
+        matter = db.session.get(Matter, invoice.matter_id) if invoice.matter_id else None
         lines = [
             {
                 'account_code': '1100',
@@ -1702,7 +1702,7 @@ def _post_supplier_payment_journal(payment, supplier):
             return
         actor = current_user.display_name if current_user and current_user.is_authenticated else 'system'
         expense_code = (supplier.accounting_code or '2010') if supplier else '2010'
-        entry_date = payment.payment_date or payment.invoice_date or datetime.utcnow().date()
+        entry_date = payment.payment_date or payment.invoice_date or datetime.now(UTC).date()
         if isinstance(entry_date, datetime):
             entry_date = entry_date.date()
         _create_journal_entry(
@@ -2626,7 +2626,7 @@ def statement_print():
 
     client = None
     if client_id:
-        client = Client.query.get(int(client_id))
+        client = db.session.get(Client, int(client_id))
 
     # Get invoices in period
     inv_q = Invoice.query.filter(
@@ -3289,7 +3289,7 @@ def api_account_detail(account_id):
             account.parent_id = data['parent_id'] or None
         if 'is_active' in data:
             account.is_active = bool(data['is_active'])
-        account.updated_at = datetime.utcnow()
+        account.updated_at = datetime.now(UTC)
         db.session.commit()
         return jsonify(account.to_dict())
     # DELETE – forbid deleting system accounts; soft-delete non-system accounts
@@ -3367,7 +3367,7 @@ def api_journal_entries():
     try:
         entry_date = datetime.fromisoformat(data['entry_date']).date()
     except (KeyError, ValueError):
-        entry_date = datetime.utcnow().date()
+        entry_date = datetime.now(UTC).date()
 
     entry = _create_journal_entry(
         entry_date=entry_date,
@@ -3476,8 +3476,8 @@ def api_gl_journal():
             total_credit += c
 
             # Resolve client / matter names
-            client_obj = Client.query.get(line.client_id) if line.client_id else None
-            matter_obj = Matter.query.get(line.matter_id) if line.matter_id else None
+            client_obj = db.session.get(Client, line.client_id) if line.client_id else None
+            matter_obj = db.session.get(Matter, line.matter_id) if line.matter_id else None
 
             entry_block['lines'].append({
                 'line_id': line.id,
@@ -3662,8 +3662,8 @@ def api_gl_export():
         ])
         for line in q.all():
             entry = line.entry
-            client_obj = Client.query.get(line.client_id) if line.client_id else None
-            matter_obj = Matter.query.get(line.matter_id) if line.matter_id else None
+            client_obj = db.session.get(Client, line.client_id) if line.client_id else None
+            matter_obj = db.session.get(Matter, line.matter_id) if line.matter_id else None
             writer.writerow([
                 entry.entry_date.isoformat() if entry.entry_date else '',
                 entry.description or '',
@@ -3818,7 +3818,7 @@ def api_timer_start():
 
     existing = ActiveTimerSession.query.filter_by(employee_id=current_user.id).first()
     if existing:
-        age_hours = (datetime.utcnow() - existing.started_at).total_seconds() / 3600
+        age_hours = (datetime.now(UTC) - existing.started_at).total_seconds() / 3600
         if age_hours < 24:
             return jsonify({
                 'error': 'Un chronomètre est déjà en cours. Arrêtez-le avant d\'en démarrer un nouveau.'
@@ -3831,7 +3831,7 @@ def api_timer_start():
         employee_id=current_user.id,
         matter_id=matter_id,
         session_token=token,
-        started_at=datetime.utcnow()
+        started_at=datetime.now(UTC)
     )
     db.session.add(session_record)
     db.session.commit()
@@ -3963,7 +3963,7 @@ def api_timer_time_entry():
         try:
             expense_date = datetime.fromisoformat(expense_date_raw).date()
         except ValueError:
-            expense_date = datetime.utcnow().date()
+            expense_date = datetime.now(UTC).date()
     else:
         #expense_date = datetime.utcnow().date()
         expense_date = datetime.now(timezone.utc).date()
@@ -4340,7 +4340,7 @@ def api_import_cost_codes():
                 charge_type=charge_type_val,
                 rate=rate_val,
                 is_active=is_active_val,
-                created_at=datetime.utcnow()
+                created_at=datetime.now(UTC)
             )
             db.session.add(new_code)
             imported += 1
@@ -4757,9 +4757,9 @@ def api_matter_expenses(matter_id):
         try:
             expense_date = datetime.fromisoformat(expense_date).date()
         except ValueError:
-            expense_date = datetime.utcnow().date()
+            expense_date = datetime.now(UTC).date()
     else:
-        expense_date = datetime.utcnow().date()
+        expense_date = datetime.now(UTC).date()
     expense = Expense(
         matter_id=matter_id,
         code=data.get('code'),
@@ -4801,7 +4801,7 @@ def api_expense_detail(expense_id):
         for field in ('description', 'amount', 'code', 'expense_date', 'is_billed', 'invoice_id'):
             if field in data:
                 setattr(expense, field, data[field])
-        expense.updated_at = datetime.utcnow()
+        expense.updated_at = datetime.now(UTC)
         db.session.commit()
         return jsonify(expense.to_dict())
     # Soft-delete: mark as deleted instead of removing the row
@@ -4862,7 +4862,7 @@ def api_cost_code_detail(code_id):
             cost_code.rate = data['rate'] if data['rate'] is not None else 0
         if 'is_active' in data:
             cost_code.is_active = bool(data['is_active'])
-        cost_code.updated_at = datetime.utcnow()
+        cost_code.updated_at = datetime.now(UTC)
         db.session.commit()
         return jsonify(cost_code.to_dict())
     db.session.delete(cost_code)
@@ -4908,7 +4908,7 @@ def api_invoices():
     try:
         invoice_date = datetime.fromisoformat(data['invoice_date']).date()
     except (KeyError, ValueError):
-        invoice_date = datetime.utcnow().date()
+        invoice_date = datetime.now(UTC).date()
 
     due_date = None
     if data.get('due_date'):
@@ -5245,7 +5245,7 @@ def _apply_import_file_action(save_path, original_name, action):
         try:
             base, ext = os.path.splitext(save_path)
             # Include seconds + microseconds to avoid collisions on same-day renames
-            dated_path = f'{base}_{datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")}{ext}'
+            dated_path = f'{base}_{datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")}{ext}'
             os.rename(save_path, dated_path)
             return f'File "{original_name}" renamed with today\'s date.'
         except OSError as exc:
@@ -6051,7 +6051,7 @@ def suppliers_unpaid_print():
         SupplierPayment.is_deleted == False,
         SupplierPayment.is_paid == False,
     ).order_by(SupplierPayment.invoice_date.asc(), SupplierPayment.id.asc()).all()
-    now_str = datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    now_str = datetime.now(UTC).strftime('%Y-%m-%d %H:%M')
     return render_template('suppliers_unpaid_print.html', firm=firm, payments=payments, now=now_str)
 
 
@@ -6403,7 +6403,7 @@ def api_salary_entries():
         except ValueError:
             pass
     if not entry_date:
-        entry_date = datetime.utcnow().date()
+        entry_date = datetime.now(UTC).date()
     entry = SalaryEntry(
         config_id=cfg.id,
         entry_date=entry_date,
