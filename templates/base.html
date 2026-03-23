@@ -190,7 +190,7 @@
     <div id="app-setup-overlay" style="display:none;position:fixed;inset:0;z-index:1000;
          background:rgba(0,0,0,.5);backdrop-filter:blur(4px);">
         <div id="app-setup-dialog" style="background:#fff;border-radius:8px;padding:28px;
-             width:90%;max-width:560px;position:absolute;top:50%;left:50%;
+             width:90%;max-width:720px;position:absolute;top:50%;left:50%;
              transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);
              max-height:90vh;overflow-y:auto;">
             <h2 id="app-setup-drag-handle" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;
@@ -226,12 +226,12 @@
                 <!-- Mode toggle bar -->
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
                     <p id="setup_mgr_mode_label" style="font-size:13px;color:#555;margin:0;">
-                        {{ t.setup_mgr_instruction or 'Set up or update the application Manager account.' }}
+                        {{ t.setup_mgr_instruction or 'Configurer ou mettre à jour le compte gestionnaire.' }}
                     </p>
                     <button id="setup_mgr_toggle_btn" onclick="toggleSetupMgrMode()"
                             style="background:none;border:1px solid #0078d4;color:#0078d4;padding:5px 12px;
                                    border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
-                        {{ t.btn_add_manager or '➕ Add Manager' }}
+                        {{ t.btn_add_manager or '➕ Ajouter gestionnaire' }}
                     </button>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
@@ -252,7 +252,7 @@
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;background:#f8f8f8;color:#555;">
                 </div>
                 <div id="setup_mgr_username_row" style="margin-bottom:12px;">
-                    <label id="setup_mgr_username_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_username or 'Username' }} <span style="color:red">*</span></label>
+                    <label id="setup_mgr_username_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_username or "Nom d'utilisateur" }} <span style="color:red">*</span></label>
                     <input id="setup_mgr_username" type="text" placeholder="e.g. admin"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     <p id="setup_mgr_username_hint" style="display:none;font-size:11px;color:#666;margin:4px 0 0;">
@@ -261,7 +261,7 @@
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div>
-                        <label id="setup_mgr_pwd_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_password or 'Password' }}</label>
+                        <label id="setup_mgr_pwd_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_password or 'Mot de passe' }}</label>
                         <input id="setup_mgr_password" type="password" placeholder="{{ t.ph_leave_blank_pwd or 'Leave blank to keep current' }}"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
@@ -298,7 +298,7 @@
                     <button id="setup_mgr_save_btn" onclick="saveSetupManager()"
                             style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
                                    border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
-                        {{ t.btn_save_manager or 'Save Manager' }}
+                        {{ t.btn_save_manager or 'Enregistrer le gestionnaire' }}
                     </button>
                     <button onclick="closeAppSetupModal()"
                             style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
@@ -482,15 +482,15 @@
     let setupMgrMode = 'edit'; // 'edit' | 'add'
 
     function _applyEditMode() {
-        document.getElementById('setup_mgr_username').placeholder   = 'e.g. admin';
+        document.getElementById('setup_mgr_username').placeholder   = 'ex. admin';
         document.getElementById('setup_mgr_username_label').innerHTML =
-            'Username <span style="color:red">*</span>';
+            'Nom d\'utilisateur <span style="color:red">*</span>';
         document.getElementById('setup_mgr_username_hint').style.display = 'none';
-        document.getElementById('setup_mgr_mode_label').textContent = 'Set up or update the application Manager account.';
-        document.getElementById('setup_mgr_toggle_btn').textContent = '➕ Add Manager';
-        document.getElementById('setup_mgr_save_btn').textContent   = 'Save Manager';
-        document.getElementById('setup_mgr_pwd_label').innerHTML    = 'Password';
-        document.getElementById('setup_mgr_password').placeholder  = 'Leave blank to keep current';
+        document.getElementById('setup_mgr_mode_label').textContent = 'Configurer ou mettre à jour le compte gestionnaire.';
+        document.getElementById('setup_mgr_toggle_btn').textContent = '➕ Ajouter gestionnaire';
+        document.getElementById('setup_mgr_save_btn').textContent   = 'Enregistrer le gestionnaire';
+        document.getElementById('setup_mgr_pwd_label').innerHTML    = 'Mot de passe';
+        document.getElementById('setup_mgr_password').placeholder  = 'Laisser vide pour conserver';
     }
 
     function _clearManagerForm() {
@@ -508,17 +508,17 @@
         if (setupMgrMode === 'add') {
             _clearManagerForm();
             // Username stays visible but is now optional; update label and show hint
-            document.getElementById('setup_mgr_username').placeholder   = 'Optional — auto-generated if left blank';
-            document.getElementById('setup_mgr_username_label').textContent = 'Username';
+            document.getElementById('setup_mgr_username').placeholder   = 'Optionnel — généré automatiquement si laissé vide';
+            document.getElementById('setup_mgr_username_label').textContent = 'Nom d\'utilisateur';
             document.getElementById('setup_mgr_username_hint').style.display = 'block';
             // Update labels / button text
             document.getElementById('setup_mgr_mode_label').textContent =
-                'Create a new Manager account.';
-            document.getElementById('setup_mgr_toggle_btn').textContent = '← Edit Existing';
-            document.getElementById('setup_mgr_save_btn').textContent   = 'Create Manager';
+                'Créer un nouveau compte gestionnaire.';
+            document.getElementById('setup_mgr_toggle_btn').textContent = '← Modifier existant';
+            document.getElementById('setup_mgr_save_btn').textContent   = 'Créer le gestionnaire';
             document.getElementById('setup_mgr_pwd_label').innerHTML    =
-                'Password <span style="color:red">*</span>';
-            document.getElementById('setup_mgr_password').placeholder  = 'Required';
+                'Mot de passe <span style="color:red">*</span>';
+            document.getElementById('setup_mgr_password').placeholder  = 'Requis';
         } else {
             // Restore edit-mode labels and reload primary manager data
             _applyEditMode();
@@ -644,19 +644,19 @@
         var msg      = document.getElementById('setup_mgr_msg');
         if (!first || !last) {
             msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
-            msg.textContent = 'First name and last name are required.'; return;
+            msg.textContent = 'Le prénom et le nom de famille sont requis.'; return;
         }
         if (setupMgrMode === 'edit' && !username) {
             msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
-            msg.textContent = 'Username is required.'; return;
+            msg.textContent = 'Le nom d\'utilisateur est requis.'; return;
         }
         if (setupMgrMode === 'add' && !password) {
             msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
-            msg.textContent = 'Password is required for a new manager.'; return;
+            msg.textContent = 'Le mot de passe est requis pour un nouveau gestionnaire.'; return;
         }
         if (password && password !== confirm) {
             msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
-            msg.textContent = 'Passwords do not match.'; return;
+            msg.textContent = 'Les mots de passe ne correspondent pas.'; return;
         }
 
         if (setupMgrMode === 'edit') {
@@ -697,7 +697,7 @@
                 .then(function (d) {
                     var uname = (d && d.username) ? d.username : '(not available)';
                     msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
-                    msg.textContent = 'Manager created. Username: ' + uname;
+                    msg.textContent = 'Gestionnaire créé. Nom d\'utilisateur : ' + uname;
                     // Switch back to edit mode and reload the primary manager form
                     setupMgrMode = 'edit';
                     _applyEditMode();

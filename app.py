@@ -1093,14 +1093,14 @@ class RoomConfig(db.Model):
 
 
 class SalaryConfig(db.Model):
-    """Configuration for a salary field (up to 10 per firm).
+    """Configuration for a salary field (up to 16 per firm).
 
     Each field has a user-defined label and an associated accounting code.
     """
     __tablename__ = 'salary_configs'
 
     id = db.Column(db.Integer, primary_key=True)
-    field_index = db.Column(db.Integer, nullable=False)   # 1-10
+    field_index = db.Column(db.Integer, nullable=False)   # 1-16
     field_name = db.Column(db.String(255), nullable=False)
     account_code = db.Column(db.String(20), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
@@ -6401,7 +6401,7 @@ def api_salary_config():
         return jsonify({'error': 'Expected a list of config items.'}), 400
     for item in data:
         idx = int(item.get('field_index', 0))
-        if idx < 1 or idx > 10:
+        if idx < 1 or idx > 16:
             continue
         cfg = SalaryConfig.query.filter_by(field_index=idx).first()
         if cfg is None:
