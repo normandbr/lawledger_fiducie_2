@@ -33,6 +33,7 @@ import uuid
 import licensing as _licensing
 import sys
 import io
+import itertools
 logger = logging.getLogger(__name__)
 
 APP_VERSION = "2026.03.5"
@@ -6433,7 +6434,19 @@ def api_salary_entry_detail(entry_id):
 @app.route('/api/salary/entries/post-to-gl', methods=['POST'])
 @login_required
 def api_salary_post_to_gl():
-    """Post unposted salary entries to the GL journal and mark them as posted."""
+    """Post unposted salary entries to the GL journal and mark them as posted.
+
+    Entries are grouped by entry_date.  Within each group the entry whose
+    SalaryConfig has field_index == 1 is treated as the gross-salary line and
+    posted as a DEBIT to its configured account.  Every other entry in the
+    same group is treated as a deduction / withholding and posted as a CREDIT
+    to its own configured account.  A final CREDIT line for the net pay
+    (gross salary − sum of deductions) is posted to account 2100.
+
+    If a date group has no field_index-1 entry (unusual configuration), each
+    entry in that group is posted individually as a simple DEBIT / CREDIT pair
+    against account 2100 so that nothing is silently lost.
+    """
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     data = request.get_json() or {}
@@ -6460,38 +6473,108 @@ def api_salary_post_to_gl():
 
     actor = current_user.display_name if current_user.is_authenticated else 'system'
     posted_count = 0
-    for entry in entries:
-        cfg = entry.config
-        account_code = cfg.account_code if cfg else ''
-        if not account_code:
-            continue
-        amount = float(entry.amount or 0)
-        if amount <= 0:
-            continue
-        try:
-            _create_journal_entry(
-                entry_date=entry.entry_date,
-                description=f'Salaire – {cfg.field_name if cfg else ""}',
-                source_type='salary',
-                source_id=entry.id,
-                lines=[
-                    {
-                        'account_code': account_code,
-                        'debit': amount,
-                        'credit': 0,
-                    },
-                    {
-                        'account_code': '2100',
+
+    # Group entries by entry_date so that one payroll run = one journal entry.
+    entries_sorted = sorted(entries, key=lambda e: e.entry_date)
+    for entry_date, date_group in itertools.groupby(entries_sorted, key=lambda e: e.entry_date):
+        group = list(date_group)
+
+        # Separate the salary (field_index 1) entry from deduction entries.
+        salary_entries = [e for e in group
+                          if e.config and e.config.field_index == 1]
+        other_entries  = [e for e in group
+                          if not (e.config and e.config.field_index == 1)]
+
+        if salary_entries:
+            if len(salary_entries) > 1:
+                logger.warning(
+                    "Multiple field_index-1 salary entries found for %s – only the first will be used as gross salary.",
+                    entry_date,
+                )
+            # ── Compound payroll journal entry ─────────────────────────────
+            sal_entry = salary_entries[0]
+            sal_cfg   = sal_entry.config
+            sal_amount = round(float(sal_entry.amount or 0), 2)
+            sal_account = sal_cfg.account_code if sal_cfg else ''
+
+            if not sal_account or sal_amount <= 0:
+                # Cannot post without a valid salary account; fall through to
+                # individual posting below so entries are not silently dropped.
+                salary_entries = []
+            else:
+                lines = [
+                    {'account_code': sal_account, 'debit': sal_amount, 'credit': 0},
+                ]
+                deductions_total = 0.0
+                posted_others = []
+                for oe in other_entries:
+                    oe_cfg = oe.config
+                    if not oe_cfg or not oe_cfg.account_code:
+                        continue
+                    oe_amount = round(float(oe.amount or 0), 2)
+                    if oe_amount <= 0:
+                        continue
+                    lines.append({
+                        'account_code': oe_cfg.account_code,
                         'debit': 0,
-                        'credit': amount,
-                    },
-                ],
-                created_by=actor,
-            )
-            entry.is_posted = True
-            posted_count += 1
-        except Exception as exc:
-            logger.warning("Could not post salary entry %s to GL: %s", entry.id, exc)
+                        'credit': oe_amount,
+                    })
+                    deductions_total = round(deductions_total + oe_amount, 2)
+                    posted_others.append(oe)
+
+                net_pay = round(sal_amount - deductions_total, 2)
+                if net_pay > 0:
+                    lines.append({'account_code': '2100', 'debit': 0, 'credit': net_pay})
+                elif net_pay < 0:
+                    # Deductions exceed gross salary – post the deficit as a debit
+                    # on 2100 so the entry still balances.
+                    lines.append({'account_code': '2100', 'debit': round(abs(net_pay), 2), 'credit': 0})
+
+                try:
+                    _create_journal_entry(
+                        entry_date=entry_date,
+                        description='Salaire',
+                        source_type='salary',
+                        source_id=sal_entry.id,
+                        lines=lines,
+                        created_by=actor,
+                    )
+                    sal_entry.is_posted = True
+                    posted_count += 1
+                    for oe in posted_others:
+                        oe.is_posted = True
+                        posted_count += 1
+                except Exception as exc:
+                    logger.warning("Could not post salary group for %s to GL: %s", entry_date, exc)
+                    salary_entries = []  # fall through to individual posting
+
+        if not salary_entries:
+            # ── Fallback: no field_index-1 entry – post each entry individually
+            for entry in group:
+                cfg = entry.config
+                account_code = cfg.account_code if cfg else ''
+                if not account_code:
+                    continue
+                amount = float(entry.amount or 0)
+                if amount <= 0:
+                    continue
+                try:
+                    _create_journal_entry(
+                        entry_date=entry.entry_date,
+                        description=f'Salaire – {cfg.field_name if cfg else ""}',
+                        source_type='salary',
+                        source_id=entry.id,
+                        lines=[
+                            {'account_code': account_code, 'debit': amount, 'credit': 0},
+                            {'account_code': '2100',       'debit': 0,      'credit': amount},
+                        ],
+                        created_by=actor,
+                    )
+                    entry.is_posted = True
+                    posted_count += 1
+                except Exception as exc:
+                    logger.warning("Could not post salary entry %s to GL: %s", entry.id, exc)
+
     db.session.commit()
     return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
 

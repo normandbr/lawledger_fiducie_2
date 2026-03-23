@@ -773,3 +773,209 @@ class TestSupplierPayments:
         logout(client)
 
 
+# ---------------------------------------------------------------------------
+# 9. Salary GL posting – compound journal entry logic
+# ---------------------------------------------------------------------------
+class TestSalaryPostToGL:
+    """Verify that api_salary_post_to_gl creates the correct compound journal
+    entries: DEBIT to the salary (field_index=1) account, CREDIT to each
+    deduction account, and CREDIT for net pay to account 2100."""
+
+    def _seed_accounts(self, app):
+        """Ensure the default accounts (including 2100) are seeded."""
+        from app import _seed_default_accounts
+        with app.app_context():
+            _seed_default_accounts()
+
+    def _create_salary_configs(self, app):
+        """Create two salary config fields: field_index=1 (salary) and
+        field_index=2 (deduction).  Returns (salary_config_id,
+        deduction_config_id)."""
+        from app import db, SalaryConfig
+        with app.app_context():
+            self._seed_accounts(app)
+            sal_cfg = SalaryConfig(
+                field_index=1,
+                field_name='Salaire brut',
+                account_code='5010',
+                is_active=True,
+            )
+            ded_cfg = SalaryConfig(
+                field_index=2,
+                field_name='RRQ',
+                account_code='2110',
+                is_active=True,
+            )
+            db.session.add_all([sal_cfg, ded_cfg])
+            db.session.commit()
+            return sal_cfg.id, ded_cfg.id
+
+    def _cleanup(self, app, sal_cfg_id, ded_cfg_id):
+        from app import db, SalaryConfig, SalaryEntry, JournalEntry, JournalLine
+        with app.app_context():
+            for je in JournalEntry.query.filter_by(source_type='salary').all():
+                JournalLine.query.filter_by(entry_id=je.id).delete()
+                db.session.delete(je)
+            SalaryEntry.query.filter(
+                SalaryEntry.config_id.in_([sal_cfg_id, ded_cfg_id])
+            ).delete(synchronize_session=False)
+            SalaryConfig.query.filter(
+                SalaryConfig.id.in_([sal_cfg_id, ded_cfg_id])
+            ).delete(synchronize_session=False)
+            db.session.commit()
+
+    def test_post_to_gl_requires_manager(self, client, staff_user, app):
+        """Staff users must be denied access."""
+        login(client, "test_staff", "Pass1234!")
+        resp = client.post(
+            "/api/salary/entries/post-to-gl",
+            json={},
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        logout(client)
+
+    def test_compound_journal_debit_salary_credit_deduction_and_net(
+        self, client, manager_user, app
+    ):
+        """Posting a salary (1000) with a deduction (150) should produce:
+        - DEBIT  5010  1000
+        - CREDIT 2110   150
+        - CREDIT 2100   850  (net pay)
+        """
+        from app import db, SalaryEntry, JournalEntry, JournalLine, Account
+        from datetime import date
+        sal_cfg_id, ded_cfg_id = self._create_salary_configs(app)
+
+        with app.app_context():
+            sal_entry = SalaryEntry(
+                config_id=sal_cfg_id,
+                entry_date=date(2024, 6, 15),
+                amount=1000.00,
+                is_posted=False,
+                is_deleted=False,
+            )
+            ded_entry = SalaryEntry(
+                config_id=ded_cfg_id,
+                entry_date=date(2024, 6, 15),
+                amount=150.00,
+                is_posted=False,
+                is_deleted=False,
+            )
+            db.session.add_all([sal_entry, ded_entry])
+            db.session.commit()
+            sal_id = sal_entry.id
+            ded_id = ded_entry.id
+
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            "/api/salary/entries/post-to-gl",
+            json={"date_from": "2024-06-01", "date_to": "2024-06-30"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        result = resp.get_json()
+        assert result["posted"] == 2  # both entries posted
+
+        with app.app_context():
+            assert SalaryEntry.query.get(sal_id).is_posted is True
+            assert SalaryEntry.query.get(ded_id).is_posted is True
+
+            je = JournalEntry.query.filter_by(
+                source_type='salary', source_id=sal_id
+            ).first()
+            assert je is not None, "No journal entry created for salary"
+
+            lines = JournalLine.query.filter_by(entry_id=je.id).all()
+            acc_map = {}
+            for ln in lines:
+                acct = Account.query.get(ln.account_id)
+                assert acct is not None
+                acc_map[acct.code] = (float(ln.debit), float(ln.credit))
+
+            assert '5010' in acc_map, "Expected DEBIT line on account 5010"
+            assert acc_map['5010'] == (1000.0, 0.0)
+
+            assert '2110' in acc_map, "Expected CREDIT line on account 2110"
+            assert acc_map['2110'] == (0.0, 150.0)
+
+            assert '2100' in acc_map, "Expected CREDIT net-pay line on account 2100"
+            assert acc_map['2100'] == (0.0, 850.0)
+
+        self._cleanup(app, sal_cfg_id, ded_cfg_id)
+        logout(client)
+
+    def test_no_deductions_full_net_pay_credited(self, client, manager_user, app):
+        """When there are no deduction fields, the full salary amount must
+        be credited to account 2100 as net pay."""
+        from app import db, SalaryEntry, JournalEntry, JournalLine, Account
+        from datetime import date
+        sal_cfg_id, ded_cfg_id = self._create_salary_configs(app)
+
+        with app.app_context():
+            sal_entry = SalaryEntry(
+                config_id=sal_cfg_id,
+                entry_date=date(2024, 7, 1),
+                amount=500.00,
+                is_posted=False,
+                is_deleted=False,
+            )
+            db.session.add(sal_entry)
+            db.session.commit()
+            sal_id = sal_entry.id
+
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            "/api/salary/entries/post-to-gl",
+            json={"date_from": "2024-07-01", "date_to": "2024-07-31"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["posted"] == 1
+
+        with app.app_context():
+            je = JournalEntry.query.filter_by(
+                source_type='salary', source_id=sal_id
+            ).first()
+            assert je is not None
+
+            lines = JournalLine.query.filter_by(entry_id=je.id).all()
+            acc_map = {}
+            for ln in lines:
+                acct = Account.query.get(ln.account_id)
+                acc_map[acct.code] = (float(ln.debit), float(ln.credit))
+
+            assert acc_map.get('5010') == (500.0, 0.0)
+            assert acc_map.get('2100') == (0.0, 500.0)
+
+        self._cleanup(app, sal_cfg_id, ded_cfg_id)
+        logout(client)
+
+    def test_already_posted_entries_skipped(self, client, manager_user, app):
+        """Entries that are already posted must not be posted again."""
+        from app import db, SalaryEntry
+        from datetime import date
+        sal_cfg_id, ded_cfg_id = self._create_salary_configs(app)
+
+        with app.app_context():
+            entry = SalaryEntry(
+                config_id=sal_cfg_id,
+                entry_date=date(2024, 8, 1),
+                amount=800.00,
+                is_posted=True,
+                is_deleted=False,
+            )
+            db.session.add(entry)
+            db.session.commit()
+
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            "/api/salary/entries/post-to-gl",
+            json={"date_from": "2024-08-01", "date_to": "2024-08-31"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["posted"] == 0
+
+        self._cleanup(app, sal_cfg_id, ded_cfg_id)
+        logout(client)
