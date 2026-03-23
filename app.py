@@ -3679,7 +3679,7 @@ def api_gl_export():
     output.seek(0)
     filename = f'grand_livre_{date_from}_{date_to}.csv'
     return Response(
-        output.getvalue(),
+        output.getvalue().encode('utf-8-sig'),
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
@@ -5723,7 +5723,7 @@ def api_export_client_matters():
             'Active' if matter.is_active else 'Inactive'
         ])
 
-    csv_bytes = output.getvalue().encode('utf-8')
+    csv_bytes = output.getvalue().encode('utf-8-sig')
     ext = 'tsv' if sep_char == '\t' else 'csv'
     mime = 'text/tab-separated-values' if sep_char == '\t' else 'text/csv'
     filename = f'active_client_matters.{ext}'
@@ -5805,7 +5805,7 @@ def api_export_employees():
             emp.personal_email or '',
         ])
 
-    csv_bytes = output.getvalue().encode('utf-8')
+    csv_bytes = output.getvalue().encode('utf-8-sig')
     ext = 'tsv' if sep_char == '\t' else 'csv'
     mime = 'text/tab-separated-values' if sep_char == '\t' else 'text/csv'
     filename = f'employees.{ext}'
