@@ -26,17 +26,17 @@
 </div>
 
 <!-- Entries table -->
-<div class="table-container" style="overflow-x:auto;">
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);padding-top:0;">
     <table id="salary-table" style="min-width:700px;">
         <thead>
             <tr>
-                <th>{{ t.th_salary_date or 'Date' }}</th>
-                <th>{{ t.th_salary_field or 'Field' }}</th>
-                <th>{{ t.th_salary_account or 'Code comptable' }}</th>
-                <th>{{ t.th_salary_desc or 'Description' }}</th>
-                <th style="text-align:right;">{{ t.th_salary_amount or 'Amount' }}</th>
-                <th style="text-align:center;">{{ t.lbl_salary_posted or 'Posted' }}</th>
-                <th style="text-align:center;">{{ t.th_salary_actions or 'Actions' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_salary_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_salary_field or 'Field' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_salary_account or 'Code comptable' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_salary_desc or 'Description' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;text-align:right;">{{ t.th_salary_amount or 'Amount' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;text-align:center;">{{ t.lbl_salary_posted or 'Posted' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;text-align:center;">{{ t.th_salary_actions or 'Actions' }}</th>
             </tr>
         </thead>
         <tbody id="salary-tbody">
