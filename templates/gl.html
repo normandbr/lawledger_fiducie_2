@@ -27,12 +27,6 @@
         <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_gl_date_to or 'Date To' }}</label>
         <input type="date" id="gl-date-to" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
     </div>
-    <div style="display:flex;flex-direction:column;gap:2px;">
-        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
-        <select id="gl-client" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
-            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
-        </select>
-    </div>
     <button class="btn btn-sm btn-primary" onclick="loadCurrentTab()" style="height:32px;">{{ t.btn_gl_generate or 'Generate' }}</button>
 </div>
 
@@ -166,7 +160,6 @@
 const GL_STR = {
     noEntries:      {{ (t.msg_no_gl_entries or 'No entries found for the selected period.') | tojson }},
     noJournalEntries: {{ (t.msg_no_journal_entries or 'No entries found for the selected period.') | tojson }},
-    allClients:     {{ (t.lbl_all_clients or 'All Clients') | tojson }},
     selectDates:    {{ (t.msg_gl_select_dates or 'Please select both a start and end date.') | tojson }},
 };
 
@@ -194,32 +187,14 @@ function loadCurrentTab() {
     else loadJournal();
 }
 
-async function loadClients() {
-    try {
-        const res = await fetch(SCRIPT_ROOT + '/api/clients');
-        if (!res.ok) return;
-        const clients = await res.json();
-        const select = document.getElementById('gl-client');
-        clients.sort((a, b) => a.client_name.localeCompare(b.client_name));
-        clients.forEach(c => {
-            const opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = c.client_name;
-            select.appendChild(opt);
-        });
-    } catch (err) { console.error(err); }
-}
-
 // ── Classic GL ────────────────────────────────────────────────────────────────
 async function loadGL() {
     const dateFrom = document.getElementById('gl-date-from').value;
     const dateTo   = document.getElementById('gl-date-to').value;
-    const clientId = document.getElementById('gl-client').value;
 
     if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
 
     const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo});
-    if (clientId) params.set('client_id', clientId);
 
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/gl?' + params.toString());
@@ -263,12 +238,10 @@ async function loadGL() {
 async function loadJournal() {
     const dateFrom = document.getElementById('gl-date-from').value;
     const dateTo   = document.getElementById('gl-date-to').value;
-    const clientId = document.getElementById('gl-client').value;
 
     if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
 
     const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo});
-    if (clientId) params.set('client_id', clientId);
 
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/gl/journal?' + params.toString());
@@ -320,10 +293,8 @@ async function loadJournal() {
 function exportCSV() {
     const dateFrom = document.getElementById('gl-date-from').value;
     const dateTo   = document.getElementById('gl-date-to').value;
-    const clientId = document.getElementById('gl-client').value;
     if (!dateFrom || !dateTo) { alert(GL_STR.selectDates); return; }
     const params = new URLSearchParams({date_from: dateFrom, date_to: dateTo, view: _currentTab});
-    if (clientId) params.set('client_id', clientId);
     window.location.href = SCRIPT_ROOT + '/api/gl/export?' + params.toString();
 }
 
@@ -348,7 +319,5 @@ function printGL() {
     document.getElementById('gl-date-from').value = y + '-' + m + '-01';
     document.getElementById('gl-date-to').value   = y + '-' + m + '-' + String(lastDay).padStart(2, '0');
 })();
-
-loadClients();
 </script>
 {% endblock %}
