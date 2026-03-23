@@ -601,7 +601,7 @@ function renderRoomCalendar(events, firstDay, lastDay) {
         for (const ev of dayEvs.slice(0, 2)) {
             const timeStr = ev.event_time ? ev.event_time + ' ' : '';
             const durStr  = ev.duration_minutes ? ` (${ev.duration_minutes}min)` : '';
-            html += `<div title="${escHtml(ev.title + durStr)}" style="font-size:10px;background:#ffc107;color:#212529;border-radius:3px;padding:1px 4px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(timeStr + ev.title)}</div>`;
+            html += `<div title="${escHtml(ev.title + durStr)}" style="font-size:10px;background:#ffc107;color:#212529;border-radius:3px;padding:1px 4px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(timeStr + ev.title + durStr)}</div>`;
         }
         if (dayEvs.length > 2) {
             html += `<div style="font-size:10px;color:var(--text-secondary);">+${dayEvs.length - 2}…</div>`;

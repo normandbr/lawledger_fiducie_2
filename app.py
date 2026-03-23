@@ -5903,6 +5903,13 @@ def api_calendar_events():
         except (ValueError, TypeError):
             room_id_val = None
 
+    duration_minutes_val = None
+    if data.get('duration_minutes'):
+        try:
+            duration_minutes_val = int(data['duration_minutes'])
+        except (ValueError, TypeError):
+            duration_minutes_val = None
+
     event = CalendarEvent(
         matter_id=matter_id_val,
         title=title,
@@ -5915,7 +5922,7 @@ def api_calendar_events():
         assigned_to=data.get('assigned_to', '') or None,
         created_by=current_user.username,
         room_id=room_id_val,
-        duration_minutes=int(data['duration_minutes']) if data.get('duration_minutes') else None,
+        duration_minutes=duration_minutes_val,
     )
     db.session.add(event)
     db.session.commit()
