@@ -1055,6 +1055,30 @@ class CalendarEvent(db.Model):
         }
 
 
+class RoomConfig(db.Model):
+    """Configuration for a meeting/hearing room (up to 10 per firm).
+
+    Each entry has a user-defined room name and can be toggled active/inactive.
+    These rooms will be used for future room-reservation features.
+    """
+    __tablename__ = 'room_configs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    room_index = db.Column(db.Integer, nullable=False, unique=True)   # 1-10
+    room_name = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'room_index': self.room_index,
+            'room_name': self.room_name,
+            'is_active': bool(self.is_active),
+        }
+
+
 class SalaryConfig(db.Model):
     """Configuration for a salary field (up to 10 per firm).
 
@@ -5813,7 +5837,10 @@ def api_calendar_events():
         matter_id = request.args.get('matter_id', '').strip()
         show_done = request.args.get('show_done', '').lower() in ('1', 'true', 'yes')
 
-        q = CalendarEvent.query.filter(CalendarEvent.is_deleted == False)
+        q = CalendarEvent.query.filter(
+            CalendarEvent.is_deleted == False,
+            CalendarEvent.created_by == current_user.username,
+        )
         if matter_id:
             try:
                 q = q.filter(CalendarEvent.matter_id == int(matter_id))
@@ -5913,6 +5940,63 @@ def api_calendar_event_detail(event_id):
 
     # DELETE – soft delete
     event.is_deleted = True
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+# ── Calendar Room Configuration ────────────────────────────────────────────────
+
+@app.route('/api/calendar/rooms', methods=['GET', 'POST'])
+@login_required
+def api_calendar_rooms():
+    """List all room configurations or save/update them (manager only for POST)."""
+    if request.method == 'GET':
+        rooms = RoomConfig.query.order_by(RoomConfig.room_index).all()
+        return jsonify([r.to_dict() for r in rooms])
+
+    # POST – bulk upsert: client sends list of {room_index, room_name, is_active}
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    data = request.get_json() or []
+    if not isinstance(data, list):
+        return jsonify({'error': 'Expected a list of room config items.'}), 400
+    for item in data:
+        try:
+            idx = int(item.get('room_index', 0))
+        except (ValueError, TypeError):
+            continue
+        if idx < 1 or idx > 10:
+            continue
+        room = RoomConfig.query.filter_by(room_index=idx).first()
+        if room is None:
+            room = RoomConfig(room_index=idx)
+            db.session.add(room)
+        room.room_name = (item.get('room_name') or '').strip() or f'Salle {idx}'
+        room.is_active = bool(item.get('is_active', True))
+    db.session.commit()
+    rooms = RoomConfig.query.order_by(RoomConfig.room_index).all()
+    return jsonify([r.to_dict() for r in rooms])
+
+
+@app.route('/api/calendar/rooms/<int:room_id>', methods=['PUT', 'DELETE'])
+@login_required
+def api_calendar_room_detail(room_id):
+    """Update or delete a single room configuration (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    room = db.session.get(RoomConfig, room_id)
+    if not room:
+        return jsonify({'error': 'not_found'}), 404
+    if request.method == 'PUT':
+        data = request.get_json() or {}
+        if 'room_name' in data:
+            room.room_name = data['room_name'].strip() or room.room_name
+        if 'is_active' in data:
+            room.is_active = bool(data['is_active'])
+        db.session.commit()
+        return jsonify(room.to_dict())
+    # DELETE
+    db.session.delete(room)
     db.session.commit()
     return jsonify({'success': True})
 

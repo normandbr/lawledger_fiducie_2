@@ -3,7 +3,12 @@
 {% block content %}
 <div class="page-header">
     <h1>📅 {{ t.title_calendar or 'Calendar' }}</h1>
-    <button class="btn btn-primary" onclick="openAddEventModal()">{{ t.btn_add_event or '+ Add Event' }}</button>
+    <div class="page-header-actions" style="display:flex;gap:8px;align-items:center;">
+        {% if current_user.is_manager %}
+        <button class="btn btn-secondary" onclick="openRoomConfigModal()">⚙ {{ t.btn_room_config or 'Salles' }}</button>
+        {% endif %}
+        <button class="btn btn-primary" onclick="openAddEventModal()">{{ t.btn_add_event or '+ Add Event' }}</button>
+    </div>
 </div>
 
 <!-- Filters -->
@@ -47,6 +52,32 @@
             <tr><td colspan="7" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
         </tbody>
     </table>
+</div>
+
+<!-- ── Room Configuration Modal ───────────────────────────────────────────── -->
+<div id="room-config-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:500px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_room_config or 'Configuration des salles' }}</span>
+            <span onclick="closeRoomConfigModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
+        </h2>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">#</th>
+                    <th style="text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_name or 'Nom de la salle' }}</th>
+                    <th style="text-align:center;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_room_active or 'Actif' }}</th>
+                </tr>
+            </thead>
+            <tbody id="room-config-tbody">
+            </tbody>
+        </table>
+        <div id="room-config-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveRoomConfig()">{{ t.btn_save_room_config or 'Enregistrer' }}</button>
+            <button class="btn btn-secondary" onclick="closeRoomConfigModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+        </div>
+    </div>
 </div>
 
 <!-- ── Add / Edit Event Modal ──────────────────────────────────────────────── -->
@@ -336,6 +367,73 @@ function clearFilters() {
     document.getElementById('cal-filter-to').value   = '';
     document.getElementById('cal-show-done').checked = false;
     loadEvents();
+}
+
+// ── Room Configuration ───────────────────────────────────────────────────────
+async function openRoomConfigModal() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/calendar/rooms');
+        let rooms = [];
+        if (res.ok) rooms = await res.json();
+        // Ensure we always show 10 rows
+        const tbody = document.getElementById('room-config-tbody');
+        tbody.innerHTML = '';
+        for (let i = 1; i <= 10; i++) {
+            const r = rooms.find(x => x.room_index === i) || { room_index: i, room_name: '', is_active: true };
+            tbody.innerHTML += `<tr>
+                <td style="padding:4px 4px;font-size:12px;color:#888;">${i}</td>
+                <td style="padding:4px 4px;">
+                    <input type="text" data-room-index="${i}" data-field="room_name"
+                        value="${escHtml(r.room_name)}"
+                        placeholder="${I18N.ph_room_name || 'Salle ' + i}"
+                        style="width:100%;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </td>
+                <td style="padding:4px 4px;text-align:center;">
+                    <input type="checkbox" data-room-index="${i}" data-field="is_active"
+                        ${r.is_active ? 'checked' : ''}
+                        style="width:16px;height:16px;">
+                </td>
+            </tr>`;
+        }
+        document.getElementById('room-config-error').style.display = 'none';
+        document.getElementById('room-config-modal').style.display = 'flex';
+    } catch(e) {
+        alert(I18N.err_room_load || 'Erreur lors du chargement de la configuration des salles.');
+    }
+}
+
+function closeRoomConfigModal() {
+    document.getElementById('room-config-modal').style.display = 'none';
+}
+
+async function saveRoomConfig() {
+    const items = [];
+    for (let i = 1; i <= 10; i++) {
+        const nameEl   = document.querySelector(`[data-room-index="${i}"][data-field="room_name"]`);
+        const activeEl = document.querySelector(`[data-room-index="${i}"][data-field="is_active"]`);
+        items.push({
+            room_index: i,
+            room_name:  nameEl  ? nameEl.value.trim()   : '',
+            is_active:  activeEl ? activeEl.checked : true,
+        });
+    }
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/calendar/rooms', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(items),
+        });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            document.getElementById('room-config-error').textContent = d.message || (I18N.err_room_save || 'Erreur lors de la sauvegarde.');
+            document.getElementById('room-config-error').style.display = '';
+            return;
+        }
+        closeRoomConfigModal();
+    } catch(e) {
+        document.getElementById('room-config-error').textContent = I18N.err_network || 'Erreur réseau.';
+        document.getElementById('room-config-error').style.display = '';
+    }
 }
 
 // ── Initialise ───────────────────────────────────────────────────────────────
