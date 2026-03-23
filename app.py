@@ -5812,6 +5812,19 @@ def api_supplier_payments_post_to_gl():
     return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
 
 
+@app.route('/api/suppliers/payments/unpaid', methods=['GET'])
+@login_required
+def api_suppliers_payments_unpaid():
+    """Return all unpaid supplier invoices (payment_date is NULL) as JSON."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    payments = SupplierPayment.query.filter(
+        SupplierPayment.is_deleted == False,
+        SupplierPayment.payment_date.is_(None),
+    ).order_by(SupplierPayment.invoice_date.asc(), SupplierPayment.id.asc()).all()
+    return jsonify([p.to_dict() for p in payments])
+
+
 @app.route('/suppliers/unpaid/print')
 @login_required
 def suppliers_unpaid_print():
