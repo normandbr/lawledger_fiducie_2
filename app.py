@@ -1024,10 +1024,12 @@ class CalendarEvent(db.Model):
     assigned_to = db.Column(db.String(80), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    room_id = db.Column(db.Integer, db.ForeignKey('room_configs.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     matter = db.relationship('Matter', backref='calendar_events', lazy=True)
+    room = db.relationship('RoomConfig', backref='reservations', lazy=True)
 
     def to_dict(self):
         client_number = None
@@ -1050,6 +1052,8 @@ class CalendarEvent(db.Model):
             'is_done': bool(self.is_done),
             'assigned_to': self.assigned_to or '',
             'created_by': self.created_by or '',
+            'room_id': self.room_id,
+            'room_name': self.room.room_name if self.room else '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1289,6 +1293,7 @@ _COLUMN_MIGRATIONS = {
         ('created_by',  'NVARCHAR(80) NULL'),
         ('is_deleted',  'BIT NOT NULL DEFAULT 0'),
         ('updated_at',  'DATETIME2(7) NULL'),
+        ('room_id',     'INT NULL'),
     ],
     'salary_entries': [
         ('is_posted', 'BIT NOT NULL DEFAULT 0'),
@@ -5885,6 +5890,16 @@ def api_calendar_events():
         except (ValueError, TypeError):
             matter_id_val = None
 
+    room_id_val = None
+    if data.get('room_id'):
+        try:
+            room_id_val = int(data['room_id'])
+            room = db.session.get(RoomConfig, room_id_val)
+            if not room or not room.is_active:
+                room_id_val = None
+        except (ValueError, TypeError):
+            room_id_val = None
+
     event = CalendarEvent(
         matter_id=matter_id_val,
         title=title,
@@ -5896,6 +5911,7 @@ def api_calendar_events():
         is_done=bool(data.get('is_done', False)),
         assigned_to=data.get('assigned_to', '') or None,
         created_by=current_user.username,
+        room_id=room_id_val,
     )
     db.session.add(event)
     db.session.commit()
@@ -5930,6 +5946,16 @@ def api_calendar_event_detail(event_id):
                 event.matter_id = mid if (mid and db.session.get(Matter, mid)) else None
             except (ValueError, TypeError):
                 event.matter_id = None
+        if 'room_id' in data:
+            try:
+                rid = int(data['room_id']) if data['room_id'] else None
+                if rid:
+                    room = db.session.get(RoomConfig, rid)
+                    event.room_id = rid if (room and room.is_active) else None
+                else:
+                    event.room_id = None
+            except (ValueError, TypeError):
+                event.room_id = None
         for field in ('event_type', 'event_time', 'location', 'notes', 'assigned_to'):
             if field in data:
                 setattr(event, field, data[field] or None)
@@ -5999,6 +6025,35 @@ def api_calendar_room_detail(room_id):
     db.session.delete(room)
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/api/calendar/rooms/<int:room_id>/reservations', methods=['GET'])
+@login_required
+def api_room_reservations(room_id):
+    """Return all non-deleted calendar events reserved for a given room."""
+    room = db.session.get(RoomConfig, room_id)
+    if not room:
+        return jsonify({'error': 'not_found'}), 404
+    date_from = request.args.get('date_from', '').strip()
+    date_to   = request.args.get('date_to', '').strip()
+    q = CalendarEvent.query.filter(
+        CalendarEvent.is_deleted == False,
+        CalendarEvent.room_id == room_id,
+    )
+    if date_from:
+        try:
+            df = datetime.strptime(date_from, '%Y-%m-%d').date()
+            q = q.filter(CalendarEvent.event_date >= df)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt = datetime.strptime(date_to, '%Y-%m-%d').date()
+            q = q.filter(CalendarEvent.event_date <= dt)
+        except ValueError:
+            pass
+    events = q.order_by(CalendarEvent.event_date.asc(), CalendarEvent.event_time.asc()).all()
+    return jsonify([e.to_dict() for e in events])
 
 
 # ── Salary Module ─────────────────────────────────────────────────────────────
