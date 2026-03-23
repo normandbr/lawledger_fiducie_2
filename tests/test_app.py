@@ -462,3 +462,95 @@ class TestCalendarModule:
         assert b"/calendar" in resp.data
         logout(client)
 
+    def test_calendar_events_per_user_isolation(self, client, manager_user, app):
+        """Events created by one user must not be visible to another user."""
+        from datetime import date
+        from app import db, CalendarEvent
+
+        # Insert two events directly: one for the manager, one for "other_user"
+        with app.app_context():
+            ev_mgr = CalendarEvent(
+                title="Manager Event",
+                event_date=date.today(),
+                created_by="test_manager",
+            )
+            ev_other = CalendarEvent(
+                title="Other User Event",
+                event_date=date.today(),
+                created_by="other_user",
+            )
+            db.session.add_all([ev_mgr, ev_other])
+            db.session.commit()
+            mgr_event_id = ev_mgr.id
+            other_event_id = ev_other.id
+
+        # Manager should see their own event but NOT the other user's event
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/calendar/events?show_done=1")
+        assert resp.status_code == 200
+        events = resp.get_json()
+        event_ids = [e["id"] for e in events]
+        assert mgr_event_id   in event_ids
+        assert other_event_id not in event_ids
+        logout(client)
+
+        # Clean up
+        with app.app_context():
+            CalendarEvent.query.filter(
+                CalendarEvent.id.in_([mgr_event_id, other_event_id])
+            ).delete(synchronize_session=False)
+            db.session.commit()
+
+    def test_calendar_room_config_get(self, client, manager_user):
+        """GET /api/calendar/rooms must return a list."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/api/calendar/rooms")
+        assert resp.status_code == 200
+        assert isinstance(resp.get_json(), list)
+        logout(client)
+
+    def test_calendar_room_config_post_requires_manager(self, client, staff_user):
+        """POST /api/calendar/rooms must be denied for non-manager users."""
+        login(client, "test_staff", "Pass1234!")
+        resp = client.post("/api/calendar/rooms", json=[])
+        assert resp.status_code == 403
+        logout(client)
+
+    def test_calendar_room_config_save_and_retrieve(self, client, manager_user, app):
+        """Manager can save room names and retrieve them back."""
+        from app import db, RoomConfig
+        login(client, "test_manager", "Pass1234!")
+
+        payload = [
+            {"room_index": i, "room_name": f"Salle {i}", "is_active": True}
+            for i in range(1, 11)
+        ]
+        resp = client.post("/api/calendar/rooms", json=payload)
+        assert resp.status_code == 200
+        rooms = resp.get_json()
+        assert len(rooms) == 10
+        assert rooms[0]["room_name"] == "Salle 1"
+        assert rooms[9]["room_name"] == "Salle 10"
+
+        # Retrieve and verify
+        resp = client.get("/api/calendar/rooms")
+        assert resp.status_code == 200
+        rooms = resp.get_json()
+        names = {r["room_index"]: r["room_name"] for r in rooms}
+        assert names[1] == "Salle 1"
+        assert names[10] == "Salle 10"
+
+        # Clean up
+        with app.app_context():
+            RoomConfig.query.delete()
+            db.session.commit()
+        logout(client)
+
+    def test_calendar_room_config_button_visible_for_manager(self, client, manager_user):
+        """The room configuration button must be visible to managers."""
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get("/calendar", follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"openRoomConfigModal" in resp.data
+        logout(client)
+
