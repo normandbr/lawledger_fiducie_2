@@ -403,6 +403,7 @@ class CostCode(db.Model):
     description = db.Column(db.String(255), nullable=False)
     charge_type = db.Column(db.String(100), nullable=True)
     rate = db.Column(db.Numeric(10, 2), default=0.00)
+    account_code = db.Column(db.String(20), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -414,6 +415,7 @@ class CostCode(db.Model):
             'description': self.description,
             'charge_type': self.charge_type or '',
             'rate': float(self.rate) if self.rate else 0.00,
+            'account_code': self.account_code or '',
             'is_active': self.is_active if self.is_active is not None else True,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -1154,8 +1156,9 @@ class SalaryEntry(db.Model):
 # Each entry is (column_name, SQL Server column definition).
 _COLUMN_MIGRATIONS = {
     'cost_codes': [
-        ('charge_type', 'NVARCHAR(100) NULL'),
-        ('is_active',   'BIT NOT NULL DEFAULT 1'),
+        ('charge_type',  'NVARCHAR(100) NULL'),
+        ('is_active',    'BIT NOT NULL DEFAULT 1'),
+        ('account_code', 'NVARCHAR(20) NULL'),
     ],
     'clients': [
         ('is_active',    'BIT NOT NULL DEFAULT 1'),
@@ -1728,6 +1731,116 @@ def _post_supplier_payment_journal(payment, supplier):
         )
     except Exception as exc:
         logger.warning("Could not auto-post supplier payment journal: %s", exc)
+
+
+def _salary_gl_raw_entries(date_from, date_to):
+    """Return GL raw-entry dicts for salary entries in the given date range.
+
+    Salary entries are grouped by entry_date.  Within each group:
+      - The entry whose SalaryConfig has field_index == 1 is DEBITED to its
+        configured account (gross salary).
+      - All other entries are CREDITED to their configured accounts (deductions).
+      - A net-pay CREDIT line (gross − sum of deductions) is added to account 2100.
+
+    Each dict has keys: date, invoice_number, client_name, accounting_code,
+    description, debit, credit.
+    """
+    entries = SalaryEntry.query.filter(
+        SalaryEntry.is_deleted == False,
+        SalaryEntry.entry_date >= date_from,
+        SalaryEntry.entry_date <= date_to,
+    ).order_by(SalaryEntry.entry_date.asc(), SalaryEntry.id.asc()).all()
+
+    raw = []
+    entries_sorted = sorted(entries, key=lambda e: e.entry_date)
+    for entry_date, date_group in itertools.groupby(entries_sorted, key=lambda e: e.entry_date):
+        group = list(date_group)
+        date_str = entry_date.isoformat() if entry_date else ''
+
+        salary_entries = [e for e in group if e.config and e.config.field_index == 1]
+        other_entries  = [e for e in group if not (e.config and e.config.field_index == 1)]
+
+        if salary_entries:
+            sal_entry  = salary_entries[0]
+            sal_cfg    = sal_entry.config
+            sal_amount = round(float(sal_entry.amount or 0), 2)
+            sal_account = sal_cfg.account_code if sal_cfg else ''
+            sal_name    = sal_cfg.field_name if sal_cfg else 'Salaire'
+
+            if sal_account and sal_amount > 0:
+                raw.append({
+                    'date': date_str,
+                    'invoice_number': '',
+                    'client_name': 'Salaire',
+                    'accounting_code': sal_account,
+                    'description': f'Salaire – {sal_name}',
+                    'debit': sal_amount,
+                    'credit': 0,
+                })
+                deductions_total = 0.0
+                for oe in other_entries:
+                    oe_cfg = oe.config
+                    if not oe_cfg or not oe_cfg.account_code:
+                        continue
+                    oe_amount = round(float(oe.amount or 0), 2)
+                    if oe_amount <= 0:
+                        continue
+                    oe_name = oe_cfg.field_name or 'Retenue'
+                    raw.append({
+                        'date': date_str,
+                        'invoice_number': '',
+                        'client_name': 'Salaire',
+                        'accounting_code': oe_cfg.account_code,
+                        'description': f'Salaire – {oe_name}',
+                        'debit': 0,
+                        'credit': oe_amount,
+                    })
+                    deductions_total = round(deductions_total + oe_amount, 2)
+
+                net_pay = round(sal_amount - deductions_total, 2)
+                if net_pay > 0:
+                    raw.append({
+                        'date': date_str,
+                        'invoice_number': '',
+                        'client_name': 'Salaire',
+                        'accounting_code': '2100',
+                        'description': 'Salaire – Salaire net',
+                        'debit': 0,
+                        'credit': net_pay,
+                    })
+                elif net_pay < 0:
+                    raw.append({
+                        'date': date_str,
+                        'invoice_number': '',
+                        'client_name': 'Salaire',
+                        'accounting_code': '2100',
+                        'description': 'Salaire – Salaire net',
+                        'debit': round(abs(net_pay), 2),
+                        'credit': 0,
+                    })
+                continue  # group handled – skip fallback
+
+        # Fallback: no field_index-1 entry – post each entry individually as DEBIT
+        for entry in group:
+            cfg = entry.config
+            account_code = cfg.account_code if cfg else ''
+            if not account_code:
+                continue
+            amount = round(float(entry.amount or 0), 2)
+            if amount <= 0:
+                continue
+            field_name = cfg.field_name if cfg else 'Salaire'
+            raw.append({
+                'date': date_str,
+                'invoice_number': '',
+                'client_name': 'Salaire',
+                'accounting_code': account_code,
+                'description': f'Salaire – {field_name}',
+                'debit': amount,
+                'credit': 0,
+            })
+
+    return raw
 
 
 @app.before_request
@@ -3042,28 +3155,7 @@ def api_gl():
             })
 
     # ── 2. Salary entries ─────────────────────────────────────────────────────
-    salary_q = SalaryEntry.query.filter(
-        SalaryEntry.is_deleted == False,
-        SalaryEntry.entry_date >= date_from,
-        SalaryEntry.entry_date <= date_to,
-    ).order_by(SalaryEntry.entry_date.asc())
-
-    for entry in salary_q.all():
-        cfg = entry.config
-        account_code = (cfg.account_code or '') if cfg else ''
-        field_name = (cfg.field_name or 'Salaire') if cfg else 'Salaire'
-        desc = f'Salaire – {field_name}'
-        if entry.description:
-            desc += f' – {entry.description}'
-        raw_entries.append({
-            'date': entry.entry_date.isoformat() if entry.entry_date else '',
-            'invoice_number': '',
-            'client_name': 'Salaire',
-            'accounting_code': account_code,
-            'description': desc,
-            'debit': round(float(entry.amount or 0), 2),
-            'credit': 0,
-        })
+    raw_entries.extend(_salary_gl_raw_entries(date_from, date_to))
 
     # ── 3. Supplier payments ──────────────────────────────────────────────────
     # Use payment_date when available, fall back to invoice_date for filtering.
@@ -3153,18 +3245,7 @@ def api_gl_summary():
             raw_entries.append({'accounting_code': accounting_code, 'debit': 0, 'credit': round(amount, 2)})
 
     # ── 2. Salary entries ─────────────────────────────────────────────────────
-    for entry in SalaryEntry.query.filter(
-        SalaryEntry.is_deleted == False,
-        SalaryEntry.entry_date >= date_from,
-        SalaryEntry.entry_date <= date_to,
-    ).all():
-        cfg = entry.config
-        account_code = (cfg.account_code or '') if cfg else ''
-        raw_entries.append({
-            'accounting_code': account_code,
-            'debit': round(float(entry.amount or 0), 2),
-            'credit': 0,
-        })
+    raw_entries.extend(_salary_gl_raw_entries(date_from, date_to))
 
     # ── 3. Supplier payments ──────────────────────────────────────────────────
     for payment in SupplierPayment.query.filter(SupplierPayment.is_deleted == False).all():
@@ -3543,18 +3624,7 @@ def api_gl_export():
             if inv.status == 'paid':
                 raw_entries.append({'accounting_code': accounting_code, 'debit': 0, 'credit': round(amount, 2)})
 
-        for entry in SalaryEntry.query.filter(
-            SalaryEntry.is_deleted == False,
-            SalaryEntry.entry_date >= date_from,
-            SalaryEntry.entry_date <= date_to,
-        ).all():
-            cfg = entry.config
-            account_code = (cfg.account_code or '') if cfg else ''
-            raw_entries.append({
-                'accounting_code': account_code,
-                'debit': round(float(entry.amount or 0), 2),
-                'credit': 0,
-            })
+        raw_entries.extend(_salary_gl_raw_entries(date_from, date_to))
 
         for payment in SupplierPayment.query.filter(SupplierPayment.is_deleted == False).all():
             pay_date = payment.payment_date or payment.invoice_date
@@ -4827,6 +4897,7 @@ def cost_codes():
         description=data['description'],
         charge_type=data.get('charge_type') or None,
         rate=data.get('rate', 0.00),
+        account_code=(data.get('account_code') or '').strip() or None,
         is_active=data.get('is_active', True)
     )
     db.session.add(code)
@@ -4861,6 +4932,8 @@ def api_cost_code_detail(code_id):
             cost_code.code = data['code']
         if 'rate' in data:
             cost_code.rate = data['rate'] if data['rate'] is not None else 0
+        if 'account_code' in data:
+            cost_code.account_code = (data['account_code'] or '').strip() or None
         if 'is_active' in data:
             cost_code.is_active = bool(data['is_active'])
         cost_code.updated_at = datetime.now(UTC)
