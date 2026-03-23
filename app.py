@@ -3508,7 +3508,7 @@ def api_gl_journal():
 def api_gl_export():
     """Export GL data as CSV.
 
-    Query params: date_from, date_to, client_id, view (classic|journal).
+    Query params: date_from, date_to, client_id, view (classic|journal|summary).
     Returns a downloadable CSV file.
     """
     if not current_user.is_manager:
@@ -3525,7 +3525,86 @@ def api_gl_export():
     output = io.StringIO()
     writer = csv.writer(output)
 
-    if view == 'classic':
+    if view == 'summary':
+        # Summary by accounting code
+        raw_entries = []
+
+        invoices = Invoice.query.filter(
+            Invoice.invoice_date >= date_from,
+            Invoice.invoice_date <= date_to,
+            Invoice.status != 'cancelled',
+        ).order_by(Invoice.invoice_date.asc()).all()
+        for inv in invoices:
+            client = inv.resolved_client
+            accounting_code = (client.accounting_code or '1100') if client else '1100'
+            amount = float(inv.total_amount or 0)
+            raw_entries.append({'accounting_code': accounting_code, 'debit': round(amount, 2), 'credit': 0})
+            if inv.status == 'paid':
+                raw_entries.append({'accounting_code': accounting_code, 'debit': 0, 'credit': round(amount, 2)})
+
+        for entry in SalaryEntry.query.filter(
+            SalaryEntry.is_deleted == False,
+            SalaryEntry.entry_date >= date_from,
+            SalaryEntry.entry_date <= date_to,
+        ).all():
+            cfg = entry.config
+            account_code = (cfg.account_code or '') if cfg else ''
+            raw_entries.append({
+                'accounting_code': account_code,
+                'debit': round(float(entry.amount or 0), 2),
+                'credit': 0,
+            })
+
+        for payment in SupplierPayment.query.filter(SupplierPayment.is_deleted == False).all():
+            pay_date = payment.payment_date or payment.invoice_date
+            if not pay_date:
+                continue
+            pay_date_str = pay_date.isoformat()
+            if pay_date_str < date_from or pay_date_str > date_to:
+                continue
+            supplier = payment.supplier
+            account_code = (supplier.accounting_code or '2010') if supplier else '2010'
+            raw_entries.append({
+                'accounting_code': account_code,
+                'debit': round(float(payment.amount or 0), 2),
+                'credit': 0,
+            })
+
+        totals: dict = {}
+        for e in raw_entries:
+            code = e['accounting_code'] or ''
+            if code not in totals:
+                totals[code] = {'total_debit': 0.0, 'total_credit': 0.0}
+            totals[code]['total_debit'] += e['debit']
+            totals[code]['total_credit'] += e['credit']
+
+        account_names: dict = {}
+        for acc in Account.query.filter(Account.is_deleted == False).all():
+            account_names[acc.code] = acc.name
+
+        writer.writerow(['Code comptable', 'Compte', 'Débit Total', 'Crédit Total', 'Solde'])
+        grand_debit = 0.0
+        grand_credit = 0.0
+        for code in sorted(totals.keys()):
+            total_debit = round(totals[code]['total_debit'], 2)
+            total_credit = round(totals[code]['total_credit'], 2)
+            balance = round(total_debit - total_credit, 2)
+            grand_debit += total_debit
+            grand_credit += total_credit
+            writer.writerow([
+                code,
+                account_names.get(code, ''),
+                f'{total_debit:.2f}',
+                f'{total_credit:.2f}',
+                f'{balance:.2f}',
+            ])
+        writer.writerow([
+            'TOTAL', '',
+            f'{round(grand_debit, 2):.2f}',
+            f'{round(grand_credit, 2):.2f}',
+            f'{round(grand_debit - grand_credit, 2):.2f}',
+        ])
+    elif view == 'classic':
         inv_q = Invoice.query.filter(
             Invoice.invoice_date >= date_from,
             Invoice.invoice_date <= date_to,
