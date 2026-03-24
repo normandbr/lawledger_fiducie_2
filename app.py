@@ -1370,6 +1370,44 @@ def _apply_schema_migrations():
                 ))
                 logger.info("Schema migration: backfilled is_paid/date_paid for paid supplier_payments")
 
+        # Fix CHECK constraint on TransactionsFiducie.type_trans to allow REMBOURSEMENT.
+        # The original constraint (auto-named by SQL Server) may only permit DEPOT and
+        # RETRAIT.  We drop whichever constraint currently exists on that column and
+        # replace it with one that explicitly allows the three valid values.
+        if 'TransactionsFiducie' in existing_tables:
+            try:
+                with db.engine.begin() as conn:
+                    # Find any CHECK constraint on TransactionsFiducie that references type_trans
+                    rows = conn.execute(sa_text(
+                        "SELECT cc.name "
+                        "FROM sys.check_constraints cc "
+                        "JOIN sys.columns c "
+                        "  ON cc.parent_object_id = c.object_id "
+                        " AND cc.parent_column_id = c.column_id "
+                        "WHERE cc.parent_object_id = OBJECT_ID('dbo.TransactionsFiducie') "
+                        "  AND c.name = 'type_trans'"
+                    )).fetchall()
+                    for row in rows:
+                        conn.execute(sa_text(
+                            f"ALTER TABLE [TransactionsFiducie] DROP CONSTRAINT [{row[0]}]"
+                        ))
+                        logger.info("Schema migration: dropped constraint %s on TransactionsFiducie.type_trans", row[0])
+                    # Re-create constraint that includes REMBOURSEMENT
+                    new_ck = 'CK_TransactionsFiducie_type_trans'
+                    existing_ck = conn.execute(sa_text(
+                        "SELECT COUNT(*) FROM sys.check_constraints "
+                        "WHERE parent_object_id = OBJECT_ID('dbo.TransactionsFiducie') "
+                        "AND name = :ck_name"
+                    ), {'ck_name': new_ck}).scalar()
+                    if not existing_ck:
+                        conn.execute(sa_text(
+                            f"ALTER TABLE [TransactionsFiducie] ADD CONSTRAINT [{new_ck}] "
+                            "CHECK (type_trans IN ('DEPOT', 'RETRAIT', 'REMBOURSEMENT'))"
+                        ))
+                        logger.info("Schema migration: added %s on TransactionsFiducie.type_trans", new_ck)
+            except Exception as ck_fid_exc:
+                logger.warning("Could not fix TransactionsFiducie.type_trans constraint: %s", ck_fid_exc)
+
         # Add CHECK constraint for timer_user / hourly_rate requirement
         if 'employees' in existing_tables:
             try:
