@@ -111,6 +111,22 @@
         <a href="{{ url_for('fiducie_select') }}" class="btn btn-primary">{{ t.btn_view }}</a>
         {% if _trust_disabled %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
     </div>
+
+    {# 9. Comptes à recevoir #}
+    <div class="card{% if license_modules_restricted %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_unbilled or 'Comptes à recevoir' }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_ar_desc or 'Consultez les factures envoyées et non encore payées (comptes à recevoir).' }}</p>
+        <a href="{{ url_for('unbilled_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if license_modules_restricted %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
+
+    {# 10. État de compte #}
+    <div class="card{% if license_modules_restricted %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
+        <h3>{{ t.nav_statement or 'État de compte' }}</h3>
+        <p style="flex-grow: 1;">{{ t.card_statement_desc or 'Générez et imprimez l\'état de compte mensuel pour un client.' }}</p>
+        <a href="{{ url_for('statement_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
+        {% if license_modules_restricted %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
+    </div>
 </div>
 
 <!-- ── Export Modal ───────────────────────────────────────────────────────── -->
