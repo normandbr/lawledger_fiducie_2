@@ -111,7 +111,10 @@
                     <label>{{ t.lbl_invoice_number or 'No de facture' }}</label>
                     <input type="text" name="invoice_number" id="fid-invoice-number" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" placeholder="{{ t.ph_invoice_number or 'Ex: INV-001-001-ABC123' }}">
                 </div>
-                <button type="submit" class="btn btn-primary" style="width:100%;">{{ t.btn_post_entry or 'Post Entry' }}</button>
+                <div id="auth-status-warning" style="display:none;background:#fff3cd;border:1px solid #ffc107;color:#856404;padding:8px 12px;border-radius:4px;margin-bottom:10px;font-size:13px;">
+                    ⚠️ {{ t.msg_no_auth_doc or 'Aucune autorisation signée active pour ce dossier. Le retrait en fiducie est désactivé.' }}
+                </div>
+                <button type="submit" id="btn-post-entry" class="btn btn-primary" style="width:100%;">{{ t.btn_post_entry or 'Post Entry' }}</button>
             </form>
         </div>
     </div>
@@ -174,7 +177,7 @@
 
 <!-- Trust Authorization Modal -->
 <div id="trust-auth-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);">
-    <div style="background:#fff;border-radius:8px;width:95%;max-width:820px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:820px;position:absolute;top:5%;left:50%;transform:translate(-50%,0);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#0078d4;border-radius:8px 8px 0 0;">
             <h2 style="margin:0;font-size:1.05rem;font-weight:600;color:#fff;">🔐 {{ t.title_trust_auth or 'Autorisations de retrait en fiducie' }}</h2>
             <span onclick="closeAuthModal()" style="cursor:pointer;color:rgba(255,255,255,.8);font-size:22px;font-weight:bold;line-height:1;">&times;</span>
@@ -417,6 +420,7 @@ document.getElementById('trans-type').addEventListener('change', function() {
             document.getElementById('fid-invoice-number').value = '';
         }
     }
+    updateWithdrawalAuthState(_currentMatterAuths);
 });
 
 // Handle form submission via AJAX for better validation UX
@@ -772,6 +776,16 @@ document.getElementById('reconciliation-modal').addEventListener('click', functi
 // ===== Trust Authorization =====
 let _authMatterId = null;
 let _editingAuthId = null;
+let _currentMatterAuths = [];
+
+/** Return true if the authorization is active, has a document, and is valid on today. */
+function isValidDocumentedAuth(auth, today) {
+    if (!auth.is_active || !auth.has_document) return false;
+    if (auth.is_indefinite) return true;
+    const from = auth.date_from || '0000-01-01';
+    const to = auth.date_to || '9999-12-31';
+    return today >= from && today <= to;
+}
 
 function openAuthModal() {
     _authMatterId = MATTER_ID;
@@ -817,14 +831,51 @@ async function loadAuthorizations() {
         const res = await fetch(SCRIPT_ROOT + '/api/fiducie/' + _authMatterId + '/authorizations');
         const data = await res.json();
         renderAuthList(data);
-        // Update badge
+        // Update badge: count active+documented auths valid today
+        const today = new Date().toISOString().slice(0, 10);
+        const validDocAuths = data.filter(a => isValidDocumentedAuth(a, today));
         const activeCount = data.filter(a => a.is_active).length;
         const badge = document.getElementById('auth-badge');
-        if (badge) badge.textContent = activeCount > 0 ? activeCount : '';
+        if (badge) {
+            if (validDocAuths.length > 0) {
+                badge.textContent = validDocAuths.length;
+                badge.style.background = '#fff';
+                badge.style.color = '#0078d4';
+            } else if (activeCount > 0) {
+                badge.textContent = '⚠';
+                badge.style.background = '#ffc107';
+                badge.style.color = '#856404';
+            } else {
+                badge.textContent = '';
+            }
+        }
+        updateWithdrawalAuthState(data);
     } catch(err) {
         console.error(err);
     } finally {
         document.getElementById('auth-list-loading').style.display = 'none';
+    }
+}
+
+function updateWithdrawalAuthState(auths) {
+    _currentMatterAuths = auths || [];
+    const today = new Date().toISOString().slice(0, 10);
+    const hasValidDocAuth = _currentMatterAuths.some(a => isValidDocumentedAuth(a, today));
+    const transType = document.getElementById('trans-type') ? document.getElementById('trans-type').value : 'DEPOT';
+    const isWithdrawal = transType === 'RETRAIT' || transType === 'REMBOURSEMENT';
+    const warningDiv = document.getElementById('auth-status-warning');
+    const submitBtn = document.getElementById('btn-post-entry');
+    if (warningDiv) warningDiv.style.display = (isWithdrawal && !hasValidDocAuth) ? '' : 'none';
+    if (submitBtn) {
+        if (isWithdrawal && !hasValidDocAuth) {
+            submitBtn.disabled = true;
+            submitBtn.style.opacity = '0.55';
+            submitBtn.style.cursor = 'not-allowed';
+        } else {
+            submitBtn.disabled = false;
+            submitBtn.style.opacity = '';
+            submitBtn.style.cursor = '';
+        }
     }
 }
 
@@ -956,9 +1007,24 @@ async function uploadAuthPdf(input) {
     fetch(SCRIPT_ROOT + '/api/fiducie/{{ dossier.id }}/authorizations')
         .then(r => r.json())
         .then(data => {
+            const today = new Date().toISOString().slice(0, 10);
+            const validDocAuths = data.filter(a => isValidDocumentedAuth(a, today));
             const activeCount = data.filter(a => a.is_active).length;
             const badge = document.getElementById('auth-badge');
-            if (badge && activeCount > 0) badge.textContent = activeCount;
+            if (badge) {
+                if (validDocAuths.length > 0) {
+                    badge.textContent = validDocAuths.length;
+                    badge.style.background = '#fff';
+                    badge.style.color = '#0078d4';
+                } else if (activeCount > 0) {
+                    badge.textContent = '⚠';
+                    badge.style.background = '#ffc107';
+                    badge.style.color = '#856404';
+                } else {
+                    badge.textContent = '';
+                }
+            }
+            updateWithdrawalAuthState(data);
         }).catch(() => {});
 })();
 {% endif %}
