@@ -235,15 +235,16 @@ async function loadMattersForClient() {
         const section = document.getElementById('trust-section');
         const cb = document.getElementById('apply_trust');
         document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
-        section.style.display = '';
         if (clientTrustBalance > 0) {
-            cb.disabled = false;
-            section.style.opacity = '1';
+            section.style.display = '';
         } else {
-            cb.disabled = true;
-            cb.checked = false;
-            section.style.opacity = '0.5';
+            section.style.display = 'none';
         }
+        // Always disable until a specific matter with active authorization is selected
+        cb.disabled = true;
+        cb.checked = false;
+        section.style.opacity = '0.5';
+        section.title = '';
     }
 }
 
