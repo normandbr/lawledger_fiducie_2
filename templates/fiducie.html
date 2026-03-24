@@ -177,7 +177,7 @@
 
 <!-- Trust Authorization Modal -->
 <div id="trust-auth-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);">
-    <div style="background:#fff;border-radius:8px;width:95%;max-width:820px;position:absolute;top:5%;left:50%;transform:translate(-50%,0);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:820px;position:absolute;top:2%;left:50%;transform:translate(-50%,0);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:96vh;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#0078d4;border-radius:8px 8px 0 0;">
             <h2 style="margin:0;font-size:1.05rem;font-weight:600;color:#fff;">🔐 {{ t.title_trust_auth or 'Autorisations de retrait en fiducie' }}</h2>
             <span onclick="closeAuthModal()" style="cursor:pointer;color:rgba(255,255,255,.8);font-size:22px;font-weight:bold;line-height:1;">&times;</span>
@@ -211,7 +211,13 @@
                     <input type="text" id="auth-notes" placeholder="{{ t.ph_auth_notes or 'Description / référence...' }}" style="padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
                 </div>
                 <div style="flex:0 0 auto;">
-                    <button class="btn btn-primary" onclick="saveAuthorization()" style="background:#0078d4;border-color:#0078d4;padding:7px 16px;font-size:13px;">{{ t.btn_save or 'Enregistrer' }}</button>
+                    <label style="font-size:12px;display:block;margin-bottom:3px;">{{ t.lbl_document or 'Document' }}</label>
+                    <input type="file" id="auth-form-pdf-input" accept=".pdf" style="display:none;" onchange="onAuthFormFileSelected(this)">
+                    <button type="button" onclick="document.getElementById('auth-form-pdf-input').click()" style="padding:7px 12px;font-size:13px;border:1px solid #0078d4;border-radius:4px;background:#fff;color:#0078d4;cursor:pointer;">📎 {{ t.btn_attach_pdf or 'Joindre PDF' }}</button>
+                    <span id="auth-form-pdf-name" style="font-size:12px;color:#555;margin-left:6px;"></span>
+                </div>
+                <div style="flex:0 0 auto;padding-top:19px;">
+                    <button id="btn-save-auth" class="btn btn-primary" onclick="saveAuthorization()" disabled style="background:#0078d4;border-color:#0078d4;padding:7px 16px;font-size:13px;opacity:0.55;cursor:not-allowed;">{{ t.btn_save or 'Enregistrer' }}</button>
                     <button class="btn btn-secondary" onclick="cancelAuthEdit()" id="btn-cancel-auth-edit" style="display:none;padding:7px 12px;font-size:13px;margin-left:6px;">{{ t.btn_cancel or 'Annuler' }}</button>
                 </div>
             </div>
@@ -818,7 +824,29 @@ function resetAuthForm() {
     document.getElementById('auth-notes').value = '';
     document.getElementById('auth-form-error').style.display = 'none';
     document.getElementById('btn-cancel-auth-edit').style.display = 'none';
+    document.getElementById('auth-form-pdf-input').value = '';
+    document.getElementById('auth-form-pdf-name').textContent = '';
+    const saveBtn = document.getElementById('btn-save-auth');
+    saveBtn.disabled = true;
+    saveBtn.style.opacity = '0.55';
+    saveBtn.style.cursor = 'not-allowed';
     toggleAuthDateFields();
+}
+
+function onAuthFormFileSelected(input) {
+    const nameSpan = document.getElementById('auth-form-pdf-name');
+    const saveBtn = document.getElementById('btn-save-auth');
+    if (input.files && input.files[0]) {
+        nameSpan.textContent = input.files[0].name;
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '';
+        saveBtn.style.cursor = '';
+    } else {
+        nameSpan.textContent = '';
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.55';
+        saveBtn.style.cursor = 'not-allowed';
+    }
 }
 
 function cancelAuthEdit() {
@@ -913,7 +941,6 @@ function renderAuthList(auths) {
 }
 
 function editAuth(id) {
-    const rows = document.querySelectorAll('#auth-list-body tr');
     // Reload data from server to fill form
     fetch(SCRIPT_ROOT + '/api/fiducie/' + _authMatterId + '/authorizations')
         .then(r => r.json())
@@ -929,6 +956,11 @@ function editAuth(id) {
             document.getElementById('auth-notes').value = a.notes || '';
             document.getElementById('btn-cancel-auth-edit').style.display = '';
             document.getElementById('auth-form-error').style.display = 'none';
+            // Enable save button for edits (no new document required)
+            const saveBtn = document.getElementById('btn-save-auth');
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = '';
+            saveBtn.style.cursor = '';
         });
 }
 
@@ -956,6 +988,22 @@ async function saveAuthorization() {
         }
         const data = await res.json();
         if (!res.ok) { errDiv.textContent = data.error || 'Erreur'; errDiv.style.display = 'block'; return; }
+        // Upload PDF if one was selected in the form
+        const fileInput = document.getElementById('auth-form-pdf-input');
+        if (fileInput.files && fileInput.files[0]) {
+            const authId = data.id || _editingAuthId;
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            const upRes = await fetch(SCRIPT_ROOT + '/api/fiducie/authorizations/' + authId + '/upload', {
+                method: 'POST', body: formData
+            });
+            if (!upRes.ok) {
+                const upData = await upRes.json();
+                errDiv.textContent = upData.error || 'Erreur upload';
+                errDiv.style.display = 'block';
+                return;
+            }
+        }
         resetAuthForm();
         loadAuthorizations();
     } catch(err) {
