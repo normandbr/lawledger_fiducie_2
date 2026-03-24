@@ -203,6 +203,16 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+# Folder for trust authorization documents (PDFs signed by clients).
+# Configurable via TRUST_AUTH_DOCS_DIR environment variable.
+_default_trust_auth_dir = os.path.join(os.path.dirname(__file__), 'static', 'uploads', 'trust_auth')
+TRUST_AUTH_FOLDER = os.environ.get('TRUST_AUTH_DOCS_DIR', _default_trust_auth_dir)
+try:
+    os.makedirs(TRUST_AUTH_FOLDER, exist_ok=True)
+except OSError as exc:
+    logging.warning('Could not create trust auth folder %s: %s', TRUST_AUTH_FOLDER, exc)
+app.config['TRUST_AUTH_FOLDER'] = TRUST_AUTH_FOLDER
+
 # Folder for holding imported CSV/Excel files (server backup).
 # Windows: %PROGRAMDATA%\lawledger\import  (i.e. C:\ProgramData\lawledger\import)
 # Linux/macOS: ~/.local/share/lawledger/import
@@ -1015,6 +1025,69 @@ class TrustReconciliation(db.Model):
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class TrustAuthorization(db.Model):
+    """Client authorization allowing trust funds to be used to pay invoices.
+
+    No RETRAIT / REMBOURSEMENT trust transaction may be created unless an
+    active authorization exists for the matter on that date.  An authorization
+    can be time-bounded (date_from / date_to) or indefinite (is_indefinite=True).
+    A signed PDF from the client can optionally be stored on disk and linked here.
+    """
+    __tablename__ = 'trust_authorizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
+    # Date range – both nullable when is_indefinite is True
+    date_from = db.Column(db.Date, nullable=True)
+    date_to = db.Column(db.Date, nullable=True)
+    is_indefinite = db.Column(db.Boolean, nullable=False, default=False)
+    max_amount = db.Column(db.Numeric(12, 2), nullable=True)   # optional per-withdrawal cap
+    notes = db.Column(db.Text, nullable=True)
+    # Uploaded signed PDF
+    doc_filename = db.Column(db.String(255), nullable=True)    # stored name (UUID-based)
+    doc_original_name = db.Column(db.String(255), nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.String(80), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    matter = db.relationship('Matter', backref='trust_authorizations', lazy=True)
+    client = db.relationship('Client', backref='trust_authorizations', lazy=True)
+
+    def is_valid_on(self, check_date):
+        """Return True if this authorization is active on *check_date*."""
+        if not self.is_active:
+            return False
+        if self.is_indefinite:
+            return True
+        if self.date_from and check_date < self.date_from:
+            return False
+        if self.date_to and check_date > self.date_to:
+            return False
+        return True
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'matter_id': self.matter_id,
+            'client_id': self.client_id,
+            'date_from': self.date_from.isoformat() if self.date_from else None,
+            'date_to': self.date_to.isoformat() if self.date_to else None,
+            'is_indefinite': bool(self.is_indefinite),
+            'max_amount': float(self.max_amount) if self.max_amount is not None else None,
+            'notes': self.notes or '',
+            'doc_filename': self.doc_filename or '',
+            'doc_original_name': self.doc_original_name or '',
+            'has_document': bool(self.doc_filename),
+            'is_active': bool(self.is_active),
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class CalendarEvent(db.Model):
     """Calendar event (hearing, deadline, meeting…) optionally linked to a matter."""
     __tablename__ = 'calendar_events'
@@ -2352,6 +2425,18 @@ def api_fiducie_create(matter_id):
         if montant > solde:
             return jsonify({'error': f'Insufficient funds. Balance: {solde:,.2f}$'}), 400
 
+        # Require an active client authorization for any withdrawal
+        from datetime import date as _date
+        today = _date.today()
+        active_auth = TrustAuthorization.query.filter_by(
+            matter_id=matter_id, is_active=True
+        ).all()
+        authorized = any(a.is_valid_on(today) for a in active_auth)
+        if not authorized:
+            return jsonify({
+                'error': 'Aucune autorisation client active. Veuillez obtenir une autorisation signée avant d\'effectuer un retrait ou un remboursement en fiducie.'
+            }), 403
+
     nouvelle_t = TransactionsFiducie(
         matter_id=matter_id,
         type_trans=type_trans,
@@ -2393,6 +2478,219 @@ def api_fiducie_delete(trans_id):
     db.session.delete(trans)
     db.session.commit()
     return jsonify({'success': True})
+
+
+# ---------------------------------------------------------------------------
+# Trust Authorization API Routes
+# ---------------------------------------------------------------------------
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations', methods=['GET'])
+@login_required
+def api_trust_auth_list(matter_id):
+    """List all trust authorizations for a matter."""
+    Matter.query.get_or_404(matter_id)
+    auths = TrustAuthorization.query.filter_by(matter_id=matter_id).order_by(
+        TrustAuthorization.created_at.desc()
+    ).all()
+    return jsonify([a.to_dict() for a in auths])
+
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations', methods=['POST'])
+@login_required
+def api_trust_auth_create(matter_id):
+    """Create a new trust authorization for a matter."""
+    matter = Matter.query.get_or_404(matter_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+
+    is_indefinite = bool(data.get('is_indefinite', False))
+    date_from = None
+    date_to = None
+    if not is_indefinite:
+        try:
+            date_from_str = (data.get('date_from') or '').strip()
+            date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date() if date_from_str else None
+        except ValueError:
+            return jsonify({'error': 'date_from invalide (format attendu: YYYY-MM-DD)'}), 400
+        try:
+            date_to_str = (data.get('date_to') or '').strip()
+            date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date() if date_to_str else None
+        except ValueError:
+            return jsonify({'error': 'date_to invalide (format attendu: YYYY-MM-DD)'}), 400
+        if date_from and date_to and date_from > date_to:
+            return jsonify({'error': 'date_from doit être avant date_to'}), 400
+
+    max_amount = None
+    if data.get('max_amount') not in (None, '', 0):
+        try:
+            max_amount = float(data['max_amount'])
+            if max_amount <= 0:
+                return jsonify({'error': 'max_amount doit être positif'}), 400
+        except (TypeError, ValueError):
+            return jsonify({'error': 'max_amount invalide'}), 400
+
+    auth = TrustAuthorization(
+        matter_id=matter_id,
+        client_id=matter.client_id,
+        is_indefinite=is_indefinite,
+        date_from=date_from,
+        date_to=date_to,
+        max_amount=max_amount,
+        notes=(data.get('notes') or '').strip() or None,
+        is_active=True,
+        created_by=current_user.display_name,
+    )
+    db.session.add(auth)
+    db.session.commit()
+    return jsonify(auth.to_dict()), 201
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['PUT'])
+@login_required
+def api_trust_auth_update(auth_id):
+    """Update an existing trust authorization."""
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No JSON data provided'}), 400
+
+    if 'is_indefinite' in data:
+        auth.is_indefinite = bool(data['is_indefinite'])
+    if 'is_active' in data:
+        auth.is_active = bool(data['is_active'])
+    if 'notes' in data:
+        auth.notes = (data['notes'] or '').strip() or None
+
+    if not auth.is_indefinite:
+        if 'date_from' in data:
+            try:
+                df = (data['date_from'] or '').strip()
+                auth.date_from = datetime.strptime(df, '%Y-%m-%d').date() if df else None
+            except ValueError:
+                return jsonify({'error': 'date_from invalide'}), 400
+        if 'date_to' in data:
+            try:
+                dt = (data['date_to'] or '').strip()
+                auth.date_to = datetime.strptime(dt, '%Y-%m-%d').date() if dt else None
+            except ValueError:
+                return jsonify({'error': 'date_to invalide'}), 400
+        if auth.date_from and auth.date_to and auth.date_from > auth.date_to:
+            return jsonify({'error': 'date_from doit être avant date_to'}), 400
+    else:
+        auth.date_from = None
+        auth.date_to = None
+
+    if 'max_amount' in data:
+        if data['max_amount'] in (None, ''):
+            auth.max_amount = None
+        else:
+            try:
+                auth.max_amount = float(data['max_amount']) or None
+            except (TypeError, ValueError):
+                return jsonify({'error': 'max_amount invalide'}), 400
+
+    db.session.commit()
+    return jsonify(auth.to_dict())
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['DELETE'])
+@login_required
+def api_trust_auth_delete(auth_id):
+    """Delete a trust authorization (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    db.session.delete(auth)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>/upload', methods=['POST'])
+@login_required
+def api_trust_auth_upload(auth_id):
+    """Upload a signed PDF authorization document and link it to the authorization."""
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier reçu'}), 400
+    file_obj = request.files['file']
+    if not file_obj or not file_obj.filename:
+        return jsonify({'error': 'Fichier invalide'}), 400
+
+    original_name = secure_filename(file_obj.filename)
+    ext = original_name.rsplit('.', 1)[-1].lower() if '.' in original_name else ''
+    if ext not in ('pdf',):
+        return jsonify({'error': 'Seuls les fichiers PDF sont acceptés'}), 400
+
+    # Create per-client sub-directory
+    matter = Matter.query.get(auth.matter_id)
+    client = Client.query.get(auth.client_id) if auth.client_id else None
+    folder_name = secure_filename(
+        f"{client.client_number}" if client else f"matter_{auth.matter_id}"
+    )
+    client_dir = os.path.join(app.config['TRUST_AUTH_FOLDER'], folder_name)
+    try:
+        os.makedirs(client_dir, exist_ok=True)
+    except OSError as exc:
+        return jsonify({'error': f'Impossible de créer le répertoire: {exc}'}), 500
+
+    # Remove old document if present
+    if auth.doc_filename:
+        old_path = os.path.join(client_dir, auth.doc_filename)
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    # Save with UUID-based name
+    stored_name = f"auth_{auth.id}_{uuid.uuid4().hex}.pdf"
+    save_path = os.path.join(client_dir, stored_name)
+    file_obj.save(save_path)
+
+    auth.doc_filename = stored_name
+    auth.doc_original_name = original_name
+    db.session.commit()
+    return jsonify(auth.to_dict()), 200
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>/document', methods=['GET'])
+@login_required
+def api_trust_auth_document(auth_id):
+    """Serve the stored authorization PDF for inline viewing or download."""
+    from flask import send_file as _send_file
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    if not auth.doc_filename:
+        return jsonify({'error': 'Aucun document associé à cette autorisation'}), 404
+
+    client = Client.query.get(auth.client_id) if auth.client_id else None
+    folder_name = secure_filename(
+        f"{client.client_number}" if client else f"matter_{auth.matter_id}"
+    )
+    file_path = os.path.join(app.config['TRUST_AUTH_FOLDER'], folder_name, auth.doc_filename)
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Fichier introuvable sur le serveur'}), 404
+
+    as_attachment = request.args.get('download', '').lower() in ('1', 'true', 'yes')
+    return _send_file(
+        file_path,
+        mimetype='application/pdf',
+        as_attachment=as_attachment,
+        download_name=auth.doc_original_name or auth.doc_filename,
+    )
+
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations/active', methods=['GET'])
+@login_required
+def api_trust_auth_active(matter_id):
+    """Return the list of currently active authorizations for a matter."""
+    from datetime import date as _date
+    Matter.query.get_or_404(matter_id)
+    today = _date.today()
+    auths = TrustAuthorization.query.filter_by(matter_id=matter_id, is_active=True).all()
+    active = [a.to_dict() for a in auths if a.is_valid_on(today)]
+    return jsonify(active)
 
 
 @app.route('/api/fiducie/<int:matter_id>/balance', methods=['GET'])
