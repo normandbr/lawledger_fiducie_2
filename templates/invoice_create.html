@@ -93,6 +93,7 @@ let firmInfo = { tax1_name: 'GST', tax2_name: '', tax2_compound: false };
 let selectedClientId = null;
 let selectedMatterId = null;  // null = "All Matters"
 let clientTrustBalance = 0.0;
+let matterTrustAuthorized = false;  // true when selected matter has an active trust authorization
 
 const INV_STR = {
     selectClient:   {{ (t.ph_select_client or '— Sélectionner un client —') | tojson }},
@@ -250,6 +251,45 @@ async function loadExpensesForMatter() {
     const matterVal = document.getElementById('matter_select').value;
     selectedMatterId = (matterVal && matterVal !== 'all') ? parseInt(matterVal) : null;
     const section = document.getElementById('expenses-section');
+
+    // Update trust checkbox based on matter authorization
+    const trustSection = document.getElementById('trust-section');
+    const trustCb = document.getElementById('apply_trust');
+    if (clientTrustBalance > 0 && trustSection.style.display !== 'none') {
+        if (matterVal && matterVal !== 'all') {
+            // Specific matter selected – check for active trust authorization
+            matterTrustAuthorized = false;
+            try {
+                const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
+                if (authRes.ok) {
+                    const activeAuths = await authRes.json();
+                    matterTrustAuthorized = activeAuths.length > 0;
+                }
+            } catch (e) {
+                // Log fetch/network errors; keep checkbox disabled on failure
+                console.warn('Trust authorization check failed:', e);
+            }
+            if (matterTrustAuthorized) {
+                trustCb.disabled = false;
+                trustSection.style.opacity = '1';
+                trustSection.title = '';
+            } else {
+                trustCb.disabled = true;
+                trustCb.checked = false;
+                trustSection.style.opacity = '0.5';
+                trustSection.title = "Aucune autorisation active pour ce dossier";
+            }
+        } else {
+            // No specific matter (none or "all") – trust payment requires a single matter
+            // with an active authorization; server-side ignores apply_trust without matter_id
+            matterTrustAuthorized = false;
+            trustCb.disabled = true;
+            trustCb.checked = false;
+            trustSection.style.opacity = '0.5';
+            trustSection.title = '';
+        }
+    }
+
     if (!matterVal) {
         renderExpenseList([]);
         return;
