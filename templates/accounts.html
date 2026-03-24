@@ -161,6 +161,7 @@ function populateParentSelect(list, excludeId) {
     sel.innerHTML = `<option value="">— Parent —</option>`;
     list.forEach(a => {
         if (a.id === excludeId) return;
+        if (!a.is_active) return;
         const opt = document.createElement('option');
         opt.value = a.id;
         opt.textContent = `${a.code} – ${a.name}`;

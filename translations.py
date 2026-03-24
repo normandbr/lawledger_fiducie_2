@@ -110,6 +110,8 @@ LEXICON = {
         'card_matters_desc': 'Gérez les clients et leurs dossiers associés. Ajoutez, activez ou désactivez des dossiers.',
         'card_new_entry': 'Nouvelle écriture',
         'card_timer_desc': 'Démarrez et arrêtez le chronomètre pour enregistrer vos heures facturables.',
+        'card_ar_desc': 'Consultez les factures envoyées et non encore payées (comptes à recevoir).',
+        'card_statement_desc': 'Générez et imprimez l\'état de compte mensuel pour un client.',
         'desc_forgot_pwd': 'Entrez votre adresse courriel et nous vous enverrons les instructions de réinitialisation.',
         'desc_matters': 'Gérez les clients et leurs dossiers associés.',
         'desc_timer': 'Démarrez et arrêtez le chronomètre...',
@@ -786,7 +788,7 @@ LEXICON = {
         'lbl_total_draft': 'Total brouillons',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Code comptable',
+        'nav_accounts': 'Code comptable',
         'title_accounts': 'Code comptable',
         'card_accounts_desc': 'Gérez les codes comptables utilisés par le grand livre général.',
         'btn_add_account': '+ Ajouter un compte',
@@ -908,7 +910,7 @@ LEXICON = {
         'th_created_by': 'Ajouté par',
 
         # Salary module
-        'nav_salary': '💰 Salaires',
+        'nav_salary': 'Salaires',
         'title_salary': 'Salaires',
         'btn_salary_config': '⚙ Configuration',
         'modal_salary_config': 'Configuration des champs de salaire',
@@ -1062,6 +1064,8 @@ LEXICON = {
         'card_matters_desc': 'Manage clients and their associated matters. Add, activate or deactivate matters.',
         'card_new_entry': 'New Entry',
         'card_timer_desc': 'Start and stop the time tracker to log billable hours.',
+        'card_ar_desc': 'View sent invoices that have not yet been paid (accounts receivable).',
+        'card_statement_desc': 'Generate and print the monthly account statement for a client.',
         'desc_forgot_pwd': 'Enter your email address and we will send you password reset instructions.',
         'desc_matters': 'Manage clients and their associated matters.',
         'desc_timer': 'Start and stop the time tracker...',
@@ -1738,7 +1742,7 @@ LEXICON = {
         'lbl_total_draft': 'Draft Total',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Accounting Codes',
+        'nav_accounts': 'Accounting Codes',
         'title_accounts': 'Accounting Codes',
         'card_accounts_desc': 'Manage the accounting codes used by the general ledger.',
         'btn_add_account': '+ Add Account',
@@ -1860,7 +1864,7 @@ LEXICON = {
         'th_created_by': 'Added by',
 
         # Salary module
-        'nav_salary': '💰 Salary',
+        'nav_salary': 'Salary',
         'title_salary': 'Salary',
         'btn_salary_config': '⚙ Configuration',
         'modal_salary_config': 'Salary Field Configuration',
