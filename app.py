@@ -5411,6 +5411,12 @@ def api_invoices():
     # Apply trust balance to reduce invoice total (only when requested)
     trust_applied = 0.0
     if data.get('apply_trust', False) and matter_id:
+        # Verify active authorization exists for this matter on the invoice date
+        _active_auths = TrustAuthorization.query.filter_by(matter_id=matter_id, is_active=True).all()
+        _authorized = any(a.is_valid_on(invoice_date) for a in _active_auths)
+        if not _authorized:
+            db.session.rollback()
+            return jsonify({'error': "Aucune autorisation active pour ce dossier. Veuillez créer une autorisation de retrait en fiducie avant d'utiliser le paiement par fiducie."}), 403
         trust_transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
         trust_balance = sum(
             float(t.montant) if t.type_trans == 'DEPOT' else -float(t.montant)

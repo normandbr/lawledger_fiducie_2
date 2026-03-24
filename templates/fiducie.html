@@ -220,16 +220,16 @@
         <div style="flex:1;overflow-y:auto;padding:16px 24px;">
             <div id="auth-list-loading" style="text-align:center;padding:20px;color:#888;display:none;">⏳ {{ t.msg_loading or 'Chargement...' }}</div>
             <table id="auth-list-table" style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead>
+                <thead style="position:sticky;top:0;z-index:3;background:#f3f3f3;">
                     <tr style="background:#f3f3f3;">
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_type or 'Type' }}</th>
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_date_from or 'Du' }}</th>
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_date_to or 'Au' }}</th>
-                        <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_max_amount or 'Montant max' }}</th>
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_notes or 'Notes' }}</th>
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_status or 'Statut' }}</th>
-                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;">{{ t.th_document or 'Document' }}</th>
-                        <th style="padding:8px 10px;border-bottom:2px solid #ddd;position:sticky;top:0;z-index:3;background:#f3f3f3;"></th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_type or 'Type' }}</th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_date_from or 'Du' }}</th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_date_to or 'Au' }}</th>
+                        <th style="padding:8px 10px;text-align:right;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_max_amount or 'Montant max' }}</th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_notes or 'Notes' }}</th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_status or 'Statut' }}</th>
+                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #ddd;background:#f3f3f3;">{{ t.th_document or 'Document' }}</th>
+                        <th style="padding:8px 10px;border-bottom:2px solid #ddd;background:#f3f3f3;"></th>
                     </tr>
                 </thead>
                 <tbody id="auth-list-body">
