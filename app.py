@@ -2169,7 +2169,9 @@ def inject_translations():
     texts = LEXICON.get(lang, LEXICON.get('fr'))
 
     # 3. On rend 't' et 'current_lang' disponibles pour TOUS les fichiers .html
-    return dict(t=texts, current_lang=lang, app_version=APP_VERSION)
+    # Pop the post-login flag so it is only seen on the first authenticated page after login.
+    post_login = session.pop('_post_login', False)
+    return dict(t=texts, current_lang=lang, app_version=APP_VERSION, post_login=post_login)
 
 
 @app.context_processor
@@ -2224,6 +2226,7 @@ def login():
                 session.permanent = False  # Session cookie expires when browser closes
                 session['login_token'] = new_token
                 session['last_activity'] = datetime.now(timezone.utc).isoformat()
+                session['_post_login'] = True  # Signals base.html to set the sessionStorage marker
                 # If the admin set must_change_password, redirect to the change-password page
                 if getattr(user, 'must_change_password', False):
                     return redirect(url_for('reset_password'))
