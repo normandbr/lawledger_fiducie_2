@@ -1070,14 +1070,39 @@ class TestTrustAuthorization:
         self._cleanup(app, matter_id, client_id)
         logout(client)
 
-    def test_retrait_allowed_with_active_authorization(self, client, manager_user, app):
-        """A RETRAIT transaction must succeed when an active authorization exists."""
+    def test_retrait_blocked_with_authorization_missing_document(self, client, manager_user, app):
+        """A RETRAIT must be rejected when the authorization exists but has no signed document."""
         from app import db, TransactionsFiducie, TrustAuthorization
         matter_id, client_id = self._create_matter(app)
         with app.app_context():
             txn = TransactionsFiducie(matter_id=matter_id, type_trans='DEPOT', montant=1000.0)
             db.session.add(txn)
+            # Active authorization but no document attached
             auth = TrustAuthorization(matter_id=matter_id, is_indefinite=True, is_active=True)
+            db.session.add(auth)
+            db.session.commit()
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 100.0, "beneficiaire": "Fournisseur"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        assert "document" in resp.get_json().get("error", "").lower()
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_retrait_allowed_with_active_authorization(self, client, manager_user, app):
+        """A RETRAIT transaction must succeed when an active authorization with document exists."""
+        from app import db, TransactionsFiducie, TrustAuthorization
+        matter_id, client_id = self._create_matter(app)
+        with app.app_context():
+            txn = TransactionsFiducie(matter_id=matter_id, type_trans='DEPOT', montant=1000.0)
+            db.session.add(txn)
+            auth = TrustAuthorization(
+                matter_id=matter_id, is_indefinite=True, is_active=True,
+                doc_filename='auth_signed.pdf', doc_original_name='autorisation.pdf',
+            )
             db.session.add(auth)
             db.session.commit()
         login(client, "test_manager", "Pass1234!")

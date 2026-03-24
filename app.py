@@ -2425,16 +2425,16 @@ def api_fiducie_create(matter_id):
         if montant > solde:
             return jsonify({'error': f'Insufficient funds. Balance: {solde:,.2f}$'}), 400
 
-        # Require an active client authorization for any withdrawal
+        # Require an active client authorization with a signed document for any withdrawal
         from datetime import date as _date
         today = _date.today()
         active_auth = TrustAuthorization.query.filter_by(
             matter_id=matter_id, is_active=True
         ).all()
-        authorized = any(a.is_valid_on(today) for a in active_auth)
+        authorized = any(a.is_valid_on(today) and a.doc_filename for a in active_auth)
         if not authorized:
             return jsonify({
-                'error': 'Aucune autorisation client active. Veuillez obtenir une autorisation signée avant d\'effectuer un retrait ou un remboursement en fiducie.'
+                'error': 'Aucune autorisation client active avec document signé. Veuillez joindre le document d\'autorisation signé avant d\'effectuer un retrait ou un remboursement en fiducie.'
             }), 403
 
     nouvelle_t = TransactionsFiducie(
@@ -2623,13 +2623,16 @@ def api_trust_auth_upload(auth_id):
     if ext not in ('pdf',):
         return jsonify({'error': 'Seuls les fichiers PDF sont acceptés'}), 400
 
-    # Create per-client sub-directory
+    # Create per-client / per-dossier sub-directory
     matter = Matter.query.get(auth.matter_id)
     client = Client.query.get(auth.client_id) if auth.client_id else None
-    folder_name = secure_filename(
+    client_folder = secure_filename(
         f"{client.client_number}" if client else f"matter_{auth.matter_id}"
     )
-    client_dir = os.path.join(app.config['TRUST_AUTH_FOLDER'], folder_name)
+    matter_folder = secure_filename(
+        f"{matter.matter_number}" if matter else f"matter_{auth.matter_id}"
+    )
+    client_dir = os.path.join(app.config['TRUST_AUTH_FOLDER'], client_folder, matter_folder)
     try:
         os.makedirs(client_dir, exist_ok=True)
     except OSError as exc:
@@ -2664,11 +2667,15 @@ def api_trust_auth_document(auth_id):
     if not auth.doc_filename:
         return jsonify({'error': 'Aucun document associé à cette autorisation'}), 404
 
+    matter = Matter.query.get(auth.matter_id)
     client = Client.query.get(auth.client_id) if auth.client_id else None
-    folder_name = secure_filename(
+    client_folder = secure_filename(
         f"{client.client_number}" if client else f"matter_{auth.matter_id}"
     )
-    file_path = os.path.join(app.config['TRUST_AUTH_FOLDER'], folder_name, auth.doc_filename)
+    matter_folder = secure_filename(
+        f"{matter.matter_number}" if matter else f"matter_{auth.matter_id}"
+    )
+    file_path = os.path.join(app.config['TRUST_AUTH_FOLDER'], client_folder, matter_folder, auth.doc_filename)
     if not os.path.exists(file_path):
         return jsonify({'error': 'Fichier introuvable sur le serveur'}), 404
 
