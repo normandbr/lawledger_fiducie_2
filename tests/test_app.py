@@ -979,3 +979,179 @@ class TestSalaryPostToGL:
 
         self._cleanup(app, sal_cfg_id, ded_cfg_id)
         logout(client)
+
+
+# ---------------------------------------------------------------------------
+# Trust Authorization Tests
+# ---------------------------------------------------------------------------
+class TestTrustAuthorization:
+    """Tests for TrustAuthorization model and API routes."""
+
+    def _create_matter(self, app):
+        """Create a test client and matter, return matter_id."""
+        from app import db, Client, Matter
+        with app.app_context():
+            c = Client(client_number='TEST-AUTH-001', client_name='Auth Test Client')
+            db.session.add(c)
+            db.session.flush()
+            m = Matter(client_id=c.id, matter_number='M-AUTH-001')
+            db.session.add(m)
+            db.session.commit()
+            return m.id, c.id
+
+    def _cleanup(self, app, matter_id, client_id):
+        from app import db, TrustAuthorization, TransactionsFiducie, Matter, Client
+        with app.app_context():
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            TransactionsFiducie.query.filter_by(matter_id=matter_id).delete()
+            Matter.query.filter_by(id=matter_id).delete()
+            Client.query.filter_by(id=client_id).delete()
+            db.session.commit()
+
+    def test_list_authorizations_empty(self, client, manager_user, app):
+        matter_id, client_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get(f"/api/fiducie/{matter_id}/authorizations")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_create_authorization_with_date_range(self, client, manager_user, app):
+        matter_id, client_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"is_indefinite": False, "date_from": "2025-01-01", "date_to": "2025-12-31", "notes": "Test auth"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["is_indefinite"] is False
+        assert data["date_from"] == "2025-01-01"
+        assert data["date_to"] == "2025-12-31"
+        assert data["is_active"] is True
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_create_indefinite_authorization(self, client, manager_user, app):
+        matter_id, client_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"is_indefinite": True},
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data["is_indefinite"] is True
+        assert data["date_from"] is None
+        assert data["date_to"] is None
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_retrait_blocked_without_authorization(self, client, manager_user, app):
+        """A RETRAIT transaction must be rejected when no active authorization exists."""
+        from app import db, TransactionsFiducie
+        matter_id, client_id = self._create_matter(app)
+        # Add a deposit first
+        with app.app_context():
+            txn = TransactionsFiducie(matter_id=matter_id, type_trans='DEPOT', montant=1000.0)
+            db.session.add(txn)
+            db.session.commit()
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 100.0, "beneficiaire": "Fournisseur"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        assert "autorisation" in resp.get_json().get("error", "").lower()
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_retrait_allowed_with_active_authorization(self, client, manager_user, app):
+        """A RETRAIT transaction must succeed when an active authorization exists."""
+        from app import db, TransactionsFiducie, TrustAuthorization
+        matter_id, client_id = self._create_matter(app)
+        with app.app_context():
+            txn = TransactionsFiducie(matter_id=matter_id, type_trans='DEPOT', montant=1000.0)
+            db.session.add(txn)
+            auth = TrustAuthorization(matter_id=matter_id, is_indefinite=True, is_active=True)
+            db.session.add(auth)
+            db.session.commit()
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 100.0, "beneficiaire": "Fournisseur"},
+            content_type="application/json",
+        )
+        assert resp.status_code == 201
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_update_authorization(self, client, manager_user, app):
+        matter_id, client_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        # Create
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"is_indefinite": True, "notes": "Original"},
+            content_type="application/json",
+        )
+        auth_id = resp.get_json()["id"]
+        # Update
+        resp2 = client.put(
+            f"/api/fiducie/authorizations/{auth_id}",
+            json={"notes": "Updated", "is_active": False},
+            content_type="application/json",
+        )
+        assert resp2.status_code == 200
+        data = resp2.get_json()
+        assert data["notes"] == "Updated"
+        assert data["is_active"] is False
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_delete_authorization_manager_only(self, client, manager_user, app):
+        matter_id, client_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"is_indefinite": True},
+            content_type="application/json",
+        )
+        auth_id = resp.get_json()["id"]
+        del_resp = client.delete(f"/api/fiducie/authorizations/{auth_id}")
+        assert del_resp.status_code == 200
+        # Verify deleted
+        list_resp = client.get(f"/api/fiducie/{matter_id}/authorizations")
+        assert list_resp.get_json() == []
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
+
+    def test_active_authorizations_endpoint(self, client, manager_user, app):
+        from app import db, TrustAuthorization
+        from datetime import date, timedelta
+        matter_id, client_id = self._create_matter(app)
+        today = date.today()
+        with app.app_context():
+            # Active indefinite
+            a1 = TrustAuthorization(matter_id=matter_id, is_indefinite=True, is_active=True)
+            # Inactive
+            a2 = TrustAuthorization(matter_id=matter_id, is_indefinite=True, is_active=False)
+            # Expired date range
+            a3 = TrustAuthorization(
+                matter_id=matter_id, is_indefinite=False, is_active=True,
+                date_from=today - timedelta(days=730), date_to=today - timedelta(days=1)
+            )
+            db.session.add_all([a1, a2, a3])
+            db.session.commit()
+        login(client, "test_manager", "Pass1234!")
+        resp = client.get(f"/api/fiducie/{matter_id}/authorizations/active")
+        assert resp.status_code == 200
+        active = resp.get_json()
+        assert len(active) == 1
+        assert active[0]["is_indefinite"] is True
+        self._cleanup(app, matter_id, client_id)
+        logout(client)
