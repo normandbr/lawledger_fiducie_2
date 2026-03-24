@@ -923,17 +923,23 @@ function renderAuthList(auths) {
         tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#888;">Aucune autorisation enregistrée.</td></tr>';
         return;
     }
+    const today = new Date().toISOString().slice(0, 10);
     tbody.innerHTML = auths.map(a => {
-        const statusBadge = a.is_active
-            ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">✅ Active</span>'
-            : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">Inactive</span>';
+        const isExpired = !a.is_indefinite && a.date_to && new Date(a.date_to) < new Date(today);
+        const statusBadge = isExpired
+            ? '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">⏱ Expirée</span>'
+            : (a.is_active
+                ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">✅ Active</span>'
+                : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">Inactive</span>');
         const typeLabel = a.is_indefinite ? '<span style="background:#e9d5ff;color:#5b21b6;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Indéfinie</span>' : 'Plage';
         const docCell = a.has_document
-            ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;text-decoration:underline;" title="${a.doc_original_name}">📄 Voir</a>
-               &nbsp;<button onclick="triggerAuthPdfUpload(${a.id})" style="padding:2px 7px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer;">🔄</button>`
+            ? `<button onclick="triggerAuthPdfUpload(${a.id})" style="padding:2px 7px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer;">🔄</button>`
             : `<button onclick="triggerAuthPdfUpload(${a.id})" style="padding:3px 9px;font-size:11px;border:1px solid #0078d4;border-radius:3px;background:#fff;color:#0078d4;cursor:pointer;">📎 Joindre PDF</button>`;
         const maxAmt = a.max_amount != null ? `${parseFloat(a.max_amount).toLocaleString('fr-CA',{minimumFractionDigits:2})}$` : '—';
-        return `<tr style="border-bottom:1px solid #eee;">
+        const toggleBtn = isExpired
+            ? `<button disabled style="padding:3px 9px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#f5f5f5;color:#aaa;cursor:not-allowed;margin-right:4px;" title="Autorisation expirée">🔔</button>`
+            : `<button onclick="toggleAuthActive(${a.id}, ${!a.is_active})" style="padding:3px 9px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer;margin-right:4px;" title="${a.is_active ? 'Désactiver' : 'Activer'}">${a.is_active ? '🔕' : '🔔'}</button>`;
+        return `<tr style="border-bottom:1px solid #eee;${isExpired ? 'opacity:0.7;' : ''}">
             <td style="padding:8px 10px;">${typeLabel}</td>
             <td style="padding:8px 10px;">${a.date_from || '—'}</td>
             <td style="padding:8px 10px;">${a.date_to || '—'}</td>
@@ -943,7 +949,7 @@ function renderAuthList(auths) {
             <td style="padding:8px 10px;">${docCell}</td>
             <td style="padding:8px 10px;white-space:nowrap;">
                 <button onclick="editAuth(${a.id})" style="padding:3px 9px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer;margin-right:4px;">✏️</button>
-                <button onclick="toggleAuthActive(${a.id}, ${!a.is_active})" style="padding:3px 9px;font-size:11px;border:1px solid #ddd;border-radius:3px;background:#fff;cursor:pointer;margin-right:4px;" title="${a.is_active ? 'Désactiver' : 'Activer'}">${a.is_active ? '🔕' : '🔔'}</button>
+                ${toggleBtn}
                 <button onclick="deleteAuth(${a.id})" style="padding:3px 9px;font-size:11px;border:1px solid #fcc;border-radius:3px;background:#fff;color:#c00;cursor:pointer;">🗑️</button>
             </td>
         </tr>`;
