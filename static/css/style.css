@@ -107,7 +107,7 @@ body {
     right: 0;
     bottom: 0;
     z-index: 150;
-    background: rgba(0,0,0,.18);
+    background: transparent;
 }
 .nav-dropdown-overlay.nav-dropdown-overlay-active { display: block; }
 

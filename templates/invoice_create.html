@@ -93,6 +93,7 @@ let firmInfo = { tax1_name: 'GST', tax2_name: '', tax2_compound: false };
 let selectedClientId = null;
 let selectedMatterId = null;  // null = "All Matters"
 let clientTrustBalance = 0.0;
+let clientTrustBreakdown = [];  // per-matter trust balance breakdown
 let matterTrustAuthorized = false;  // true when selected matter has an active trust authorization
 
 const INV_STR = {
@@ -197,6 +198,7 @@ async function loadMattersForClient() {
     // Reset credit section
     clientCreditBalance = 0.0;
     clientTrustBalance = 0.0;
+    clientTrustBreakdown = [];
     document.getElementById('credit-section').style.display = 'none';
     document.getElementById('apply_credit').checked = false;
     document.getElementById('trust-section').style.display = 'none';
@@ -232,6 +234,7 @@ async function loadMattersForClient() {
     if (trustRes && trustRes.ok) {
         const trustData = await trustRes.json();
         clientTrustBalance = trustData.trust_balance || 0.0;
+        clientTrustBreakdown = trustData.matters || [];
         const section = document.getElementById('trust-section');
         const cb = document.getElementById('apply_trust');
         document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
@@ -253,32 +256,49 @@ async function loadExpensesForMatter() {
     selectedMatterId = (matterVal && matterVal !== 'all') ? parseInt(matterVal) : null;
     const section = document.getElementById('expenses-section');
 
-    // Update trust checkbox based on matter authorization
+    // Update trust checkbox based on matter authorization and matter-specific trust balance
     const trustSection = document.getElementById('trust-section');
     const trustCb = document.getElementById('apply_trust');
     if (clientTrustBalance > 0 && trustSection.style.display !== 'none') {
         if (matterVal && matterVal !== 'all') {
-            // Specific matter selected – check for active trust authorization
-            matterTrustAuthorized = false;
-            try {
-                const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
-                if (authRes.ok) {
-                    const activeAuths = await authRes.json();
-                    matterTrustAuthorized = activeAuths.length > 0;
-                }
-            } catch (e) {
-                // Log fetch/network errors; keep checkbox disabled on failure
-                console.warn('Trust authorization check failed:', e);
-            }
-            if (matterTrustAuthorized) {
-                trustCb.disabled = false;
-                trustSection.style.opacity = '1';
-                trustSection.title = '';
-            } else {
+            // Look up this matter's specific trust balance from the breakdown
+            const matterIdNum = selectedMatterId;  // already parsed above
+            const matterEntry = clientTrustBreakdown.find(m => m.matter_id === matterIdNum);
+            const matterTrustBalance = matterEntry ? (matterEntry.balance || 0.0) : 0.0;
+
+            // Update the displayed trust balance to be matter-specific
+            document.getElementById('trust-amount').textContent = '$' + matterTrustBalance.toFixed(2);
+
+            if (matterTrustBalance <= 0) {
+                // This matter has no trust funds even though client total is positive
+                matterTrustAuthorized = false;
                 trustCb.disabled = true;
                 trustCb.checked = false;
                 trustSection.style.opacity = '0.5';
-                trustSection.title = "Aucune autorisation active pour ce dossier";
+                trustSection.title = "Aucun solde en fiducie pour ce dossier";
+            } else {
+                // Specific matter selected with funds – check for active trust authorization
+                matterTrustAuthorized = false;
+                try {
+                    const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
+                    if (authRes.ok) {
+                        const activeAuths = await authRes.json();
+                        matterTrustAuthorized = activeAuths.length > 0;
+                    }
+                } catch (e) {
+                    // Log fetch/network errors; keep checkbox disabled on failure
+                    console.warn('Trust authorization check failed:', e);
+                }
+                if (matterTrustAuthorized) {
+                    trustCb.disabled = false;
+                    trustSection.style.opacity = '1';
+                    trustSection.title = '';
+                } else {
+                    trustCb.disabled = true;
+                    trustCb.checked = false;
+                    trustSection.style.opacity = '0.5';
+                    trustSection.title = "Aucune autorisation active pour ce dossier";
+                }
             }
         } else {
             // No specific matter (none or "all") – trust payment requires a single matter
@@ -288,6 +308,8 @@ async function loadExpensesForMatter() {
             trustCb.checked = false;
             trustSection.style.opacity = '0.5';
             trustSection.title = '';
+            // Restore the total client trust balance display when no matter selected
+            document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
         }
     }
 

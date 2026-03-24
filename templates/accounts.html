@@ -5,7 +5,13 @@
 {% block content %}
 <div class="page-header">
     <h1>📊 {{ t.title_accounts or 'Chart of Accounts' }}</h1>
-    <button class="btn btn-primary" onclick="openAccountModal()">{{ t.btn_add_account or '+ Add Account' }}</button>
+    <div style="display:flex;align-items:center;gap:16px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="show-inactive-accounts" onchange="renderAccountsFiltered()" style="width:15px;height:15px;">
+            {{ t.lbl_show_inactive or 'Afficher les inactifs' }}
+        </label>
+        <button class="btn btn-primary" onclick="openAccountModal()">{{ t.btn_add_account or '+ Add Account' }}</button>
+    </div>
 </div>
 
 <!-- Table -->
@@ -104,9 +110,15 @@ async function loadAccounts() {
         const res = await fetch(SCRIPT_ROOT + '/api/accounts');
         if (!res.ok) return;
         _allAccounts = await res.json();
-        renderAccounts(_allAccounts);
+        renderAccountsFiltered();
         populateParentSelect(_allAccounts, null);
     } catch(e) { console.error(e); }
+}
+
+function renderAccountsFiltered() {
+    const showInactive = document.getElementById('show-inactive-accounts').checked;
+    const visible = showInactive ? _allAccounts : _allAccounts.filter(a => a.is_active);
+    renderAccounts(visible);
 }
 
 function renderAccounts(list) {
