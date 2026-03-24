@@ -179,7 +179,17 @@
 <div id="trust-auth-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);">
     <div style="background:#fff;border-radius:8px;width:95%;max-width:820px;position:absolute;top:2%;left:50%;transform:translate(-50%,0);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:96vh;display:flex;flex-direction:column;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#0078d4;border-radius:8px 8px 0 0;">
-            <h2 style="margin:0;font-size:1.05rem;font-weight:600;color:#fff;">🔐 {{ t.title_trust_auth or 'Autorisations de retrait en fiducie' }}</h2>
+            <div>
+                <h2 style="margin:0 0 4px;font-size:1.05rem;font-weight:600;color:#fff;">🔐 {{ t.title_trust_auth or 'Autorisations de retrait en fiducie' }}</h2>
+                <div style="font-size:12px;color:rgba(255,255,255,.85);font-weight:400;">
+                    {% if dossier and dossier.client %}
+                    {{ t.lbl_client_num or 'No client' }}: <strong>{{ dossier.client.client_number }}</strong>
+                    &mdash;
+                    {{ t.lbl_dossier_number or 'No de dossier' }}:
+                    <strong>{% if dossier.matter_description %}{{ dossier.matter_description }} &mdash; {% endif %}{{ dossier.matter_number }}</strong>
+                    {% endif %}
+                </div>
+            </div>
             <span onclick="closeAuthModal()" style="cursor:pointer;color:rgba(255,255,255,.8);font-size:22px;font-weight:bold;line-height:1;">&times;</span>
         </div>
         <!-- Add/Edit Authorization Form -->

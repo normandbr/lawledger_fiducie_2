@@ -151,6 +151,32 @@
 
     {% block scripts %}{% endblock %}
 
+    {% if current_user.is_authenticated %}
+    <script>
+    /* ── Browser-close session guard ──────────────────────────────────────────
+       sessionStorage is cleared automatically when the browser window/tab is
+       closed (unlike cookies which can survive a browser-restore).  We store a
+       small marker here and check for it on every protected page-load so that
+       if the user re-opens the app after closing the browser the server session
+       is properly invalidated and they are taken back to the login screen.
+    ──────────────────────────────────────────────────────────────────────── */
+    (function () {
+        {% if post_login %}
+        // First page rendered after a successful login – set the marker.
+        sessionStorage.setItem('_ll_active', '1');
+        {% else %}
+        // Subsequent page – verify the marker still exists.
+        if (!sessionStorage.getItem('_ll_active')) {
+            // Marker is gone → browser was closed and reopened (or session
+            // storage was cleared).  Force a clean logout so the user must
+            // re-authenticate.
+            window.location.replace('{{ url_for("logout") }}');
+        }
+        {% endif %}
+    })();
+    </script>
+    {% endif %}
+
     <!-- About Modal -->
     {% if current_user.is_authenticated %}
     <div id="about-overlay" style="display:none;position:fixed;inset:0;z-index:1000;
