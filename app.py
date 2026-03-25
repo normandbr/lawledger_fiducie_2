@@ -3009,6 +3009,12 @@ def api_unbilled():
     return jsonify(results)
 
 
+@app.route('/ar-invoices')
+@login_required
+def ar_invoices_page():
+    return render_template('ar_invoices.html')
+
+
 @app.route('/statement')
 @login_required
 def statement_page():

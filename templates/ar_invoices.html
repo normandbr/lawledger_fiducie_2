@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.nav_ar_invoices or 'Accounts Receivable' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.nav_ar_invoices or 'Accounts Receivable' }}</h1>
+</div>
+
+<!-- Filters -->
+<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
+        <input type="text" id="filter-client-search" placeholder="{{ t.ph_search_client or 'Search client...' }}"
+               aria-label="{{ t.ph_search_client or 'Search client' }}"
+               oninput="filterClientDropdown()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+        <select id="filter-client" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
+        </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_from or 'From' }}</label>
+        <input type="date" id="filter-date-from" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_to or 'To' }}</label>
+        <input type="date" id="filter-date-to" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="loadARInvoices()" style="height:32px;">{{ t.lbl_generate or 'Generate' }}</button>
+</div>
+
+<!-- Summary -->
+<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_total_outstanding or 'Total Outstanding' }}</div>
+        <div id="ar-total" style="font-size:1.4rem;font-weight:600;color:var(--danger);">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_invoice_count or 'Invoice Count' }}</div>
+        <div id="ar-count" style="font-size:1.4rem;font-weight:600;">0</div>
+    </div>
+</div>
+
+<!-- AR Invoices Table -->
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 320px);">
+    <table id="ar-table" style="min-width:600px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_status or 'Status' }}</th>
+            </tr>
+        </thead>
+        <tbody id="ar-tbody">
+            <tr><td colspan="5" style="color:var(--text-secondary)">{{ t.inv_loading or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allClients = [];
+
+async function loadClients() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/clients');
+        if (!res.ok) return;
+        allClients = await res.json();
+        allClients.sort((a, b) => (a.client_number || '').localeCompare(b.client_number || ''));
+        populateClientDropdown(allClients);
+    } catch (err) { console.error(err); }
+}
+
+function populateClientDropdown(clients) {
+    const select = document.getElementById('filter-client');
+    const current = select.value;
+    select.innerHTML = '<option value="">{{ t.lbl_all_clients or "All Clients" }}</option>';
+    clients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = (c.client_number ? c.client_number + ' – ' : '') + c.client_name;
+        select.appendChild(opt);
+    });
+    if (current) select.value = current;
+}
+
+function filterClientDropdown() {
+    const search = document.getElementById('filter-client-search').value.trim().toLowerCase();
+    if (!search) {
+        populateClientDropdown(allClients);
+        return;
+    }
+    const filtered = allClients.filter(c =>
+        (c.client_name || '').toLowerCase().includes(search) ||
+        (c.client_number || '').toLowerCase().includes(search)
+    );
+    populateClientDropdown(filtered);
+}
+
+async function loadARInvoices() {
+    const clientId = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+    let url = SCRIPT_ROOT + '/api/ar-invoices';
+    const params = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (clientId) params.push('client_id=' + clientId);
+    if (params.length) url += '?' + params.join('&');
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load');
+        const invoices = await res.json();
+        const total = invoices.reduce((s, i) => s + parseFloat(i.total_amount || 0), 0);
+        document.getElementById('ar-total').textContent = '$' + total.toFixed(2);
+        document.getElementById('ar-count').textContent = invoices.length;
+        renderARTable(invoices);
+    } catch (err) {
+        document.getElementById('ar-tbody').innerHTML =
+            `<tr><td colspan="5" style="color:var(--danger)">Error: ${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderARTable(invoices) {
+    const tbody = document.getElementById('ar-tbody');
+    if (!invoices || invoices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-secondary)">{{ t.inv_no_invoices or "No invoices found." }}</td></tr>';
+        return;
+    }
+    tbody.innerHTML = invoices.map(inv => `<tr>
+        <td><strong>${escHtml(inv.invoice_number)}</strong></td>
+        <td>${escHtml(inv.client_name || '—')}</td>
+        <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+        <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
+        <td><span class="badge badge-secondary">${escHtml(inv.status || '—')}</span></td>
+    </tr>`).join('');
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+loadClients();
+loadARInvoices();
+</script>
+{% endblock %}
