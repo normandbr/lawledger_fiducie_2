@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comptes à payer – Non payés</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #222; background: #fff; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
+        .firm-info { max-width: 50%; }
+        .firm-name { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+        .report-title { text-align: right; }
+        .report-title h1 { font-size: 18px; font-weight: 700; }
+        .report-title .date { font-size: 11px; color: #555; margin-top: 4px; }
+        .firm-logo { max-height: 60px; max-width: 160px; object-fit: contain; margin-bottom: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        th { background: #f0f0f0; border: 1px solid #ccc; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; font-size: 12px; }
+        tr:nth-child(even) td { background: #fafafa; }
+        .amount { text-align: right; white-space: nowrap; }
+        .total-row td { font-weight: 700; background: #f0f0f0; border-top: 2px solid #999; }
+        .supplier-header td { background: #e8edf5; font-weight: 700; font-size: 12px; border-top: 2px solid #888; }
+        .no-data { text-align: center; color: #888; padding: 20px; }
+        @media print {
+            body { padding: 8px; }
+            @page { size: letter portrait; margin: 12mm; }
+        }
+        .print-btn { margin-bottom: 16px; }
+        @media print { .print-btn { display: none; } }
+    </style>
+</head>
+<body>
+    <div class="print-btn">
+        <button onclick="window.print()" style="padding:6px 14px;background:#2c7be5;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;">🖨 Imprimer / PDF</button>
+        <button onclick="window.history.back()" style="padding:6px 14px;background:#6c757d;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px;margin-left:8px;">← Retour</button>
+    </div>
+
+    <div class="header">
+        <div class="firm-info">
+            {% if firm and firm.logo_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + firm.logo_filename) }}" alt="Logo" class="firm-logo"
+                 onerror="this.style.display='none'"><br>
+            {% endif %}
+            {% if firm %}
+            <div class="firm-name">{{ firm.firm_name or '' }}</div>
+            {% if firm.address_line1 %}<div>{{ firm.address_line1 }}</div>{% endif %}
+            {% if firm.address_line2 %}<div>{{ firm.address_line2 }}</div>{% endif %}
+            {% if firm.phone %}<div>{{ firm.phone }}</div>{% endif %}
+            {% if firm.email %}<div>{{ firm.email }}</div>{% endif %}
+            {% endif %}
+        </div>
+        <div class="report-title">
+            <h1>Comptes à payer</h1>
+            <div style="font-size:13px;color:#444;margin-top:4px;">Factures non payées</div>
+            <div class="date">Imprimé le : {{ now }}</div>
+        </div>
+    </div>
+
+    {% if payments %}
+    {% set ns = namespace(current_supplier='', total=0.0) %}
+    <table>
+        <thead>
+            <tr>
+                <th>Fournisseur</th>
+                <th>No Facture</th>
+                <th>Date Facture</th>
+                <th>Description</th>
+                <th class="amount">Montant</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for p in payments %}
+            {% set sup_name = p.supplier.name if p.supplier else '—' %}
+            {% if sup_name != ns.current_supplier %}
+                {% if ns.current_supplier != '' %}
+                <tr class="supplier-header">
+                    <td colspan="4" style="text-align:right;">Sous-total – {{ ns.current_supplier }}</td>
+                    <td class="amount">{{ '${:,.2f}'.format(ns.subtotal) }}</td>
+                </tr>
+                {% endif %}
+                {% set ns.current_supplier = sup_name %}
+                {% set ns.subtotal = 0.0 %}
+            {% endif %}
+            {% set ns.subtotal = ns.subtotal + (p.amount | float) %}
+            {% set ns.total = ns.total + (p.amount | float) %}
+            <tr>
+                <td>{{ sup_name }}</td>
+                <td>{{ p.invoice_number or '—' }}</td>
+                <td>{{ p.invoice_date.strftime('%Y-%m-%d') if p.invoice_date else '—' }}</td>
+                <td>{{ p.description or '—' }}</td>
+                <td class="amount">${{ '{:,.2f}'.format(p.amount | float) }}</td>
+            </tr>
+        {% endfor %}
+        {% if ns.current_supplier %}
+        <tr class="supplier-header">
+            <td colspan="4" style="text-align:right;">Sous-total – {{ ns.current_supplier }}</td>
+            <td class="amount">{{ '${:,.2f}'.format(ns.subtotal) }}</td>
+        </tr>
+        {% endif %}
+        <tr class="total-row">
+            <td colspan="4" style="text-align:right;">TOTAL DÛ</td>
+            <td class="amount">${{ '{:,.2f}'.format(ns.total) }}</td>
+        </tr>
+        </tbody>
+    </table>
+    {% else %}
+    <p class="no-data">Aucun compte à payer non payé trouvé.</p>
+    {% endif %}
+</body>
+</html>

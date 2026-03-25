@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_statement or 'Account Statement' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_statement or 'Account Statement' }}</h1>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="printStatement()">{{ t.btn_print_statement or '🖨️ Imprimer état de compte' }}</button>
+    </div>
+</div>
+
+<!-- Filters -->
+<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
+        <input type="text" id="filter-client-search" placeholder="{{ t.ph_search_client or 'Search client...' }}"
+               aria-label="{{ t.ph_search_client or 'Search client' }}"
+               oninput="filterClientDropdown()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+        <select id="filter-client" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
+        </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_from or 'From' }}</label>
+        <input type="date" id="filter-date-from" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_to or 'To' }}</label>
+        <input type="date" id="filter-date-to" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="loadStatement()" style="height:32px;">{{ t.lbl_generate or 'Generate' }}</button>
+</div>
+
+<!-- Status filter checkboxes -->
+<div style="margin-bottom:16px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+    <span style="font-size:13px;font-weight:500;color:var(--text-secondary);">{{ t.lbl_filter_status or 'Show' }}:</span>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chk-sent" checked onchange="applyStatusFilter()">
+        {{ t.lbl_show_sent or 'Sent' }}
+    </label>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chk-paid" checked onchange="applyStatusFilter()">
+        {{ t.lbl_show_paid or 'Paid' }}
+    </label>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chk-draft" checked onchange="applyStatusFilter()">
+        {{ t.lbl_show_draft or 'Draft' }}
+    </label>
+    <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+        <input type="checkbox" id="chk-cancelled" checked onchange="applyStatusFilter()">
+        {{ t.lbl_show_cancelled or 'Cancelled' }}
+    </label>
+</div>
+
+<!-- Summary Cards -->
+<div id="statement-summary" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;">
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_total_invoiced_period or 'Total Invoiced (Period)' }}</div>
+        <div id="stmt-invoiced" style="font-size:1.4rem;font-weight:600;">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_total_paid_period or 'Total Paid (Period)' }}</div>
+        <div id="stmt-paid" style="font-size:1.4rem;font-weight:600;color:var(--success);">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_total_unbilled_period or 'Total Unbilled (Period)' }}</div>
+        <div id="stmt-unbilled" style="font-size:1.4rem;font-weight:600;color:var(--warning,#e67e22);">$0.00</div>
+    </div>
+    <div style="flex:1;min-width:180px;padding:16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;">
+        <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">{{ t.lbl_outstanding_balance or 'Outstanding Balance' }}</div>
+        <div id="stmt-outstanding" style="font-size:1.4rem;font-weight:600;color:var(--danger);">$0.00</div>
+    </div>
+</div>
+
+<!-- Invoices for the period -->
+<h3 style="font-size:14px;margin-bottom:8px;">{{ t.title_invoices or 'Invoices' }}</h3>
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 320px);">
+    <table id="stmt-invoices-table" style="min-width:600px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_status or 'Status' }}</th>
+            </tr>
+        </thead>
+        <tbody id="stmt-invoices-tbody">
+            <tr><td colspan="5" style="color:var(--text-secondary)">{{ t.inv_loading or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STMT_STR = {
+    noInvoices: {{ (t.inv_no_invoices or 'No invoices found.') | tojson }},
+    statusPaid: {{ (t.inv_status_paid or 'paid') | tojson }},
+    statusSent: {{ (t.inv_status_sent or 'sent') | tojson }},
+    statusDraft: {{ (t.inv_status_draft or 'draft') | tojson }},
+    statusCancelled: {{ (t.inv_status_cancelled or 'cancelled') | tojson }},
+};
+
+let allStatementInvoices = [];
+
+let allClients = [];
+
+async function loadClients() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/clients');
+        if (!res.ok) return;
+        allClients = await res.json();
+        allClients.sort((a, b) => (a.client_number || '').localeCompare(b.client_number || ''));
+        populateClientDropdown(allClients);
+    } catch (err) { console.error(err); }
+}
+
+function populateClientDropdown(clients) {
+    const select = document.getElementById('filter-client');
+    const current = select.value;
+    select.innerHTML = '<option value="">{{ t.lbl_all_clients or "All Clients" }}</option>';
+    clients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = (c.client_number ? c.client_number + ' – ' : '') + c.client_name;
+        select.appendChild(opt);
+    });
+    if (current) select.value = current;
+}
+
+function filterClientDropdown() {
+    const search = document.getElementById('filter-client-search').value.trim().toLowerCase();
+    if (!search) {
+        populateClientDropdown(allClients);
+        return;
+    }
+    const filtered = allClients.filter(c =>
+        (c.client_name || '').toLowerCase().includes(search) ||
+        (c.client_number || '').toLowerCase().includes(search)
+    );
+    populateClientDropdown(filtered);
+}
+
+async function loadStatement() {
+    const clientId = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+    let url = SCRIPT_ROOT + '/api/statement';
+    const params = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (clientId) params.push('client_id=' + clientId);
+    if (params.length) url += '?' + params.join('&');
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load');
+        const data = await res.json();
+        document.getElementById('stmt-invoiced').textContent = '$' + data.total_invoiced.toFixed(2);
+        document.getElementById('stmt-paid').textContent = '$' + data.total_paid.toFixed(2);
+        document.getElementById('stmt-unbilled').textContent = '$' + data.total_unbilled.toFixed(2);
+        document.getElementById('stmt-outstanding').textContent = '$' + data.outstanding_balance.toFixed(2);
+        allStatementInvoices = data.invoices || [];
+        applyStatusFilter();
+    } catch (err) {
+        document.getElementById('stmt-invoices-tbody').innerHTML =
+            `<tr><td colspan="5" style="color:var(--danger)">Error: ${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function applyStatusFilter() {
+    const showSent = document.getElementById('chk-sent').checked;
+    const showPaid = document.getElementById('chk-paid').checked;
+    const showDraft = document.getElementById('chk-draft').checked;
+    const showCancelled = document.getElementById('chk-cancelled').checked;
+    const filtered = allStatementInvoices.filter(inv => {
+        if (inv.status === 'sent') return showSent;
+        if (inv.status === 'paid') return showPaid;
+        if (inv.status === 'draft') return showDraft;
+        if (inv.status === 'cancelled') return showCancelled;
+        return true;
+    });
+    renderInvoices(filtered);
+}
+
+function statusBadgeClass(status) {
+    if (status === 'paid') return 'badge-success';
+    if (status === 'sent') return 'badge-secondary';
+    if (status === 'cancelled') return 'badge-inactive';
+    return 'badge-draft';
+}
+
+function statusLabel(status) {
+    if (status === 'paid')      return STMT_STR.statusPaid;
+    if (status === 'sent')      return STMT_STR.statusSent;
+    if (status === 'cancelled') return STMT_STR.statusCancelled;
+    return STMT_STR.statusDraft;
+}
+
+function renderInvoices(invoices) {
+    const tbody = document.getElementById('stmt-invoices-tbody');
+    if (!invoices || invoices.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-secondary)">${STMT_STR.noInvoices}</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = invoices.map(inv => `<tr>
+        <td><strong>${escHtml(inv.invoice_number)}</strong></td>
+        <td>${escHtml(inv.client_name || '—')}</td>
+        <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+        <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
+        <td><span class="badge ${statusBadgeClass(inv.status)}">${escHtml(statusLabel(inv.status))}</span></td>
+    </tr>`).join('');
+}
+
+function printStatement() {
+    var url = SCRIPT_ROOT + '/statement/print';
+    var params = [];
+    var clientId = document.getElementById('filter-client').value;
+    var dateFrom = document.getElementById('filter-date-from').value;
+    var dateTo = document.getElementById('filter-date-to').value;
+    if (clientId) params.push('client_id=' + encodeURIComponent(clientId));
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    var statuses = [];
+    if (document.getElementById('chk-sent').checked) statuses.push('sent');
+    if (document.getElementById('chk-paid').checked) statuses.push('paid');
+    if (document.getElementById('chk-draft').checked) statuses.push('draft');
+    if (document.getElementById('chk-cancelled').checked) statuses.push('cancelled');
+    if (statuses.length && statuses.length < 4) params.push('statuses=' + encodeURIComponent(statuses.join(',')));
+    if (params.length) url += '?' + params.join('&');
+    window.location.href = url;
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Initialize with current month date range
+const now = new Date();
+const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+document.getElementById('filter-date-from').value = firstDay.toISOString().slice(0, 10);
+document.getElementById('filter-date-to').value = now.toISOString().slice(0, 10);
+loadClients();
+loadStatement();
+</script>
+{% endblock %}

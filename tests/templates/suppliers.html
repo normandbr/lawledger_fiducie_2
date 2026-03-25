@@ -1,0 +1,861 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_suppliers or 'Suppliers' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🏢 {{ t.title_suppliers or 'Suppliers' }}</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-warning" onclick="openUnpaidInvoicesModal()" style="background:#e67e22;color:#fff;border:none;">{{ t.btn_unpaid_invoices or '📋 Factures non payées' }}</button>
+        <button class="btn btn-secondary" onclick="window.location.href=SCRIPT_ROOT+'/suppliers/unpaid/print'">{{ t.btn_print_unpaid or '🖨 Imprimer Non Payés' }}</button>
+        <button class="btn btn-success" onclick="postSuppliersToGL()" style="background:#28a745;color:#fff;border:none;">{{ t.btn_post_suppliers_to_gl or '📤 Soumettre au GL' }}</button>
+        <button class="btn btn-primary" onclick="openAddSupplierModal()">{{ t.btn_add_supplier or '+ Add Supplier' }}</button>
+    </div>
+</div>
+
+<!-- Search bar -->
+<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:220px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.ph_search_supplier or 'Search supplier...' }}</label>
+        <input type="text" id="search-supplier" placeholder="{{ t.ph_search_supplier or 'Search supplier...' }}"
+               oninput="loadSuppliers()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <button class="btn btn-secondary" onclick="document.getElementById('search-supplier').value='';loadSuppliers();" style="height:32px;">{{ t.btn_clear or 'Clear' }}</button>
+</div>
+
+<!-- Suppliers table -->
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 280px);">
+    <table id="suppliers-table" style="min-width:750px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_supplier_name or 'Supplier Name' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_account_number or 'Account #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_supplier_phone or 'Phone' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_supplier_email or 'Email' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.lbl_supplier_service or 'Service Provided' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="suppliers-tbody">
+            <tr><td colspan="6" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- ── Add / Edit Supplier Modal ─────────────────────────────────────────────── -->
+<div id="supplier-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:520px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 id="supplier-modal-title" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_add_supplier or 'Add Supplier' }}</span>
+            <span onclick="closeSupplierModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <input type="hidden" id="supplier-id">
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_name or 'Supplier Name' }} *</label>
+            <input type="text" id="sup-name" placeholder="{{ t.ph_supplier_name or 'e.g. Acme Services' }}"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_account_number or 'Account #' }}</label>
+            <input type="text" id="sup-account-number" placeholder="{{ t.ph_account_number or 'e.g. 12345' }}"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_address or 'Address' }}</label>
+            <input type="text" id="sup-address"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_phone or 'Phone' }}</label>
+                <input type="text" id="sup-phone"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_email or 'Email' }}</label>
+                <input type="email" id="sup-email"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_service or 'Service Provided' }}</label>
+            <input type="text" id="sup-service" placeholder="{{ t.ph_supplier_service or 'e.g. IT Support' }}"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_notes or 'Notes' }}</label>
+            <textarea id="sup-notes" rows="3"
+                      style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:16px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_supplier_accounting_code or 'Code comptable' }}</label>
+            <select id="sup-accounting-code"
+                    style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                <option value="">— {{ t.lbl_select or 'Select' }} —</option>
+            </select>
+        </div>
+        <div id="supplier-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="saveSupplier()">{{ t.btn_save_supplier or 'Save Supplier' }}</button>
+            <button class="btn btn-secondary" onclick="closeSupplierModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Payments Modal ──────────────────────────────────────────────────────────── -->
+<div id="payments-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:1100px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 id="payments-modal-title" style="margin:0 0 4px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.btn_view_payments or 'Payments' }}</span>
+            <span onclick="closePaymentsModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <p id="payments-supplier-name" style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;"></p>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-primary" onclick="openAddPaymentModal()">{{ t.btn_add_payment or '+ Add Payment' }}</button>
+            <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:200px;">
+                <label for="payments-search" style="font-size:11px;color:var(--text-secondary);">{{ t.ph_search_cheque_or_transaction or 'Search by cheque # or transaction…' }}</label>
+                <input type="text" id="payments-search" placeholder="{{ t.ph_search_cheque_or_transaction or 'Search by cheque # or transaction…' }}"
+                       oninput="filterPayments()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+                <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_from or 'From' }}</label>
+                <input type="date" id="payments-date-from" onchange="filterPayments()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:2px;">
+                <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_to or 'To' }}</label>
+                <input type="date" id="payments-date-to" onchange="filterPayments()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+            </div>
+            <button class="btn btn-secondary" onclick="clearPaymentsSearch()" style="height:32px;">{{ t.btn_clear or 'Clear' }}</button>
+        </div>
+
+        <div style="overflow-x:auto;overflow-y:auto;max-height:45vh;">
+            <table id="payments-table" style="min-width:850px;">
+                <thead>
+                    <tr>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_inv_number or 'Invoice #' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_inv_date or 'Invoice Date' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_desc or 'Description' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_amount or 'Amount' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_date or 'Payment Date' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date_paid or 'Date Payé' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_method or 'Method' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_cheque_number or 'Cheque #' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_bank_transaction or 'Transaction' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_gl_status or 'Statut GL' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_created_by or 'Added by' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
+                    </tr>
+                </thead>
+                <tbody id="payments-tbody">
+                    <tr><td colspan="12" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="payments-total" style="margin-top:12px;font-weight:600;text-align:right;font-size:14px;color:var(--text-primary);"></div>
+    </div>
+</div>
+
+<!-- ── Add / Edit Payment Modal ───────────────────────────────────────────────── -->
+<div id="payment-form-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:500px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 id="payment-form-title" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_add_payment or 'Add Payment' }}</span>
+            <span onclick="closePaymentFormModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <input type="hidden" id="payment-id">
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_inv_number or 'Invoice #' }}</label>
+                <input type="text" id="pay-invoice-number"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_inv_date or 'Invoice Date' }}</label>
+                <input type="date" id="pay-invoice-date"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+        </div>
+        <div class="form-group" style="margin-bottom:12px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_desc or 'Description' }}</label>
+            <input type="text" id="pay-description"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_amount or 'Amount' }} *</label>
+                <input type="number" id="pay-amount" min="0" step="0.01"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+        </div>
+        <div id="payment-form-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="savePayment()">{{ t.btn_save or 'Save' }}</button>
+            <button class="btn btn-success" onclick="saveAndMarkPaid()">{{ t.btn_mark_paid or '✔ Marquer payé' }}</button>
+            <button class="btn btn-secondary" onclick="closePaymentFormModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── Unpaid Invoices Modal ───────────────────────────────────────────────────── -->
+<div id="unpaid-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:95%;max-width:1100px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_unpaid_invoices or 'Factures non payées' }}</span>
+            <span onclick="closeUnpaidInvoicesModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <div style="overflow-x:auto;overflow-y:auto;max-height:60vh;">
+            <table id="unpaid-table" style="min-width:850px;">
+                <thead>
+                    <tr>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_supplier_name or 'Fournisseur' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_inv_number or 'N° facture' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_inv_date or 'Date facture' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_desc or 'Description' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payment_amount or 'Montant' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date_paid or 'Date payé' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
+                    </tr>
+                </thead>
+                <tbody id="unpaid-tbody">
+                    <tr><td colspan="7" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="unpaid-total" style="margin-top:12px;font-weight:600;text-align:right;font-size:14px;color:var(--text-primary);"></div>
+    </div>
+</div>
+
+<!-- ── Mark as Paid Modal ─────────────────────────────────────────────────────── -->
+<div id="mark-paid-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.5);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:460px;box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_mark_paid or 'Enregistrer le paiement' }}</span>
+            <span onclick="closeMarkPaidModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <p id="mark-paid-invoice-info" style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;"></p>
+        <input type="hidden" id="mark-paid-payment-id">
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_date_paid or 'Date payé' }} *</label>
+                <input type="date" id="mark-paid-date"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            <div style="flex:1;">
+                <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_payment_method or 'Mode de paiement' }}</label>
+                <select id="mark-paid-method" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" onchange="toggleMarkPaidRefField()">
+                    <option value="">—</option>
+                    <option value="cheque">{{ t.opt_payment_cheque or 'Chèque' }}</option>
+                    <option value="virement">{{ t.opt_payment_virement or 'Virement bancaire' }}</option>
+                    <option value="cash">{{ t.opt_payment_cash or 'Comptant' }}</option>
+                    <option value="other">{{ t.opt_payment_other or 'Autre' }}</option>
+                </select>
+            </div>
+        </div>
+        <div id="mark-paid-cheque-row" style="margin-bottom:12px;display:none;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cheque_number or 'N° de chèque' }}</label>
+            <input type="text" id="mark-paid-cheque-number"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div id="mark-paid-bank-row" style="margin-bottom:16px;display:none;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_bank_transaction or 'N° transaction bancaire' }}</label>
+            <input type="text" id="mark-paid-bank-transaction"
+                   style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div id="mark-paid-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary" onclick="confirmMarkPaid()">{{ t.btn_mark_paid or '✔ Marquer payé' }}</button>
+            <button class="btn btn-secondary" onclick="closeMarkPaidModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SUP_STR = {
+    noSuppliers: {{ (t.msg_no_suppliers or 'No suppliers found.') | tojson }},
+    noPayments:  {{ (t.msg_no_payments or 'No payments recorded.') | tojson }},
+    noUnpaid:    {{ (t.msg_no_unpaid_invoices or 'No unpaid invoices found.') | tojson }},
+    modalAdd:    {{ (t.modal_add_supplier or 'Add Supplier') | tojson }},
+    modalEdit:   {{ (t.modal_edit_supplier or 'Edit Supplier') | tojson }},
+    payAdd:      {{ (t.modal_add_payment or 'Add Payment') | tojson }},
+    payEdit:     {{ (t.modal_edit_payment or 'Edit Payment') | tojson }},
+    btnEdit:     {{ (t.btn_edit or 'Edit') | tojson }},
+    btnDelete:   {{ (t.btn_delete or 'Delete') | tojson }},
+    btnPayments: {{ (t.btn_view_payments or 'Payments') | tojson }},
+    btnAddPayment: {{ (t.btn_add_payment_direct or '+ Payment') | tojson }},
+    btnMarkPaid: {{ (t.btn_mark_paid or '✔ Mark as Paid') | tojson }},
+    confirmDel:  {{ (t.msg_confirm_delete or 'Delete this record?') | tojson }},
+    saved:       {{ (t.msg_supplier_saved or 'Supplier saved.') | tojson }},
+    deleted:     {{ (t.msg_supplier_deleted or 'Supplier deleted.') | tojson }},
+    paySaved:    {{ (t.msg_payment_saved or 'Payment saved.') | tojson }},
+    payDeleted:  {{ (t.msg_payment_deleted or 'Payment deleted.') | tojson }},
+    invMarkedPaid: {{ (t.msg_invoice_marked_paid or 'Invoice marked as paid.') | tojson }},
+    loading:     {{ (t.inv_loading or 'Loading…') | tojson }},
+};
+
+let currentSupplierId = null;
+let currentSupplierName = '';
+let allPayments = [];
+
+function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Suppliers list ────────────────────────────────────────────────────────────
+
+async function loadSuppliers() {
+    const search = document.getElementById('search-supplier').value.trim();
+    let url = SCRIPT_ROOT + '/api/suppliers';
+    if (search) url += '?search=' + encodeURIComponent(search);
+    const tbody = document.getElementById('suppliers-tbody');
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed');
+        const suppliers = await res.json();
+        if (!suppliers.length) {
+            tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-secondary)">' + SUP_STR.noSuppliers + '</td></tr>';
+            return;
+        }
+        tbody.innerHTML = suppliers.map(s => `<tr>
+            <td><strong>${escHtml(s.name)}</strong>${s.address ? '<br><small style="color:var(--text-secondary)">' + escHtml(s.address) + '</small>' : ''}</td>
+            <td>${escHtml(s.account_number) || '—'}</td>
+            <td>${escHtml(s.phone)}</td>
+            <td>${s.email ? '<a href="mailto:' + escHtml(s.email) + '">' + escHtml(s.email) + '</a>' : '—'}</td>
+            <td>${escHtml(s.service_provided) || '—'}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-secondary" onclick="openEditSupplierModal(${s.id})" style="font-size:11px;padding:2px 8px;margin-right:4px;">${SUP_STR.btnEdit}</button>
+                <button class="btn btn-sm btn-primary" onclick="openPaymentsModal(${s.id}, ${escHtml(JSON.stringify(s.name))})" style="font-size:11px;padding:2px 8px;margin-right:4px;">${SUP_STR.btnPayments}</button>
+                <button class="btn btn-sm btn-success" onclick="quickAddPayment(${s.id}, ${escHtml(JSON.stringify(s.name))})" style="font-size:11px;padding:2px 8px;margin-right:4px;">${SUP_STR.btnAddPayment}</button>
+                <button class="btn btn-sm btn-secondary" onclick="deleteSupplier(${s.id})" style="font-size:11px;padding:2px 8px;background:var(--danger);border-color:var(--danger);color:#fff;">${SUP_STR.btnDelete}</button>
+            </td>
+        </tr>`).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
+    }
+}
+
+// ── Add/Edit Supplier Modal ───────────────────────────────────────────────────
+
+function openAddSupplierModal() {
+    document.getElementById('supplier-id').value = '';
+    document.getElementById('sup-name').value = '';
+    document.getElementById('sup-account-number').value = '';
+    document.getElementById('sup-address').value = '';
+    document.getElementById('sup-phone').value = '';
+    document.getElementById('sup-email').value = '';
+    document.getElementById('sup-service').value = '';
+    document.getElementById('sup-notes').value = '';
+    document.getElementById('sup-accounting-code').value = '';
+    document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalAdd;
+    document.getElementById('supplier-modal-error').style.display = 'none';
+    document.getElementById('supplier-modal').style.display = 'flex';
+}
+
+async function openEditSupplierModal(supplierId) {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + supplierId);
+        if (!res.ok) throw new Error('Failed');
+        const s = await res.json();
+        document.getElementById('supplier-id').value = s.id;
+        document.getElementById('sup-name').value = s.name || '';
+        document.getElementById('sup-account-number').value = s.account_number || '';
+        document.getElementById('sup-address').value = s.address || '';
+        document.getElementById('sup-phone').value = s.phone || '';
+        document.getElementById('sup-email').value = s.email || '';
+        document.getElementById('sup-service').value = s.service_provided || '';
+        document.getElementById('sup-notes').value = s.notes || '';
+        document.getElementById('sup-accounting-code').value = s.accounting_code || '';
+        document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalEdit;
+        document.getElementById('supplier-modal-error').style.display = 'none';
+        document.getElementById('supplier-modal').style.display = 'flex';
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function closeSupplierModal() {
+    document.getElementById('supplier-modal').style.display = 'none';
+}
+
+async function saveSupplier() {
+    const id = document.getElementById('supplier-id').value;
+    const name = document.getElementById('sup-name').value.trim();
+    const errEl = document.getElementById('supplier-modal-error');
+    if (!name) {
+        errEl.textContent = '{{ t.lbl_supplier_name or "Supplier name is required." }}';
+        errEl.style.display = '';
+        return;
+    }
+    const data = {
+        name,
+        account_number: document.getElementById('sup-account-number').value,
+        address: document.getElementById('sup-address').value,
+        phone: document.getElementById('sup-phone').value,
+        email: document.getElementById('sup-email').value,
+        service_provided: document.getElementById('sup-service').value,
+        notes: document.getElementById('sup-notes').value,
+        accounting_code: document.getElementById('sup-accounting-code').value,
+    };
+    try {
+        const url = id ? SCRIPT_ROOT + '/api/suppliers/' + id : SCRIPT_ROOT + '/api/suppliers';
+        const method = id ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            errEl.textContent = err.message || 'Error saving supplier.';
+            errEl.style.display = '';
+            return;
+        }
+        closeSupplierModal();
+        loadSuppliers();
+    } catch (err) {
+        errEl.textContent = 'Error: ' + err.message;
+        errEl.style.display = '';
+    }
+}
+
+async function deleteSupplier(supplierId) {
+    if (!confirm(SUP_STR.confirmDel)) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + supplierId, {method: 'DELETE'});
+        if (!res.ok) throw new Error('Failed');
+        loadSuppliers();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// ── Payments Modal ───────────────────────────────────────────────────────────
+
+// Directly open the Add Payment form for a given supplier (bypasses the payments list)
+function quickAddPayment(supplierId, supplierName) {
+    currentSupplierId = supplierId;
+    currentSupplierName = supplierName;
+    document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payAdd + ' — ' + supplierName;
+    document.getElementById('payment-id').value = '';
+    document.getElementById('pay-invoice-number').value = '';
+    document.getElementById('pay-invoice-date').value = '';
+    document.getElementById('pay-description').value = '';
+    document.getElementById('pay-amount').value = '';
+    document.getElementById('payment-form-error').style.display = 'none';
+    document.getElementById('payment-form-modal').style.display = 'flex';
+}
+
+async function openPaymentsModal(supplierId, supplierName) {
+    currentSupplierId = supplierId;
+    currentSupplierName = supplierName;
+    document.getElementById('payments-supplier-name').textContent = supplierName;
+    document.getElementById('payments-search').value = '';
+    document.getElementById('payments-date-from').value = '';
+    document.getElementById('payments-date-to').value = '';
+    document.getElementById('payments-modal').style.display = 'flex';
+    await loadPayments();
+}
+
+function closePaymentsModal() {
+    document.getElementById('payments-modal').style.display = 'none';
+    currentSupplierId = null;
+    allPayments = [];
+}
+
+function renderPaymentRows(payments) {
+    const tbody = document.getElementById('payments-tbody');
+    if (!payments.length) {
+        tbody.innerHTML = '<tr><td colspan="12" style="color:var(--text-secondary)">' + SUP_STR.noPayments + '</td></tr>';
+        document.getElementById('payments-total').textContent = '';
+        return;
+    }
+    let total = 0;
+    tbody.innerHTML = payments.map(p => {
+        total += p.amount || 0;
+        return `<tr>
+            <td>${escHtml(p.invoice_number) || '—'}</td>
+            <td>${p.invoice_date ? new Date(p.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>${escHtml(p.description) || '—'}</td>
+            <td>$${parseFloat(p.amount || 0).toFixed(2)}</td>
+            <td>${p.payment_date ? new Date(p.payment_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>${p.date_paid ? new Date(p.date_paid + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>${escHtml(p.payment_method) || '—'}</td>
+            <td>${escHtml(p.cheque_number) || '—'}</td>
+            <td>${escHtml(p.bank_transaction) || '—'}</td>
+            <td>${p.is_paid && !p.is_posted ? '<span style="color:#e67e22;font-size:11px;font-weight:600;">⏳ En attente GL</span>' : p.is_posted ? '<span style="color:#27ae60;font-size:11px;font-weight:600;">✔ Posté GL</span>' : '<span style="color:#888;font-size:11px;">—</span>'}</td>
+            <td>${escHtml(p.created_by) || '—'}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-secondary" onclick="openEditPaymentModal(${p.id})" style="font-size:11px;padding:2px 8px;margin-right:4px;">${SUP_STR.btnEdit}</button>
+                <button class="btn btn-sm btn-secondary" onclick="deletePayment(${p.id})" style="font-size:11px;padding:2px 8px;background:var(--danger);border-color:var(--danger);color:#fff;">${SUP_STR.btnDelete}</button>
+            </td>
+        </tr>`;
+    }).join('');
+    document.getElementById('payments-total').textContent = 'Total: $' + total.toFixed(2);
+}
+
+function clearPaymentsSearch() {
+    document.getElementById('payments-search').value = '';
+    document.getElementById('payments-date-from').value = '';
+    document.getElementById('payments-date-to').value = '';
+    filterPayments();
+}
+
+function filterPayments() {
+    const search = (document.getElementById('payments-search').value || '').trim().toLowerCase();
+    const dateFrom = document.getElementById('payments-date-from').value;
+    const dateTo = document.getElementById('payments-date-to').value;
+    const filtered = allPayments.filter(p => {
+        if (search && !(
+            (p.cheque_number || '').toLowerCase().includes(search) ||
+            (p.bank_transaction || '').toLowerCase().includes(search) ||
+            (p.invoice_number || '').toLowerCase().includes(search) ||
+            (p.description || '').toLowerCase().includes(search)
+        )) return false;
+        if (dateFrom && p.payment_date && p.payment_date < dateFrom) return false;
+        if (dateTo && p.payment_date && p.payment_date > dateTo) return false;
+        return true;
+    });
+    renderPaymentRows(filtered);
+}
+
+async function loadPayments() {
+    if (!currentSupplierId) return;
+    const tbody = document.getElementById('payments-tbody');
+    tbody.innerHTML = '<tr><td colspan="12" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + currentSupplierId + '/payments');
+        if (!res.ok) throw new Error('Failed');
+        allPayments = await res.json();
+        document.getElementById('payments-total').textContent = '';
+        filterPayments();
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="12" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
+    }
+}
+
+// ── Add/Edit Payment Form ─────────────────────────────────────────────────────
+
+function togglePaymentRefField() {
+    var method = document.getElementById('pay-method').value;
+    var chequeRow = document.getElementById('pay-cheque-row');
+    var bankRow = document.getElementById('pay-bank-row');
+    chequeRow.style.display = (method === 'cheque') ? '' : 'none';
+    bankRow.style.display = (method === 'virement') ? '' : 'none';
+    // Clear hidden field
+    if (method !== 'cheque') document.getElementById('pay-cheque-number').value = '';
+    if (method !== 'virement') document.getElementById('pay-bank-transaction').value = '';
+}
+
+function openAddPaymentModal() {
+    document.getElementById('payment-id').value = '';
+    document.getElementById('pay-invoice-number').value = '';
+    document.getElementById('pay-invoice-date').value = '';
+    document.getElementById('pay-description').value = '';
+    document.getElementById('pay-amount').value = '';
+    document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payAdd;
+    document.getElementById('payment-form-error').style.display = 'none';
+    document.getElementById('payment-form-modal').style.display = 'flex';
+}
+
+async function openEditPaymentModal(paymentId) {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/supplier-payments/' + paymentId);
+        if (!res.ok) throw new Error('Failed');
+        const p = await res.json();
+        document.getElementById('payment-id').value = p.id;
+        document.getElementById('pay-invoice-number').value = p.invoice_number || '';
+        document.getElementById('pay-invoice-date').value = p.invoice_date || '';
+        document.getElementById('pay-description').value = p.description || '';
+        document.getElementById('pay-amount').value = p.amount || '';
+        document.getElementById('payment-form-title').firstElementChild.textContent = SUP_STR.payEdit;
+        document.getElementById('payment-form-error').style.display = 'none';
+        document.getElementById('payment-form-modal').style.display = 'flex';
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+function closePaymentFormModal() {
+    document.getElementById('payment-form-modal').style.display = 'none';
+}
+
+// Helper: saves the current payment form data; returns {paymentId, invoiceNumber, amount} or null on error.
+async function _submitPaymentForm() {
+    const id = document.getElementById('payment-id').value;
+    const amount = parseFloat(document.getElementById('pay-amount').value);
+    const errEl = document.getElementById('payment-form-error');
+    if (!amount || amount <= 0) {
+        errEl.textContent = '{{ t.lbl_payment_amount or "Amount is required." }}';
+        errEl.style.display = '';
+        return null;
+    }
+    const invoiceNumber = document.getElementById('pay-invoice-number').value;
+    const data = {
+        invoice_number: invoiceNumber,
+        invoice_date: document.getElementById('pay-invoice-date').value || null,
+        description: document.getElementById('pay-description').value,
+        amount,
+    };
+    try {
+        let paymentId;
+        if (id) {
+            const res = await fetch(SCRIPT_ROOT + '/api/supplier-payments/' + id, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                errEl.textContent = err.message || 'Error saving payment.';
+                errEl.style.display = '';
+                return null;
+            }
+            paymentId = id;
+        } else {
+            const res = await fetch(SCRIPT_ROOT + '/api/suppliers/' + currentSupplierId + '/payments', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                errEl.textContent = err.message || 'Error saving payment.';
+                errEl.style.display = '';
+                return null;
+            }
+            const created = await res.json();
+            paymentId = created.id;
+        }
+        return {paymentId, invoiceNumber, amount};
+    } catch (err) {
+        document.getElementById('payment-form-error').textContent = 'Error: ' + err.message;
+        document.getElementById('payment-form-error').style.display = '';
+        return null;
+    }
+}
+
+async function savePayment() {
+    const result = await _submitPaymentForm();
+    if (!result) return;
+    closePaymentFormModal();
+    await loadPayments();
+}
+
+async function saveAndMarkPaid() {
+    const result = await _submitPaymentForm();
+    if (!result) return;
+    const {paymentId, invoiceNumber, amount} = result;
+    closePaymentFormModal();
+    if (document.getElementById('payments-modal').style.display === 'flex') {
+        await loadPayments();
+    }
+    const invoiceInfo = (currentSupplierName || '') + (invoiceNumber ? ' \u2013 ' + invoiceNumber : '') + ' ($' + amount.toFixed(2) + ')';
+    openMarkPaidModal(paymentId, invoiceInfo, currentSupplierId);
+}
+
+async function deletePayment(paymentId) {
+    if (!confirm(SUP_STR.confirmDel)) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/supplier-payments/' + paymentId, {method: 'DELETE'});
+        if (!res.ok) throw new Error('Failed');
+        await loadPayments();
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// Close modals on overlay click
+document.getElementById('supplier-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSupplierModal();
+});
+document.getElementById('payments-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePaymentsModal();
+});
+document.getElementById('payment-form-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePaymentFormModal();
+});
+document.getElementById('unpaid-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeUnpaidInvoicesModal();
+});
+document.getElementById('mark-paid-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeMarkPaidModal();
+});
+
+// Load accounts into the accounting_code dropdown
+async function loadAccountOptions() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/accounts');
+        if (!res.ok) return;
+        const accounts = await res.json();
+        const sel = document.getElementById('sup-accounting-code');
+        accounts.filter(a => !a.is_deleted && a.is_active).forEach(a => {
+            const opt = document.createElement('option');
+            opt.value = a.code;
+            opt.textContent = a.code + ' – ' + a.name;
+            sel.appendChild(opt);
+        });
+    } catch (err) { console.error('Could not load accounts:', err); }
+}
+
+// Initialize
+loadSuppliers();
+loadAccountOptions();
+
+async function postSuppliersToGL() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/payments/post-to-gl', {method: 'POST'});
+        const data = await res.json();
+        alert(data.message || 'Done.');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+// ── Unpaid Invoices Modal ─────────────────────────────────────────────────────
+
+let allUnpaidPayments = [];
+
+async function openUnpaidInvoicesModal() {
+    document.getElementById('unpaid-modal').style.display = 'flex';
+    await loadUnpaidInvoices();
+}
+
+function closeUnpaidInvoicesModal() {
+    document.getElementById('unpaid-modal').style.display = 'none';
+    allUnpaidPayments = [];
+}
+
+async function loadUnpaidInvoices() {
+    const tbody = document.getElementById('unpaid-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary)">' + SUP_STR.loading + '</td></tr>';
+    document.getElementById('unpaid-total').textContent = '';
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/suppliers/payments/unpaid');
+        if (!res.ok) throw new Error('Failed');
+        allUnpaidPayments = await res.json();
+        renderUnpaidRows(allUnpaidPayments);
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--danger)">Error: ' + escHtml(err.message) + '</td></tr>';
+    }
+}
+
+function renderUnpaidRows(payments) {
+    const tbody = document.getElementById('unpaid-tbody');
+    if (!payments.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--text-secondary)">' + SUP_STR.noUnpaid + '</td></tr>';
+        document.getElementById('unpaid-total').textContent = '';
+        return;
+    }
+    let total = 0;
+    tbody.innerHTML = payments.map(p => {
+        total += p.amount || 0;
+        const isPaid = p.is_paid;
+        const datePaidDisplay = p.date_paid ? new Date(p.date_paid + 'T00:00:00').toLocaleDateString() : '—';
+        const btnStyle = isPaid
+            ? 'font-size:11px;padding:2px 8px;opacity:0.5;cursor:not-allowed;'
+            : 'font-size:11px;padding:2px 8px;';
+        const btnDisabled = isPaid ? 'disabled' : '';
+        return `<tr id="unpaid-row-${p.id}">
+            <td>${escHtml(p.supplier_name) || '—'}</td>
+            <td>${escHtml(p.invoice_number) || '—'}</td>
+            <td>${p.invoice_date ? new Date(p.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>${escHtml(p.description) || '—'}</td>
+            <td>$${parseFloat(p.amount || 0).toFixed(2)}</td>
+            <td id="unpaid-date-paid-${p.id}">${datePaidDisplay}</td>
+            <td style="white-space:nowrap;">
+                <button id="unpaid-btn-${p.id}" class="btn btn-sm btn-success"
+                    data-payment-id="${p.id}"
+                    data-invoice-info="${escHtml(p.supplier_name||'')}${p.invoice_number ? ' \u2013 ' + escHtml(p.invoice_number) : ''} ($${parseFloat(p.amount||0).toFixed(2)})"
+                    data-supplier-id="${p.supplier_id}"
+                    onclick="openMarkPaidModal(+this.dataset.paymentId, this.dataset.invoiceInfo, +this.dataset.supplierId)"
+                    style="${btnStyle}" ${btnDisabled}>${SUP_STR.btnMarkPaid}</button>
+            </td>
+        </tr>`;
+    }).join('');
+    document.getElementById('unpaid-total').textContent = 'Total: $' + total.toFixed(2);
+}
+
+// ── Mark as Paid Modal ────────────────────────────────────────────────────────
+
+let markPaidSupplierId = null;
+
+function openMarkPaidModal(paymentId, invoiceInfo, supplierId) {
+    markPaidSupplierId = supplierId;
+    document.getElementById('mark-paid-payment-id').value = paymentId;
+    document.getElementById('mark-paid-invoice-info').textContent = invoiceInfo;
+    // Default payment date to today
+    document.getElementById('mark-paid-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('mark-paid-method').value = '';
+    document.getElementById('mark-paid-cheque-number').value = '';
+    document.getElementById('mark-paid-bank-transaction').value = '';
+    document.getElementById('mark-paid-cheque-row').style.display = 'none';
+    document.getElementById('mark-paid-bank-row').style.display = 'none';
+    document.getElementById('mark-paid-error').style.display = 'none';
+    document.getElementById('mark-paid-modal').style.display = 'flex';
+}
+
+function closeMarkPaidModal() {
+    document.getElementById('mark-paid-modal').style.display = 'none';
+    markPaidSupplierId = null;
+}
+
+function toggleMarkPaidRefField() {
+    const method = document.getElementById('mark-paid-method').value;
+    document.getElementById('mark-paid-cheque-row').style.display = (method === 'cheque') ? '' : 'none';
+    document.getElementById('mark-paid-bank-row').style.display = (method === 'virement') ? '' : 'none';
+    if (method !== 'cheque') document.getElementById('mark-paid-cheque-number').value = '';
+    if (method !== 'virement') document.getElementById('mark-paid-bank-transaction').value = '';
+}
+
+async function confirmMarkPaid() {
+    const paymentId = document.getElementById('mark-paid-payment-id').value;
+    const paymentDate = document.getElementById('mark-paid-date').value;
+    const errEl = document.getElementById('mark-paid-error');
+    if (!paymentDate) {
+        errEl.textContent = '{{ t.err_payment_date_required or "La date de paiement est requise." }}';
+        errEl.style.display = '';
+        return;
+    }
+    const data = {
+        payment_date: paymentDate,
+        payment_method: document.getElementById('mark-paid-method').value,
+        cheque_number: document.getElementById('mark-paid-cheque-number').value,
+        bank_transaction: document.getElementById('mark-paid-bank-transaction').value,
+    };
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/supplier-payments/' + paymentId, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            errEl.textContent = err.message || 'Error saving.';
+            errEl.style.display = '';
+            return;
+        }
+        closeMarkPaidModal();
+        // Update the row inline in the unpaid invoices table
+        const datePaidCell = document.getElementById('unpaid-date-paid-' + paymentId);
+        const markBtn = document.getElementById('unpaid-btn-' + paymentId);
+        if (datePaidCell) {
+            datePaidCell.textContent = new Date(paymentDate + 'T00:00:00').toLocaleDateString();
+        }
+        if (markBtn) {
+            markBtn.disabled = true;
+            markBtn.style.opacity = '0.5';
+            markBtn.style.cursor = 'not-allowed';
+        }
+        // Also reload payments modal if open
+        if (document.getElementById('payments-modal').style.display === 'flex') {
+            await loadPayments();
+        }
+    } catch (err) {
+        errEl.textContent = 'Error: ' + err.message;
+        errEl.style.display = '';
+    }
+}
+</script>
+{% endblock %}

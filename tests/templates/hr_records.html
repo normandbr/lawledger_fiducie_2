@@ -1,0 +1,425 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_hr_records or 'HR Records' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_hr_records or 'HR Records' }}</h1>
+    <button class="btn btn-primary" onclick="showAddForm()">{{ t.btn_add_hr_record or '+ Add HR Record' }}</button>
+</div>
+
+<!-- View Employee Modal (read-only) -->
+<div id="view-hr-form" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:1000px;width:95vw;max-height:90vh;overflow-y:auto;">
+        <span class="close" onclick="hideViewForm()">&times;</span>
+        <h2>{{ t.modal_view_employee or 'Fiche employé' }}</h2>
+        <div id="view-hr-content" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 24px;font-size:13px;">
+        </div>
+        <div style="margin-top:16px;text-align:right;">
+            <button type="button" class="btn btn-secondary" onclick="hideViewForm()">{{ t.btn_close or 'Fermer' }}</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add HR Record Modal -->
+<div id="add-hr-form" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideAddForm()">&times;</span>
+        <h2>{{ t.modal_add_hr or 'Add HR Record' }}</h2>
+        <form id="hr-form">
+            <div class="form-group">
+                <label for="hr_employee_id">{{ t.lbl_employee or 'Employee' }}: <span style="color:red">*</span></label>
+                <select id="hr_employee_id" name="employee_id" required>
+                    <option value="">{{ t.opt_select_employee or '-- Select Employee --' }}</option>
+                    {% for emp in employees %}
+                    <option value="{{ emp.id }}">{{ emp.first_name or '' }} {{ emp.last_name or '' }} ({{ emp.username }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="hr_balance_pto">{{ t.lbl_pto_balance or 'PTO Balance (days)' }}:</label>
+                    <input type="number" id="hr_balance_pto" name="balance_pto" step="0.5" min="0" value="0">
+                </div>
+                <div class="form-group">
+                    <label for="hr_date_last_review">{{ t.lbl_last_review or 'Last Review Date' }}:</label>
+                    <input type="date" id="hr_date_last_review" name="date_last_review">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="hr_review_comment">{{ t.lbl_review_comment or 'Review Comment' }}:</label>
+                <textarea id="hr_review_comment" name="review_comment" rows="4" placeholder="{{ t.ph_review_notes or 'Performance review notes, goals, feedback…' }}"></textarea>
+            </div>
+            <div id="hr-form-error" class="alert alert-error" style="display:none;"></div>
+            <button type="submit" class="btn btn-primary">{{ t.btn_save_record or 'Save Record' }}</button>
+        </form>
+    </div>
+</div>
+
+<!-- Edit HR Record Modal -->
+<div id="edit-hr-form" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideEditForm()">&times;</span>
+        <h2>{{ t.modal_edit_hr or 'Edit HR Record' }}</h2>
+        <form id="edit-hr-record-form">
+            <input type="hidden" id="edit_hr_id">
+            <input type="hidden" id="edit_hr_employee_id">
+            <div class="form-group">
+                <label>{{ t.lbl_employee or 'Employee' }}:</label>
+                <p id="edit_hr_employee_name" style="font-weight:600;padding:8px 0;"></p>
+            </div>
+            <div class="form-group">
+                <label for="edit_hr_emp_email">{{ t.lbl_work_email or 'Work Email' }}:</label>
+                <input type="email" id="edit_hr_emp_email" name="emp_email">
+            </div>
+            <div class="form-group">
+                <label for="edit_hr_emp_address">{{ t.lbl_address or 'Address' }}:</label>
+                <input type="text" id="edit_hr_emp_address" name="emp_address">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_hr_emp_phone">{{ t.lbl_phone or 'Phone' }}:</label>
+                    <input type="text" id="edit_hr_emp_phone" name="emp_phone">
+                </div>
+                <div class="form-group">
+                    <label for="edit_hr_emp_supervisor">{{ t.lbl_supervisor or 'Supervisor' }}:</label>
+                    <input type="text" id="edit_hr_emp_supervisor" name="emp_supervisor">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_hr_balance_pto">{{ t.lbl_pto_balance or 'PTO Balance (days)' }}:</label>
+                    <input type="number" id="edit_hr_balance_pto" name="balance_pto" step="0.5" min="0">
+                </div>
+                <div class="form-group">
+                    <label for="edit_hr_date_last_review">{{ t.lbl_last_review or 'Last Review Date' }}:</label>
+                    <input type="date" id="edit_hr_date_last_review" name="date_last_review">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="edit_hr_review_comment">{{ t.lbl_review_comment or 'Review Comment' }}:</label>
+                <textarea id="edit_hr_review_comment" name="review_comment" rows="4"></textarea>
+            </div>
+            <div id="edit-hr-form-error" class="alert alert-error" style="display:none;"></div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn btn-primary">{{ t.btn_update_record or 'Update Record' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="hideEditForm()">{{ t.btn_cancel or 'Cancel' }}</button>
+                <button type="button" class="btn btn-danger" onclick="deleteRecord()">{{ t.btn_delete or 'Delete' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+    <table id="hr-table" style="min-width:700px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_employee or 'Employee' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_pto or 'PTO Balance' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_last_review or 'Last Review' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_comment or 'Review Comment' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_created or 'Created' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="hr-tbody">
+            {% if records %}
+            {% for rec in records %}
+            {% set emp = rec.employee %}
+            {% if emp and emp.is_active %}
+            <tr>
+                <td>{{ emp.first_name or '' }} {{ emp.last_name or '' }}
+                    <small style="color:#888;">({{ emp.username }})</small></td>
+                <td>{{ "%.1f"|format(rec.balance_pto or 0) }} {{ t.unit_days or 'days' }}</td>
+                <td>{{ rec.date_last_review.strftime('%Y-%m-%d') if rec.date_last_review else '-' }}</td>
+                <td style="max-width:300px;white-space:pre-wrap;word-break:break-word;">{{ (rec.review_comment or '-')[:120] }}{% if rec.review_comment and rec.review_comment|length > 120 %}…{% endif %}</td>
+                <td>{{ rec.created_at.strftime('%Y-%m-%d') if rec.created_at else '-' }}</td>
+                <td>
+                    <button class="btn btn-sm btn-secondary"
+                        data-record-id="{{ rec.id }}"
+                        data-employee-id="{{ rec.employee_id }}"
+                        data-employee-name="{{ ((emp.first_name or '') + ' ' + (emp.last_name or '')) | trim }}"
+                        data-balance-pto="{{ rec.balance_pto or 0 }}"
+                        data-date-last-review="{{ rec.date_last_review.isoformat() if rec.date_last_review else '' }}"
+                        data-review-comment="{{ rec.review_comment or '' }}"
+                        data-emp-email="{{ emp.email or '' }}"
+                        data-emp-address="{{ emp.address or '' }}"
+                        data-emp-phone="{{ emp.phone_number or '' }}"
+                        data-emp-supervisor="{{ emp.supervisor or '' }}"
+                        onclick="showEditFormFromBtn(this)">{{ t.btn_edit or 'Edit' }}</button>
+                    <button class="btn btn-sm btn-secondary"
+                        data-record-id="{{ rec.id }}"
+                        data-emp-first="{{ emp.first_name or '' }}"
+                        data-emp-last="{{ emp.last_name or '' }}"
+                        data-emp-username="{{ emp.username or '' }}"
+                        data-emp-email="{{ emp.email or '' }}"
+                        data-emp-personal-email="{{ emp.personal_email or '' }}"
+                        data-emp-title="{{ emp.title or '' }}"
+                        data-emp-address="{{ emp.address or '' }}"
+                        data-emp-phone="{{ emp.phone_number or '' }}"
+                        data-emp-office-phone="{{ emp.office_phone or '' }}"
+                        data-emp-supervisor="{{ emp.supervisor or '' }}"
+                        data-emp-group="{{ emp.group_name or '' }}"
+                        data-emp-network-id="{{ emp.network_id or '' }}"
+                        data-emp-pin="{{ emp.pin or '' }}"
+                        data-emp-salary-type="{{ emp.salary_type or '' }}"
+                        data-emp-salary="{{ emp.salary or 0 }}"
+                        data-emp-hourly-rate="{{ emp.hourly_rate or '' }}"
+                        data-emp-hiring-date="{{ emp.hiring_date.isoformat() if emp.hiring_date else '' }}"
+                        data-emp-leave-date="{{ emp.leave_date.isoformat() if emp.leave_date else '' }}"
+                        data-emp-emergency-contact="{{ emp.emergency_contact or '' }}"
+                        data-emp-emergency-phone="{{ emp.emergency_phone or '' }}"
+                        data-emp-is-active="{{ emp.is_active | tojson }}"
+                        data-emp-is-manager="{{ emp.is_manager | tojson }}"
+                        data-emp-is-user="{{ emp.is_user | tojson }}"
+                        data-emp-timer-user="{{ emp.timer_user | tojson }}"
+                        data-emp-notes="{{ (emp.notes or '')[:500] }}{%- if emp.notes and emp.notes|length > 500 %}…{% endif %}"
+                        data-emp-has-password="{{ 'true' if emp.password_hash else 'false' }}"
+                        data-emp-created="{{ emp.created_at.strftime('%Y-%m-%d') if emp.created_at else '' }}"
+                        data-emp-last-login="{{ emp.last_login.strftime('%Y-%m-%d %H:%M') if emp.last_login else '' }}"
+                        data-emp-login-ip="{{ emp.login_ip or '' }}"
+                        data-hr-pto="{{ rec.balance_pto or 0 }}"
+                        data-hr-last-review="{{ rec.date_last_review.isoformat() if rec.date_last_review else '' }}"
+                        data-hr-comment="{{ rec.review_comment or '' }}"
+                        data-hr-created="{{ rec.created_at.strftime('%Y-%m-%d') if rec.created_at else '' }}"
+                        onclick="showViewForm(this)">{{ t.btn_view_employee or 'Afficher' }}</button>
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+            {% else %}
+            <tr><td colspan="6" style="text-align:center;color:#888;">{{ t.msg_no_results or 'No HR records found. Add the first one above.' }}</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showAddForm() {
+    document.getElementById('add-hr-form').style.display = 'flex';
+    document.getElementById('hr-form').reset();
+    document.getElementById('hr-form-error').style.display = 'none';
+}
+function hideAddForm() {
+    document.getElementById('add-hr-form').style.display = 'none';
+}
+
+document.getElementById('hr-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+        employee_id: parseInt(formData.get('employee_id')),
+        balance_pto: parseFloat(formData.get('balance_pto')) || 0,
+        date_last_review: formData.get('date_last_review') || null,
+        review_comment: formData.get('review_comment') || null
+    };
+    const resp = await fetch(SCRIPT_ROOT + '/api/hr-records', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    if (resp.ok) {
+        hideAddForm();
+        window.location.reload();
+    } else {
+        const err = await resp.json().catch(() => ({}));
+        const div = document.getElementById('hr-form-error');
+        div.textContent = err.error || 'Error saving record';
+        div.style.display = 'block';
+    }
+});
+
+function showEditFormFromBtn(btn) {
+    showEditForm(
+        btn.dataset.recordId,
+        btn.dataset.employeeId,
+        btn.dataset.employeeName,
+        btn.dataset.balancePto,
+        btn.dataset.dateLastReview,
+        btn.dataset.reviewComment,
+        btn.dataset.empEmail,
+        btn.dataset.empAddress,
+        btn.dataset.empPhone,
+        btn.dataset.empSupervisor
+    );
+}
+
+function showEditForm(id, empId, empName, pto, reviewDate, comment, empEmail, empAddress, empPhone, empSupervisor) {
+    document.getElementById('edit_hr_id').value = id;
+    document.getElementById('edit_hr_employee_id').value = empId;
+    document.getElementById('edit_hr_employee_name').textContent = empName;
+    document.getElementById('edit_hr_emp_email').value = empEmail || '';
+    document.getElementById('edit_hr_emp_address').value = empAddress || '';
+    document.getElementById('edit_hr_emp_phone').value = empPhone || '';
+    document.getElementById('edit_hr_emp_supervisor').value = empSupervisor || '';
+    document.getElementById('edit_hr_balance_pto').value = pto;
+    document.getElementById('edit_hr_date_last_review').value = reviewDate || '';
+    document.getElementById('edit_hr_review_comment').value = comment || '';
+    document.getElementById('edit-hr-form-error').style.display = 'none';
+    document.getElementById('edit-hr-form').style.display = 'flex';
+}
+function hideEditForm() {
+    document.getElementById('edit-hr-form').style.display = 'none';
+}
+
+document.getElementById('edit-hr-record-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('edit_hr_id').value;
+    const empId = document.getElementById('edit_hr_employee_id').value;
+    const hrData = {
+        balance_pto: parseFloat(document.getElementById('edit_hr_balance_pto').value) || 0,
+        date_last_review: document.getElementById('edit_hr_date_last_review').value || null,
+        review_comment: document.getElementById('edit_hr_review_comment').value || null
+    };
+    const empData = {
+        email: document.getElementById('edit_hr_emp_email').value || null,
+        address: document.getElementById('edit_hr_emp_address').value || null,
+        phone_number: document.getElementById('edit_hr_emp_phone').value || null,
+        supervisor: document.getElementById('edit_hr_emp_supervisor').value || null
+    };
+
+    const [hrResp, empResp] = await Promise.all([
+        fetch(SCRIPT_ROOT + '/api/hr-records/' + id, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(hrData)
+        }),
+        fetch(SCRIPT_ROOT + '/api/employees/' + empId, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(empData)
+        })
+    ]);
+
+    if (hrResp.ok && empResp.ok) {
+        hideEditForm();
+        window.location.reload();
+    } else {
+        const resp = !hrResp.ok ? hrResp : empResp;
+        const err = await resp.json().catch(() => ({}));
+        const div = document.getElementById('edit-hr-form-error');
+        div.textContent = err.error || 'Error updating record';
+        div.style.display = 'block';
+    }
+});
+
+async function deleteRecord() {
+    const id = document.getElementById('edit_hr_id').value;
+    if (!confirm('Delete this HR record? This cannot be undone.')) return;
+    const resp = await fetch(SCRIPT_ROOT + '/api/hr-records/' + id, { method: 'DELETE' });
+    if (resp.ok) {
+        hideEditForm();
+        window.location.reload();
+    } else {
+        const err = await resp.json().catch(() => ({}));
+        const div = document.getElementById('edit-hr-form-error');
+        div.textContent = err.error || 'Error deleting record';
+        div.style.display = 'block';
+    }
+}
+
+function showViewForm(btn) {
+    const d = btn.dataset;
+    const LBL = {
+        fullName:        {{ (t.lbl_employee or 'Employé') | tojson }},
+        username:        {{ (t.lbl_username or 'Nom d\'utilisateur') | tojson }},
+        email:           {{ (t.lbl_work_email or 'Courriel de travail') | tojson }},
+        personalEmail:   {{ (t.lbl_personal_email or 'Courriel personnel') | tojson }},
+        title:           {{ (t.lbl_title_position or 'Titre') | tojson }},
+        address:         {{ (t.lbl_address or 'Adresse') | tojson }},
+        phone:           {{ (t.lbl_phone or 'Téléphone') | tojson }},
+        officePhone:     {{ (t.lbl_office_phone or 'Tél. bureau') | tojson }},
+        supervisor:      {{ (t.lbl_supervisor or 'Superviseur') | tojson }},
+        group:           {{ (t.lbl_group or 'Groupe') | tojson }},
+        networkId:       {{ (t.lbl_network_id or 'ID réseau') | tojson }},
+        pin:             {{ (t.lbl_pin or 'PIN') | tojson }},
+        salaryType:      {{ (t.lbl_salary_type or 'Type de salaire') | tojson }},
+        salary:          {{ (t.lbl_salary or 'Salaire') | tojson }},
+        hourlyRate:      {{ (t.lbl_hourly_rate or 'Taux horaire') | tojson }},
+        hiringDate:      {{ (t.lbl_hiring_date or 'Date d\'embauche') | tojson }},
+        leaveDate:       {{ (t.lbl_leave_date or 'Date de départ') | tojson }},
+        emergencyContact:{{ (t.lbl_emergency_contact or 'Contact d\'urgence') | tojson }},
+        emergencyPhone:  {{ (t.lbl_emergency_phone or 'Tél. urgence') | tojson }},
+        active:          {{ (t.lbl_active or 'Actif') | tojson }},
+        isManager:       {{ (t.lbl_is_manager or 'Gestionnaire') | tojson }},
+        isUser:          {{ (t.lbl_can_login or 'Peut se connecter') | tojson }},
+        timerUser:       {{ (t.lbl_timer_user or 'Utilisateur chronomètre') | tojson }},
+        notes:           {{ (t.lbl_notes or 'Notes') | tojson }},
+        createdAt:       {{ (t.th_created or 'Créé le') | tojson }},
+        lastLogin:       {{ (t.th_last_login or 'Dernière connexion') | tojson }},
+        loginIp:         {{ (t.lbl_login_ip or 'IP connexion') | tojson }},
+        password:        {{ (t.lbl_password or 'Mot de passe') | tojson }},
+        ptoBal:          {{ (t.lbl_pto_balance or 'Solde congés (jours)') | tojson }},
+        lastReview:      {{ (t.lbl_last_review or 'Dernière évaluation') | tojson }},
+        reviewComment:   {{ (t.lbl_review_comment or 'Commentaire évaluation') | tojson }},
+        hrCreated:       {{ (t.th_created or 'Dossier RH créé') | tojson }},
+        yes:             {{ (t.opt_yes or 'Oui') | tojson }},
+        no:              {{ (t.opt_no or 'Non') | tojson }},
+        section_emp:     {{ (t.section_employee_info or 'Informations employé') | tojson }},
+        section_hr:      {{ (t.section_hr_info or 'Dossier RH') | tojson }},
+    };
+    function boolLabel(v) { return v === 'true' ? LBL.yes : LBL.no; }
+    function row(label, value) {
+        if (!value) return '';
+        return `<div style="padding:4px 0;border-bottom:1px solid #f0f0f0;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">${escHtml(label)}</div>
+            <div style="font-weight:500;">${escHtml(String(value))}</div>
+        </div>`;
+    }
+    function rowAlways(label, value) {
+        return `<div style="padding:4px 0;border-bottom:1px solid #f0f0f0;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">${escHtml(label)}</div>
+            <div style="font-weight:500;">${escHtml(String(value || '—'))}</div>
+        </div>`;
+    }
+    const html = `
+        <div style="grid-column:1/-1;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#0078d4;padding:8px 0 2px;border-bottom:2px solid #0078d4;">${escHtml(LBL.section_emp)}</div>
+        ${row(LBL.fullName, d.empFirst + ' ' + d.empLast)}
+        ${row(LBL.username, d.empUsername)}
+        ${row(LBL.email, d.empEmail)}
+        ${row(LBL.personalEmail, d.empPersonalEmail)}
+        ${row(LBL.title, d.empTitle)}
+        ${row(LBL.address, d.empAddress)}
+        ${row(LBL.phone, d.empPhone)}
+        ${row(LBL.officePhone, d.empOfficePhone)}
+        ${row(LBL.supervisor, d.empSupervisor)}
+        ${row(LBL.group, d.empGroup)}
+        ${row(LBL.networkId, d.empNetworkId)}
+        ${row(LBL.pin, d.empPin)}
+        ${row(LBL.salaryType, d.empSalaryType)}
+        ${row(LBL.salary, d.empSalary ? '$' + parseFloat(d.empSalary).toFixed(2) : '')}
+        ${row(LBL.hourlyRate, d.empHourlyRate ? '$' + parseFloat(d.empHourlyRate).toFixed(2) : '')}
+        ${row(LBL.hiringDate, d.empHiringDate)}
+        ${row(LBL.leaveDate, d.empLeaveDate)}
+        ${row(LBL.emergencyContact, d.empEmergencyContact)}
+        ${row(LBL.emergencyPhone, d.empEmergencyPhone)}
+        ${row(LBL.active, boolLabel(d.empIsActive))}
+        ${row(LBL.isManager, boolLabel(d.empIsManager))}
+        ${row(LBL.isUser, boolLabel(d.empIsUser))}
+        ${row(LBL.timerUser, boolLabel(d.empTimerUser))}
+        ${row(LBL.password, d.empHasPassword === 'true' ? '••••••••' : ({{ (t.lbl_not_set or 'Non défini') | tojson }}))}
+        ${row(LBL.createdAt, d.empCreated)}
+        ${row(LBL.lastLogin, d.empLastLogin)}
+        ${row(LBL.loginIp, d.empLoginIp)}
+        ${d.empNotes ? row(LBL.notes, d.empNotes) : ''}
+        <div style="grid-column:1/-1;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:#0078d4;padding:8px 0 2px;border-bottom:2px solid #0078d4;margin-top:8px;">${escHtml(LBL.section_hr)}</div>
+        ${row(LBL.ptoBal, d.hrPto + ' j')}
+        ${rowAlways(LBL.lastReview, d.hrLastReview)}
+        <div style="grid-column:1/-1;">${rowAlways(LBL.reviewComment, d.hrComment)}</div>
+        ${row(LBL.hrCreated, d.hrCreated)}
+    `;
+    document.getElementById('view-hr-content').innerHTML = html;
+    document.getElementById('view-hr-form').style.display = 'flex';
+}
+
+function hideViewForm() {
+    document.getElementById('view-hr-form').style.display = 'none';
+}
+
+function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

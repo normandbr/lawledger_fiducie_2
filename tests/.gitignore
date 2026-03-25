@@ -1,0 +1,5 @@
+__pycache__/
+instance/test_ui.db
+instance/test.db
+instance/
+*.db

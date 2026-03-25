@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t.print_inv_invoice or 'INVOICE' }} {{ invoice.invoice_number }} – LawLedger</title>
+    <style>
+        /* ── Base ── */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #f3f3f3; }
+
+        /* ── Print controls (hidden when printing) ── */
+        .no-print {
+            background: #0078d4;
+            color: #fff;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .no-print h2 { font-size: 14px; margin-right: auto; }
+        .no-print button, .no-print a {
+            background: #fff;
+            color: #0078d4;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .no-print button:hover, .no-print a:hover { background: #e8f4fb; }
+
+        /* ── Invoice document ── */
+        .invoice-doc {
+            width: 816px;          /* 8.5 in × 96 dpi — Letter width */
+            min-height: 1056px;    /* 11 in × 96 dpi — Letter height */
+            margin: 24px auto;
+            background: #fff;
+            padding: 40px 48px;
+        }
+
+        /* Screen-only decorations (hidden when printing) */
+        @media screen {
+            body { background: #f3f3f3; }
+            .invoice-doc {
+                box-shadow: 0 2px 16px rgba(0,0,0,.12);
+                border-radius: 8px;
+            }
+        }
+
+        /* Header */
+        .inv-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 32px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #0078d4;
+        }
+        .inv-header .firm-name { font-size: 1.6rem; font-weight: 700; color: #0078d4; }
+        .inv-header .firm-details { color: #5a5a5a; font-size: 12px; margin-top: 4px; line-height: 1.6; }
+        .inv-header .inv-label { font-size: 2rem; font-weight: 700; color: #1a1a1a; letter-spacing: 1px; }
+        .inv-header .inv-meta { font-size: 12px; color: #5a5a5a; margin-top: 4px; text-align: right; }
+
+        /* Bill-to section */
+        .inv-parties {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 28px;
+        }
+        .inv-party h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: #5a5a5a; margin-bottom: 6px; }
+        .inv-party p { font-size: 13px; line-height: 1.6; }
+        .inv-party strong { font-size: 14px; }
+
+        /* Status badge */
+        .status-badge {
+            display: inline-block;
+            padding: 3px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .3px;
+            text-transform: capitalize;
+        }
+        .status-draft { background: #fff4ce; color: #9d5d00; }
+        .status-sent  { background: #e8f4fb; color: #004578; }
+        .status-paid  { background: #dff6dd; color: #107c10; }
+
+        /* Line items table */
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th { background: #f3f3f3; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #5a5a5a; padding: 8px 12px; border-bottom: 2px solid #e0e0e0; font-weight: 600; text-align: left; }
+        td { padding: 10px 12px; border-bottom: 1px solid #eeeeee; vertical-align: top; }
+        .text-right { text-align: right; }
+        tr:hover td { background: #f8f8f8; }
+
+        /* Totals */
+        .totals-section { display: flex; justify-content: flex-end; margin-bottom: 28px; }
+        .totals-box { width: 280px; }
+        .totals-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+        .totals-row span:first-child { flex: 1; text-align: right; padding-right: 12px; }
+        .totals-row.grand { border-top: 2px solid #1a1a1a; margin-top: 6px; padding-top: 8px; font-size: 1.05rem; font-weight: 700; }
+
+        /* Notes */
+        .inv-notes { margin-bottom: 28px; }
+        .inv-notes h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: #5a5a5a; margin-bottom: 6px; }
+        .inv-notes p { font-size: 13px; line-height: 1.6; }
+
+        /* Footer */
+        .inv-footer { text-align: center; color: #5a5a5a; font-size: 11px; border-top: 1px solid #e0e0e0; padding-top: 16px; margin-top: 8px; }
+
+        /* ── Print media ── */
+        @media print {
+            .no-print { display: none !important; }
+            .invoice-doc { margin: 0; padding: 0.75in; }
+            .status-badge { display: none !important; }
+            /* Prevent page breaks inside these elements */
+            .inv-header,
+            .inv-parties,
+            .totals-section,
+            .inv-notes,
+            .inv-footer { page-break-inside: avoid; }
+            /* Keep table header on each page */
+            thead { display: table-header-group; }
+            /* Avoid breaking inside a single line item */
+            tr { page-break-inside: avoid; }
+            /* Page-break hint after every ~30 rows is handled via JS below */
+            .page-break-hint { page-break-after: always; }
+        }
+        @media screen {
+            .no-screen { display: none !important; }
+            .page-break-hint {
+                display: block;
+                border-top: 2px dashed #0078d4;
+                margin: 12px -48px;
+                position: relative;
+            }
+            .page-break-hint::before {
+                content: '— page break —';
+                position: absolute;
+                top: -10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #e8f4fb;
+                color: #0078d4;
+                font-size: 10px;
+                padding: 2px 8px;
+                border-radius: 4px;
+                white-space: nowrap;
+            }
+        }
+        /* Zero page margins remove the browser's own header/footer from the printed page.
+           Content padding (set above) provides the white border instead. */
+        @page { size: letter portrait; margin: 0; }
+    </style>
+</head>
+<body>
+
+<!-- Controls (hidden when printing) -->
+<div class="no-print">
+    <h2>{{ t.print_inv_invoice or 'INVOICE' }} – {{ invoice.invoice_number }}</h2>
+    <button onclick="window.print()">🖨 {{ t.btn_print or 'Print' }} / PDF</button>
+    <a href="{{ url_for('list_invoices') }}">← {{ t.btn_back or 'Back to Invoices' }}</a>
+    <a href="{{ url_for('create_invoice_page') }}">+ {{ t.btn_new_invoice or 'New Invoice' }}</a>
+</div>
+
+<!-- Invoice document -->
+<div class="invoice-doc">
+
+    <!-- Header -->
+    <div class="inv-header">
+        <div>
+            {% if firm and firm.logo_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + firm.logo_filename) }}" alt="Firm Logo"
+                 style="max-height:80px;max-width:160px;object-fit:contain;margin-bottom:8px;display:block;">
+            {% endif %}
+            {% if firm and firm.firm_name %}
+            <div class="firm-name">{{ firm.firm_name }}</div>
+            <div class="firm-details">
+                {% if firm.address_line1 %}{{ firm.address_line1 }}<br>{% endif %}
+                {% if firm.address_line2 %}{{ firm.address_line2 }}<br>{% endif %}
+                {% set loc = [] %}
+                {% if firm.city %}{% set _ = loc.append(firm.city) %}{% endif %}
+                {% if firm.province %}{% set _ = loc.append(firm.province) %}{% endif %}
+                {% if firm.postal_code %}{% set _ = loc.append(firm.postal_code) %}{% endif %}
+                {% if loc %}{{ loc | join(', ') }}<br>{% endif %}
+                {% if firm.phone %}Tel: {{ firm.phone }}{% if firm.email %} &nbsp;|&nbsp; {% endif %}{% endif %}
+                {% if firm.email %}{{ firm.email }}{% endif %}
+                {% if firm.tax_number %}<br>Tax #: {{ firm.tax_number }}{% endif %}
+            </div>
+            {% else %}
+            <div class="firm-name">Your Law Firm</div>
+            <div class="firm-details">
+                123 Legal Street, Suite 100<br>
+                City, Province / State  ZIP<br>
+                Tel: (555) 123-4567 &nbsp;|&nbsp; info@lawfirm.com
+            </div>
+            {% endif %}
+        </div>
+        <div style="text-align:right;">
+            <div class="inv-label">{{ t.print_inv_invoice or 'INVOICE' }}</div>
+            <div class="inv-meta">
+                <strong># {{ invoice.invoice_number }}</strong><br>
+                {{ t.lbl_date or 'Date' }}: {{ invoice.invoice_date.strftime('%Y-%m-%d') }}<br>
+                {% if invoice.due_date %}
+                {{ t.lbl_due_date or 'Due Date' }}: {{ invoice.due_date.strftime('%Y-%m-%d') }}<br>
+                {% endif %}
+                <span class="status-badge status-{{ invoice.status }}" style="display:none"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bill-to -->
+    <div class="inv-parties">
+        <div class="inv-party">
+            <h4>{{ t.print_inv_bill_to or 'Bill To' }}</h4>
+            {% set client = invoice.resolved_client %}
+            {% if client %}
+            <p>
+                <strong>{{ client.client_name }}</strong><br>
+                {% if client.contact_name %}<em>{{ client.contact_name }}</em><br>{% endif %}
+                {% if client.street %}{{ client.street }}<br>{% endif %}
+                {% set loc = [] %}
+                {% if client.city %}{% set _ = loc.append(client.city) %}{% endif %}
+                {% if client.state %}{% set _ = loc.append(client.state) %}{% endif %}
+                {% if client.postal_code %}{% set _ = loc.append(client.postal_code) %}{% endif %}
+                {% if loc %}{{ loc | join(', ') }}<br>{% endif %}
+                {% if client.country %}{{ client.country }}<br>{% endif %}
+                {% if client.phone %}{{ client.phone }}<br>{% endif %}
+                {% if client.email %}{{ client.email }}<br>{% endif %}
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Line items -->
+    <table id="invoice-table">
+        <thead>
+            <tr>
+                <th>{{ t.print_inv_date or 'Date' }}</th>
+                <th>{{ t.print_inv_code or 'Code' }}</th>
+                <th>{{ t.print_inv_description or 'Description' }}</th>
+                <th class="text-right">{{ t.print_inv_amount or 'Amount' }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for exp in invoice.expenses %}
+            <tr>
+                <td>{{ exp.expense_date.strftime('%Y-%m-%d') if exp.expense_date else '—' }}</td>
+                <td>{{ exp.code if exp.code else '—' }}</td>
+                <td>{{ exp.description }}</td>
+                <td class="text-right">${{ "%.2f"|format(exp.amount) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" style="color:#5a5a5a;text-align:center;padding:20px;">{{ t.msg_no_invoice_items or 'No expense items on this invoice.' }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Totals -->
+    <div class="totals-section">
+        <div class="totals-box">
+            <div class="totals-row">
+                <span>{{ t.print_inv_subtotal or 'Subtotal' }} :</span>
+                <span>${{ "%.2f"|format(invoice.subtotal) }}</span>
+            </div>
+            {% set tax1_name = firm.tax1_name if firm and firm.tax1_name else '' %}
+            {% set tax2_name = firm.tax2_name if firm and firm.tax2_name else '' %}
+            {% set tax2_compound = firm.tax2_compound if firm and firm.tax2_compound else false %}
+            {% if tax1_name and invoice.gst_amount and invoice.gst_amount > 0 %}
+            <div class="totals-row">
+                <span>{{ tax1_name }} ({{ "%.3f"|format(invoice.gst_rate) }}%) :</span>
+                <span>${{ "%.2f"|format(invoice.gst_amount) }}</span>
+            </div>
+            {% endif %}
+            {% if tax2_name and invoice.qst_amount and invoice.qst_amount > 0 %}
+            <div class="totals-row">
+                <span>{{ tax2_name }}{% if tax2_compound %}*{% endif %} ({{ "%.3f"|format(invoice.qst_rate) }}%) :</span>
+                <span>${{ "%.2f"|format(invoice.qst_amount) }}</span>
+            </div>
+            {% endif %}
+            {% if applied_credits %}
+            {% for cn in applied_credits %}
+            <div class="totals-row" style="color:#107c10;">
+                <span>{{ t.print_inv_credit or 'Credit' }} ({{ cn.created_at.strftime('%Y-%m-%d') if cn.created_at else '' }}{% if cn.reason %} – {{ cn.reason }}{% endif %}) :</span>
+                <span>-${{ "%.2f"|format(cn.applied_amount) }}</span>
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% if invoice.trust_applied and invoice.trust_applied > 0 %}
+            <div class="totals-row" style="color:#0078d4;">
+                <span>{{ t.print_inv_trust_deducted or 'Trust Payment' }} :</span>
+                <span>-${{ "%.2f"|format(invoice.trust_applied) }}</span>
+            </div>
+            {% endif %}
+            <div class="totals-row grand">
+                <span>{{ t.print_inv_amount_due or 'Amount Due' }} :</span>
+                <span>${{ "%.2f"|format(invoice.total_amount) }}</span>
+            </div>
+        </div>
+    </div>
+    {% if tax2_name and tax2_compound %}
+    <p style="font-size:10px;color:#5a5a5a;text-align:right;margin-top:-16px;margin-bottom:20px;">
+        {{ (t.msg_tax_compound or '* {tax_name} is calculated on (subtotal + {tax1_name}).') | replace('{tax_name}', tax2_name) | replace('{tax1_name}', tax1_name or 'Tax 1') }}
+    </p>
+    {% endif %}
+
+    <!-- Notes -->
+    {% if invoice.notes %}
+    <div class="inv-notes">
+        <h4>{{ t.print_inv_notes or 'Notes' }}</h4>
+        <p>{{ invoice.notes }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Footer -->
+    <div class="inv-footer">
+        <p style="margin-bottom:4px;">{{ t.print_inv_thank_you or 'Thank you for your business.' }}</p>
+        <p style="margin-bottom:4px;font-size:10px;">{{ t.print_inv_terms or 'Terms: Net 30 days' }}</p>
+        {% if firm and firm.firm_name %}{{ firm.firm_name }}{% if firm.phone %} &nbsp;·&nbsp; {{ firm.phone }}{% endif %}{% if firm.email %} &nbsp;·&nbsp; {{ firm.email }}{% endif %}{% endif %}
+    </div>
+
+</div>
+<script>
+// Inject visual page-break hint lines after every PAGE_ROWS table rows (screen only).
+// Adjust PAGE_ROWS to match your font size / paper margins if needed.
+// This gives authors a sense of where a page break will fall when printing.
+(function () {
+    var PAGE_ROWS = 25; // approximate rows per A4/Letter page at default font size
+    var tbody = document.querySelector('#invoice-table tbody');
+    if (!tbody) return;
+    var rows = tbody.querySelectorAll('tr');
+    for (var i = PAGE_ROWS - 1; i < rows.length; i += PAGE_ROWS) {
+        var hint = document.createElement('tr');
+        hint.className = 'no-print'; // not rendered when printing (CSS handles breaks)
+        hint.innerHTML = '<td colspan="4"><div class="page-break-hint"></div></td>';
+        rows[i].insertAdjacentElement('afterend', hint);
+        // Refresh NodeList reference after DOM mutation
+        rows = tbody.querySelectorAll('tr:not(.no-print)');
+    }
+})();
+</script>
+</body>
+</html>

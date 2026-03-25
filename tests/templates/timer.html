@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t.title_timer or 'Timer - LawLedger' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .timer-page {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 16px;
+        }
+        .timer-page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .timer-page-header h1 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            margin: 0;
+        }
+        .timer-logout {
+            font-size: 13px;
+            color: #666;
+            text-decoration: none;
+        }
+        .timer-logout:hover { color: #0078d4; }
+        .timer-username {
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .timers-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            align-items: stretch;
+        }
+        @media (max-width: 900px) {
+            .timers-grid { grid-template-columns: 1fr; }
+        }
+        .timer-card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0,0,0,.1);
+            border: 2px solid #0078d4;
+            padding: 24px;
+            min-height: 620px;
+            display: flex;
+            flex-direction: column;
+        }
+        /* Keep the selection area at a fixed height so the card never
+           shrinks / grows when toggling between selector steps and the
+           selection badge.  The value accommodates both steps visible. */
+        .timer-selection-area {
+            min-height: 280px;
+        }
+        .timer-card-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: #0078d4;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .timer-display {
+            font-size: 2.8rem;
+            font-weight: 700;
+            text-align: center;
+            color: #1a1a2e;
+            letter-spacing: 3px;
+            margin: 12px 0;
+            font-variant-numeric: tabular-nums;
+        }
+        .timer-display.running { color: #0078d4; }
+
+        /* ── Two-step selector ─────────────────────────────────────── */
+        .selector-steps {
+            margin-bottom: 12px;
+        }
+        .selector-step {
+            margin-bottom: 10px;
+        }
+        .selector-step-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            margin-bottom: 5px;
+        }
+        .selector-search {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px 4px 0 0;
+            font-size: 12px;
+            box-sizing: border-box;
+            outline: none;
+        }
+        .selector-search:focus { border-color: #0078d4; }
+        .selector-list {
+            border: 1px solid #e0e0e0;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            max-height: 130px;
+            overflow-y: auto;
+            background: #fff;
+        }
+        .selector-item {
+            padding: 7px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background .1s;
+        }
+        .selector-item:last-child { border-bottom: none; }
+        .selector-item:hover,
+        .selector-item.active { background: #f3f9ff; }
+        .selector-item.active { font-weight: 600; color: #0078d4; }
+        .selector-item .item-sub {
+            font-size: 10px;
+            color: #777;
+            margin-top: 1px;
+        }
+        .selector-empty {
+            padding: 8px 10px;
+            font-size: 12px;
+            color: #999;
+            font-style: italic;
+        }
+
+        /* ── Breadcrumb (selected client → selected matter) ─────────── */
+        .selection-badge {
+            display: none;
+            background: #f3f9ff;
+            border: 1px solid #0078d4;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+        .selection-badge .badge-clear {
+            float: right;
+            cursor: pointer;
+            color: #a4262c;
+            font-weight: bold;
+            margin-left: 8px;
+            line-height: 1;
+        }
+        .selection-badge .badge-text { color: #0078d4; font-weight: 600; }
+
+        /* ── Selected matter info panel ──────────────────────────────── */
+        .matter-info {
+            display: none;
+            background: #fff8e1;
+            border: 1px solid #ffe082;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .matter-info .info-client {
+            font-size: 13px;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        .matter-info .info-desc {
+            color: #555;
+            margin-top: 2px;
+        }
+
+        /* ── Note + controls ─────────────────────────────────────────── */
+        .note-group { margin-bottom: 12px; }
+        .note-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .note-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            box-sizing: border-box;
+        }
+        .timer-controls {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 8px;
+        }
+        .btn-start {
+            background: #0078d4;
+            color: #fff;
+            border: none;
+            padding: 9px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+        }
+        .btn-start:hover { background: #005a9e; }
+        .btn-pause {
+            background: #f0a000;
+            color: #fff;
+            border: none;
+            padding: 9px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+        }
+        .btn-pause:hover { background: #c88000; }
+        .btn-pause:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-stop {
+            background: #a4262c;
+            color: #fff;
+            border: none;
+            padding: 9px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+        }
+        .btn-stop:hover { background: #8c1f24; }
+        .btn-stop:disabled, .btn-start:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .timer-display.paused { color: #f0a000; }
+        .timer-message {
+            margin-top: 12px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            display: none;
+        }
+        .timer-message.success {
+            background: #dff6dd;
+            color: #107c10;
+            border: 1px solid #b8e6b8;
+        }
+        .timer-message.error {
+            background: #fde7e9;
+            color: #a4262c;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body style="background:#f5f6fa;min-height:100vh;">
+<script>const SCRIPT_ROOT = {{ request.script_root|tojson }};</script>
+
+<div class="timer-page">
+    <div class="timer-page-header">
+        <h1><span aria-hidden="true">⚖</span> LawLedger &mdash; {{ t.header_timer or 'Timer' }}</h1>
+        <div style="display:flex;gap:16px;align-items:center;">
+            <a href="{{ url_for('index') }}" class="timer-logout">&#8592; {{ t.btn_back_main or 'Main Page' }}</a>
+            <a href="{{ url_for('logout') }}" class="timer-logout">{{ t.user_logout or 'Logout' }}</a>
+        </div>
+    </div>
+    <div class="timer-username" style="text-align:left;margin-bottom:20px;">
+        {{ t.lbl_logged_as or 'Logged in as' }} <strong>{{ current_user.username }}</strong>
+    </div>
+
+    <div class="timers-grid">
+        <!-- Timer 1 -->
+        <div class="timer-card">
+            <div class="timer-card-title">{{ t.timer_card_title or 'Timer' }} 1</div>
+            <div class="timer-display" id="t1-display">00:00:00</div>
+            <div id="t1-selection-area" class="timer-selection-area">
+                <div class="selection-badge" id="t1-selection-badge">
+                    <span class="badge-clear" id="t1-badge-clear" title="{{ t.tooltip_change_selection or 'Change selection' }}">&times;</span>
+                    <span class="badge-text" id="t1-badge-text"></span>
+                </div>
+                <div class="matter-info" id="t1-matter-info">
+                    <div class="info-client" id="t1-info-client-name"></div>
+                    <div class="info-desc" id="t1-info-matter-desc"></div>
+                </div>
+                <div class="selector-steps" id="t1-step-client">
+                    <div class="selector-step">
+                        <div class="selector-step-label">{{ t.lbl_step_client or 'Step 1 – Select a Client' }}</div>
+                        <input class="selector-search" id="t1-client-search"
+                               type="text" placeholder="{{ t.ph_search_client or 'Filter clients…' }}" autocomplete="off">
+                        <div class="selector-list" id="t1-client-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="selector-steps" id="t1-step-matter" style="display:none;">
+                    <div class="selector-step">
+                        <div class="selector-step-label" id="t1-step-matter-label">{{ t.lbl_step_matter or 'Step 2 – Select a Matter' }}</div>
+                        <input class="selector-search" id="t1-matter-search"
+                               type="text" placeholder="{{ t.ph_search_matter or 'Filter matters…' }}" autocomplete="off">
+                        <div class="selector-list" id="t1-matter-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="note-group">
+                <label for="t1-note">{{ t.lbl_timer_note or 'Note (optional)' }}</label>
+                <input type="text" id="t1-note" placeholder="{{ t.ph_timer_note or 'e.g. Client call, drafting…' }}" maxlength="300">
+            </div>
+            <div class="timer-controls">
+                <button class="btn-start" id="t1-btn-start" onclick="timers[0].start()">▶ {{ t.btn_start_timer or 'Start' }}</button>
+                <button class="btn-pause"  id="t1-btn-pause"  onclick="timers[0].pause()" disabled>⏸ {{ t.btn_pause_timer or 'Pause' }}</button>
+                <button class="btn-stop"   id="t1-btn-stop"   onclick="timers[0].stop()" disabled>■ {{ t.btn_stop_save or 'Stop &amp; Save' }}</button>
+            </div>
+            <div class="timer-message" id="t1-message"></div>
+        </div>
+
+        <!-- Timer 2 -->
+        <div class="timer-card">
+            <div class="timer-card-title">{{ t.timer_card_title or 'Timer' }} 2</div>
+            <div class="timer-display" id="t2-display">00:00:00</div>
+            <div id="t2-selection-area" class="timer-selection-area">
+                <div class="selection-badge" id="t2-selection-badge">
+                    <span class="badge-clear" id="t2-badge-clear" title="{{ t.tooltip_change_selection or 'Change selection' }}">&times;</span>
+                    <span class="badge-text" id="t2-badge-text"></span>
+                </div>
+                <div class="matter-info" id="t2-matter-info">
+                    <div class="info-client" id="t2-info-client-name"></div>
+                    <div class="info-desc" id="t2-info-matter-desc"></div>
+                </div>
+                <div class="selector-steps" id="t2-step-client">
+                    <div class="selector-step">
+                        <div class="selector-step-label">{{ t.lbl_step_client or 'Step 1 – Select a Client' }}</div>
+                        <input class="selector-search" id="t2-client-search"
+                               type="text" placeholder="{{ t.ph_search_client or 'Filter clients…' }}" autocomplete="off">
+                        <div class="selector-list" id="t2-client-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="selector-steps" id="t2-step-matter" style="display:none;">
+                    <div class="selector-step">
+                        <div class="selector-step-label" id="t2-step-matter-label">{{ t.lbl_step_matter or 'Step 2 – Select a Matter' }}</div>
+                        <input class="selector-search" id="t2-matter-search"
+                               type="text" placeholder="{{ t.ph_search_matter or 'Filter matters…' }}" autocomplete="off">
+                        <div class="selector-list" id="t2-matter-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="note-group">
+                <label for="t2-note">{{ t.lbl_timer_note or 'Note (optional)' }}</label>
+                <input type="text" id="t2-note" placeholder="{{ t.ph_timer_note or 'e.g. Client call, drafting…' }}" maxlength="300">
+            </div>
+            <div class="timer-controls">
+                <button class="btn-start" id="t2-btn-start" onclick="timers[1].start()">▶ {{ t.btn_start_timer or 'Start' }}</button>
+                <button class="btn-pause"  id="t2-btn-pause"  onclick="timers[1].pause()" disabled>⏸ {{ t.btn_pause_timer or 'Pause' }}</button>
+                <button class="btn-stop"   id="t2-btn-stop"   onclick="timers[1].stop()" disabled>■ {{ t.btn_stop_save or 'Stop &amp; Save' }}</button>
+            </div>
+            <div class="timer-message" id="t2-message"></div>
+        </div>
+
+        <!-- Timer 3 -->
+        <div class="timer-card">
+            <div class="timer-card-title">{{ t.timer_card_title or 'Timer' }} 3</div>
+            <div class="timer-display" id="t3-display">00:00:00</div>
+            <div id="t3-selection-area" class="timer-selection-area">
+                <div class="selection-badge" id="t3-selection-badge">
+                    <span class="badge-clear" id="t3-badge-clear" title="{{ t.tooltip_change_selection or 'Change selection' }}">&times;</span>
+                    <span class="badge-text" id="t3-badge-text"></span>
+                </div>
+                <div class="matter-info" id="t3-matter-info">
+                    <div class="info-client" id="t3-info-client-name"></div>
+                    <div class="info-desc" id="t3-info-matter-desc"></div>
+                </div>
+                <div class="selector-steps" id="t3-step-client">
+                    <div class="selector-step">
+                        <div class="selector-step-label">{{ t.lbl_step_client or 'Step 1 – Select a Client' }}</div>
+                        <input class="selector-search" id="t3-client-search"
+                               type="text" placeholder="{{ t.ph_search_client or 'Filter clients…' }}" autocomplete="off">
+                        <div class="selector-list" id="t3-client-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="selector-steps" id="t3-step-matter" style="display:none;">
+                    <div class="selector-step">
+                        <div class="selector-step-label" id="t3-step-matter-label">{{ t.lbl_step_matter or 'Step 2 – Select a Matter' }}</div>
+                        <input class="selector-search" id="t3-matter-search"
+                               type="text" placeholder="{{ t.ph_search_matter or 'Filter matters…' }}" autocomplete="off">
+                        <div class="selector-list" id="t3-matter-list">
+                            <div class="selector-empty">{{ t.msg_loading_logs or 'Loading…' }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="note-group">
+                <label for="t3-note">{{ t.lbl_timer_note or 'Note (optional)' }}</label>
+                <input type="text" id="t3-note" placeholder="{{ t.ph_timer_note or 'e.g. Client call, drafting…' }}" maxlength="300">
+            </div>
+            <div class="timer-controls">
+                <button class="btn-start" id="t3-btn-start" onclick="timers[2].start()">▶ {{ t.btn_start_timer or 'Start' }}</button>
+                <button class="btn-pause"  id="t3-btn-pause"  onclick="timers[2].pause()" disabled>⏸ {{ t.btn_pause_timer or 'Pause' }}</button>
+                <button class="btn-stop"   id="t3-btn-stop"   onclick="timers[2].stop()" disabled>■ {{ t.btn_stop_save or 'Stop &amp; Save' }}</button>
+            </div>
+            <div class="timer-message" id="t3-message"></div>
+        </div>
+    </div><!-- /timers-grid -->
+</div>
+
+<script>
+// ── Localization strings (injected from server) ───────────────────────────────
+const TIMER_MSG_SELECT_MATTER = {{ (t.msg_select_client_matter or 'Please select a client and matter before starting the timer.') | tojson }};
+const TIMER_MSG_NO_TIME = {{ (t.msg_timer_req or 'Timer stopped before recording any time.') | tojson }};
+const TIMER_MSG_SAVED = {{ (t.msg_timer_saved or 'Time saved successfully!') | tojson }};
+const TIMER_MSG_ERROR = {{ (t.msg_timer_error or 'Error saving time entry. Please try again.') | tojson }};
+const TIMER_MSG_ALREADY_RUNNING = {{ (t.msg_timer_already_running or 'A timer is already running. Stop it before starting a new one.') | tojson }};
+const TIMER_MSG_NO_CLIENTS = {{ (t.msg_no_results or 'No clients found.') | tojson }};
+const TIMER_MSG_NO_MATTERS = {{ (t.msg_no_results or 'No matters found.') | tojson }};
+const TIMER_STEP2_PREFIX = {{ (t.lbl_step_matter or 'Step 2 – Select a Matter') | tojson }};
+const TIMER_BTN_START_LABEL   = '\u25b6 ' + {{ (t.btn_start_timer or 'Start') | tojson }};
+const TIMER_BTN_RESUME_LABEL  = '\u25b6 ' + {{ (t.btn_resume_timer or 'Resume') | tojson }};
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function formatTime(s) {
+    return pad(Math.floor(s / 3600)) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
+}
+function escHtml(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function buildMatterLabel(m) {
+    return m.client_number + ' \u2013 ' + m.matter_number +
+        (m.matter_description ? ' \u2013 ' + m.matter_description : '');
+}
+function filterList(items, q) {
+    if (!q) return items;
+    q = q.toLowerCase();
+    return items.filter(function (item) {
+        return (
+            (item.client_name        || '').toLowerCase().includes(q) ||
+            (item.client_number      || '').toLowerCase().includes(q) ||
+            (item.matter_number      || '').toLowerCase().includes(q) ||
+            (item.matter_description || '').toLowerCase().includes(q)
+        );
+    });
+}
+
+// ── Shared client cache (fetched once for all timers) ─────────────────────────
+var sharedClients = null;
+var sharedClientsCallbacks = [];
+
+function getClients(cb) {
+    if (sharedClients !== null) { cb(sharedClients); return; }
+    sharedClientsCallbacks.push(cb);
+    if (sharedClientsCallbacks.length > 1) return; // already fetching
+    fetch(SCRIPT_ROOT + '/api/timer/clients')
+        .then(function (r) { return r.json(); })
+        .then(function (clients) {
+            sharedClients = clients;
+            sharedClientsCallbacks.forEach(function (fn) { fn(clients); });
+            sharedClientsCallbacks = [];
+        })
+        .catch(function () {
+            sharedClients = [];
+            sharedClientsCallbacks.forEach(function (fn) { fn([]); });
+            sharedClientsCallbacks = [];
+        });
+}
+
+// ── Timer factory ─────────────────────────────────────────────────────────────
+function createTimer(prefix) {
+    var p = prefix + '-';
+    var timerInterval    = null;
+    var startTime        = null;
+    var elapsedSeconds   = 0;
+    var selectedClientId = null;
+    var selectedMatterId = null;
+    var selectedLabel    = '';
+    var selectedMatterInfo = null;
+    var allClients       = [];
+    var allMatters       = [];
+    var clientSearchTimeout = null;
+    var matterSearchTimeout = null;
+    var _running         = false;
+    var _paused          = false;
+    var _storageKey      = 'lawledger_timer_' + prefix;
+    var _tickCount       = 0;  // used to throttle localStorage saves
+
+    function $(id) { return document.getElementById(p + id); }
+
+    function showMessage(msg, type) {
+        var el = $('message');
+        el.textContent = msg;
+        el.className = 'timer-message ' + type;
+        el.style.display = 'block';
+    }
+
+    // ── localStorage persistence ──────────────────────────────────────────────
+    function saveState() {
+        try {
+            localStorage.setItem(_storageKey, JSON.stringify({
+                running: _running,
+                paused: _paused,
+                startTime: startTime,
+                elapsedSeconds: elapsedSeconds,
+                selectedClientId: selectedClientId,
+                selectedMatterId: selectedMatterId,
+                selectedLabel: selectedLabel,
+                selectedMatterInfo: selectedMatterInfo,
+                note: ($('note') && $('note').value) || ''
+            }));
+        } catch (e) { /* ignore storage errors */ }
+    }
+
+    function clearState() {
+        try { localStorage.removeItem(_storageKey); } catch (e) { /* ignore */ }
+    }
+
+    function restoreState() {
+        var raw;
+        try { raw = localStorage.getItem(_storageKey); } catch (e) { return; }
+        if (!raw) return;
+        var state;
+        try { state = JSON.parse(raw); } catch (e) { clearState(); return; }
+        if (!state || !state.selectedMatterId) { clearState(); return; }
+
+        selectedClientId   = state.selectedClientId;
+        selectedMatterId   = state.selectedMatterId;
+        selectedLabel      = state.selectedLabel || '';
+        selectedMatterInfo = state.selectedMatterInfo || null;
+        elapsedSeconds     = state.elapsedSeconds || 0;
+
+        // Restore UI: show badge and matter-info
+        if (selectedLabel) {
+            $('badge-text').textContent = selectedLabel;
+            $('selection-badge').style.display = 'block';
+        }
+        if (selectedMatterInfo) {
+            $('info-client-name').textContent = selectedMatterInfo.client_name || '';
+            $('info-matter-desc').textContent = selectedMatterInfo.matter_description || selectedMatterInfo.matter_number || '';
+            $('matter-info').style.display = 'block';
+        }
+        $('step-client').style.display = 'none';
+        $('step-matter').style.display = 'none';
+        if (state.note) $('note').value = state.note;
+        $('display').textContent = formatTime(elapsedSeconds);
+
+        if (state.running && state.startTime) {
+            // Recalculate elapsed time accounting for time spent away from page
+            elapsedSeconds = Math.floor((Date.now() - state.startTime) / 1000);
+            $('display').textContent = formatTime(elapsedSeconds);
+            // Resume timer
+            startTime = state.startTime;
+            _tickCount = 0;
+            timerInterval = setInterval(function () {
+                elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                $('display').textContent = formatTime(elapsedSeconds);
+                _tickCount++;
+                if (_tickCount % 20 === 0) saveState(); // save ~every 10 s
+            }, 500);
+            $('display').classList.add('running');
+            $('btn-start').disabled = true;
+            $('btn-pause').disabled = false;
+            $('btn-stop').disabled = false;
+            $('badge-clear').style.pointerEvents = 'none';
+            $('badge-clear').style.opacity = '0.3';
+            _running = true;
+            // Notify other timers that one is now running
+            if (typeof window._refreshTimerLocks === 'function') window._refreshTimerLocks();
+        } else if (state.paused) {
+            // Restore paused state
+            _paused = true;
+            $('display').classList.remove('running');
+            $('display').classList.add('paused');
+            $('btn-start').disabled = false;
+            $('btn-start').textContent = TIMER_BTN_RESUME_LABEL;
+            $('btn-pause').disabled = true;
+            $('btn-stop').disabled = false;
+            $('badge-clear').style.pointerEvents = 'none';
+            $('badge-clear').style.opacity = '0.3';
+        }
+    }
+
+    function isRunning() { return _running; }
+    function isPaused()   { return _paused; }
+
+    function start() {
+        if (!selectedMatterId) {
+            showMessage(TIMER_MSG_SELECT_MATTER, 'error');
+            return;
+        }
+        // If resuming from paused state, skip the "already running" check
+        if (!_paused) {
+            // Enforce one-timer-at-a-time: block start if another timer is already running
+            if (typeof window._anyTimerRunning === 'function' && window._anyTimerRunning()) {
+                showMessage(TIMER_MSG_ALREADY_RUNNING, 'error');
+                return;
+            }
+        }
+        _paused = false;
+        startTime = Date.now() - elapsedSeconds * 1000;
+        _running = true;
+        _tickCount = 0;
+        timerInterval = setInterval(function () {
+            elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+            $('display').textContent = formatTime(elapsedSeconds);
+            _tickCount++;
+            if (_tickCount % 20 === 0) saveState(); // save ~every 10 s (20 × 500 ms)
+        }, 500);
+        $('display').classList.remove('paused');
+        $('display').classList.add('running');
+        $('btn-start').disabled = true;
+        $('btn-start').textContent = TIMER_BTN_START_LABEL;
+        $('btn-pause').disabled = false;
+        $('btn-stop').disabled = false;
+        // Keep selection area visible (showing the badge) so the card size does not change.
+        // Disable the badge-clear button while the timer is running.
+        $('badge-clear').style.pointerEvents = 'none';
+        $('badge-clear').style.opacity = '0.3';
+        $('message').style.display = 'none';
+        saveState();
+        // Disable start buttons on the other timers
+        if (typeof window._refreshTimerLocks === 'function') window._refreshTimerLocks();
+    }
+
+    function pause() {
+        if (!_running || _paused) return;
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        _running = false;
+        _paused = true;
+        $('display').classList.remove('running');
+        $('display').classList.add('paused');
+        $('btn-start').disabled = false;
+        $('btn-start').textContent = TIMER_BTN_RESUME_LABEL;
+        $('btn-pause').disabled = true;
+        $('btn-stop').disabled = false;
+        // Re-enable start buttons on the other timers (paused timer is no longer "running")
+        if (typeof window._refreshTimerLocks === 'function') window._refreshTimerLocks();
+        saveState();
+    }
+
+    function resetSelection() {
+        // Reset all selection state for this timer: clears the selected client and
+        // matter, hides the badge and matter-info panels, re-shows the client step,
+        // clears search inputs, and re-renders the client list.
+        selectedClientId   = null;
+        selectedMatterId   = null;
+        selectedLabel      = '';
+        selectedMatterInfo = null;
+        $('selection-badge').style.display = 'none';
+        $('matter-info').style.display = 'none';
+        $('step-client').style.display = '';
+        $('step-matter').style.display = 'none';
+        $('client-search').value = '';
+        $('matter-search').value = '';
+        $('badge-clear').style.pointerEvents = '';
+        $('badge-clear').style.opacity = '';
+        renderClientList(allClients);
+    }
+
+    function stop() {
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        _running = false;
+        _paused = false;
+        $('display').classList.remove('running');
+        $('display').classList.remove('paused');
+        $('btn-start').disabled = false;
+        $('btn-pause').disabled = true;
+        $('btn-stop').disabled = true;
+        // Re-enable start buttons on the other timers
+        if (typeof window._refreshTimerLocks === 'function') window._refreshTimerLocks();
+
+        if (elapsedSeconds < 1) {
+            showMessage(TIMER_MSG_NO_TIME, 'error');
+            $('btn-start').textContent = TIMER_BTN_START_LABEL;
+            clearState();
+            resetSelection();
+            return;
+        }
+
+        var note = $('note').value.trim();
+        fetch(SCRIPT_ROOT + '/api/timer/time-entry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                matter_id: selectedMatterId,
+                duration_seconds: elapsedSeconds,
+                note: note || null
+            })
+        })
+        .then(function (r) {
+            if (!r.ok) { return r.json().then(function (e) { throw e; }); }
+            return r.json();
+        })
+        .then(function () {
+            var h = (Math.ceil(elapsedSeconds / 360) / 10).toFixed(1);
+            showMessage(TIMER_MSG_SAVED + ' ' + h + 'h — ' + selectedLabel, 'success');
+            elapsedSeconds = 0;
+            $('display').textContent = '00:00:00';
+            $('btn-start').textContent = TIMER_BTN_START_LABEL;
+            $('note').value = '';
+            clearState();
+            resetSelection();
+        })
+        .catch(function (e) {
+            // Keep state in localStorage so user can try again after a page reload
+            saveState();
+            showMessage((e && e.error) ? e.error : TIMER_MSG_ERROR, 'error');
+            // Re-enable badge-clear on error so the user can still change the matter
+            $('badge-clear').style.pointerEvents = '';
+            $('badge-clear').style.opacity = '';
+        });
+    }
+
+    function renderClientList(clients) {
+        var list = $('client-list');
+        if (!clients.length) {
+            list.innerHTML = '<div class="selector-empty">' + TIMER_MSG_NO_CLIENTS + '</div>';
+            return;
+        }
+        list.innerHTML = '';
+        clients.forEach(function (c) {
+            var div = document.createElement('div');
+            div.className = 'selector-item' + (c.id === selectedClientId ? ' active' : '');
+            div.innerHTML = '<strong>' + escHtml(c.client_number) + '</strong> \u2013 ' + escHtml(c.client_name);
+            div.addEventListener('click', function () { selectClient(c); });
+            list.appendChild(div);
+        });
+    }
+
+    function selectClient(client) {
+        selectedClientId = client.id;
+        selectedMatterId = null;
+        selectedLabel    = '';
+        selectedMatterInfo = null;
+        renderClientList(filterList(allClients, $('client-search').value));
+        $('step-matter-label').textContent =
+            TIMER_STEP2_PREFIX + ' \u2014 ' + client.client_number + ' / ' + client.client_name;
+        $('step-matter').style.display = '';
+        $('matter-search').value = '';
+        $('selection-badge').style.display = 'none';
+        loadMatters(client.id);
+        $('step-matter').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function loadMatters(clientId) {
+        $('matter-list').innerHTML = '<div class="selector-empty">' + (typeof MSG_LOADING !== 'undefined' ? MSG_LOADING : 'Loading\u2026') + '</div>';
+        fetch(SCRIPT_ROOT + '/api/timer/matters?client_id=' + clientId)
+            .then(function (r) { return r.json(); })
+            .then(function (matters) {
+                allMatters = matters;
+                renderMatterList(matters);
+            })
+            .catch(function () {
+                $('matter-list').innerHTML = '<div class="selector-empty">' + TIMER_MSG_ERROR + '</div>';
+            });
+    }
+
+    function renderMatterList(matters) {
+        var list = $('matter-list');
+        if (!matters.length) {
+            list.innerHTML = '<div class="selector-empty">' + TIMER_MSG_NO_MATTERS + '</div>';
+            return;
+        }
+        list.innerHTML = '';
+        matters.forEach(function (m) {
+            var div = document.createElement('div');
+            div.className = 'selector-item' + (m.id === selectedMatterId ? ' active' : '');
+            div.innerHTML = '<strong>' + escHtml(m.matter_number) + '</strong>' +
+                (m.matter_description
+                    ? ' \u2014 <span style="color:#555;">' + escHtml(m.matter_description) + '</span>'
+                    : '') +
+                '<div class="item-sub">' + escHtml(m.client_number) + ' / ' + escHtml(m.client_name) + '</div>';
+            div.addEventListener('click', function () { selectMatter(m); });
+            list.appendChild(div);
+        });
+    }
+
+    function selectMatter(matter) {
+        selectedMatterId = matter.id;
+        selectedLabel = buildMatterLabel(matter);
+        selectedMatterInfo = {
+            client_name: matter.client_name,
+            matter_description: matter.matter_description,
+            matter_number: matter.matter_number
+        };
+        renderMatterList(filterList(allMatters, $('matter-search').value));
+        $('badge-text').textContent = selectedLabel;
+        $('selection-badge').style.display = 'block';
+        $('info-client-name').textContent = matter.client_name;
+        $('info-matter-desc').textContent = matter.matter_description || matter.matter_number;
+        $('matter-info').style.display = 'block';
+        $('step-client').style.display = 'none';
+        $('step-matter').style.display = 'none';
+        $('message').style.display = 'none';
+        saveState();
+    }
+
+    // Badge clear
+    $('badge-clear').addEventListener('click', function () {
+        selectedClientId   = null;
+        selectedMatterId   = null;
+        selectedLabel      = '';
+        selectedMatterInfo = null;
+        $('selection-badge').style.display = 'none';
+        $('matter-info').style.display = 'none';
+        $('step-client').style.display = '';
+        $('step-matter').style.display = 'none';
+        $('client-search').value = '';
+        $('matter-search').value = '';
+        renderClientList(allClients);
+        clearState();
+    });
+
+    // Search inputs
+    $('client-search').addEventListener('input', function () {
+        clearTimeout(clientSearchTimeout);
+        var q = this.value;
+        clientSearchTimeout = setTimeout(function () {
+            renderClientList(filterList(allClients, q));
+        }, 150);
+    });
+    $('matter-search').addEventListener('input', function () {
+        clearTimeout(matterSearchTimeout);
+        var q = this.value;
+        matterSearchTimeout = setTimeout(function () {
+            renderMatterList(filterList(allMatters, q));
+        }, 150);
+    });
+
+    // Init – load clients, then restore any saved state
+    getClients(function (clients) {
+        allClients = clients;
+        if (clients.length) {
+            renderClientList(clients);
+        } else {
+            $('client-list').innerHTML = '<div class="selector-empty">Could not load clients.</div>';
+        }
+        restoreState();
+    });
+
+    return { start: start, stop: stop, pause: pause, isRunning: isRunning, isPaused: isPaused };
+}
+
+var timers = [
+    createTimer('t1'),
+    createTimer('t2'),
+    createTimer('t3')
+];
+
+// Expose a global helper for the logout guard in base.html
+window._anyTimerRunning = function () {
+    return timers.some(function (t) { return t.isRunning(); });
+};
+
+// Disable/enable the start buttons of non-running timers based on whether any
+// timer is currently running.  Called after every start/stop action.
+window._refreshTimerLocks = function () {
+    var anyRunning = window._anyTimerRunning();
+    timers.forEach(function (timer, i) {
+        var prefix = 't' + (i + 1);
+        var startBtn = document.getElementById(prefix + '-btn-start');
+        if (!startBtn) return;
+        // Never disable the start button of the currently-running or paused timer
+        if (!timer.isRunning() && !timer.isPaused()) {
+            startBtn.disabled = anyRunning;
+            startBtn.style.opacity = anyRunning ? '0.4' : '';
+            startBtn.style.cursor = anyRunning ? 'not-allowed' : '';
+        }
+    });
+};
+
+// Apply lock state on page load in case a timer was restored from localStorage
+window._refreshTimerLocks();
+
+// Warn before browser navigation / tab close if a timer is running or paused
+window.addEventListener('beforeunload', function (e) {
+    var anyActive = timers.some(function (t) { return t.isRunning() || t.isPaused(); });
+    if (anyActive) {
+        e.preventDefault();
+        e.returnValue = 'A timer is still running or paused. Your time will be saved locally, but please stop and save it before leaving.';
+    }
+});
+</script>
+</body>
+</html>
+

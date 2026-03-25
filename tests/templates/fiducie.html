@@ -1,0 +1,822 @@
+{% extends "base.html" %}
+{% block title %}{{ t.nav_trust or 'Fiducie' }} - LawLedger{% endblock %}
+{% block content %}
+<!-- Page header -->
+<div class="page-header">
+    <h1>💼 {{ t.trust_title or 'Trust Accounting' }}
+        {% if dossier %}
+        — {{ t.lbl_client_num or 'Client' }}: {{ dossier.client.client_number if dossier.client else '' }}
+        / {{ t.matter_number or 'Matter' }}: {{ dossier.matter_number }}
+        {% endif %}
+    </h1>
+    {% if dossier %}
+    <div class="page-header-actions">
+        <span id="balance-display" style="font-size:1rem;font-weight:600;padding:6px 12px;border-radius:4px;background:var(--surface-card);border:1px solid var(--border);{% if solde > 0 %}color:var(--success);{% else %}color:var(--danger);{% endif %}">
+            {{ t.trust_balance or 'BALANCE' }}: <span id="balance-amount">{{ "{:,.2f}".format(solde) }}</span>$
+        </span>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Client / Matter selector + Date filters -->
+<div style="background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:16px;">
+    <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_select_client or 'Client' }}</label>
+            <select id="fid-client-select" onchange="fidLoadMatters()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <option value="">{{ t.ph_select_client or '— Sélectionner un client —' }}</option>
+                {% for c in clients %}
+                <option value="{{ c.id }}" {% if dossier and dossier.client_id == c.id %}selected{% endif %}>{{ c.client_number }} – {{ c.client_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="flex:1;min-width:200px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_select_matter or 'Dossier' }}</label>
+            <select id="fid-matter-select" onchange="fidGoToMatter()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <option value="">{{ t.ph_select_matter or '— Sélectionner un dossier —' }}</option>
+                {% if dossier %}
+                <option value="{{ dossier.id }}" selected>{{ dossier.matter_number }}{% if dossier.matter_description %} – {{ dossier.matter_description }}{% endif %}</option>
+                {% endif %}
+            </select>
+        </div>
+        <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_date_from or 'Du' }}</label>
+            <input type="date" id="fid-date-from" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+        </div>
+        <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_date_to or 'Au' }}</label>
+            <input type="date" id="fid-date-to" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+        </div>
+        <div>
+            <button class="btn btn-secondary" onclick="showTrustSummary()" style="padding:8px 14px;font-size:14px;">
+                📊 {{ t.btn_trust_summary or 'Rapport fiducie' }}
+            </button>
+        </div>
+        <div>
+            <button class="btn btn-secondary" onclick="showSummaryByAccount()" style="padding:8px 14px;font-size:14px;">
+                📑 {{ t.btn_trust_summary_by_account or 'Sommaire par code comptable' }}
+            </button>
+        </div>
+        <div>
+            <button class="btn btn-secondary" onclick="showReconciliationModal()" style="padding:8px 14px;font-size:14px;">
+                🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire' }}
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Low balance warning banner -->
+{% if dossier and solde < 500 and solde >= 0 %}
+<div class="alert alert-warning" id="low-balance-banner" style="background:#fff3cd;border:1px solid #ffc107;color:#856404;padding:12px 16px;border-radius:4px;margin-bottom:16px;">
+    ⚠️ {{ t.msg_low_balance_warning or 'Avertissement : Le solde en fiducie est inférieur à 500 $.' }}
+</div>
+{% endif %}
+
+{% if dossier %}
+<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+    <!-- Input Form -->
+    <div style="flex:0 0 340px;min-width:280px;max-width:400px;background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
+        <div style="padding:12px 16px;background:var(--accent);color:#fff;">
+            <h6 style="margin:0;font-weight:600;font-size:13px;">{{ t.card_new_entry or 'New Entry' }}</h6>
+            {% if dossier %}
+            <small style="opacity:0.85;font-size:11px;">
+                {{ t.lbl_client_num or 'Client' }}: {{ dossier.client.client_number if dossier.client else '' }}
+                — {{ dossier.matter_number }}{% if dossier.matter_description %} ({{ dossier.matter_description }}){% endif %}
+            </small>
+            {% endif %}
+        </div>
+        <div style="padding:16px;">
+            <div id="form-error" class="alert alert-error" style="display:none;margin-bottom:12px;"></div>
+            <form id="fiducie-form">
+                <div class="form-group">
+                    <label>{{ t.lbl_trans_type or 'Transaction Type' }}</label>
+                    <select name="type_trans" id="trans-type" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" required>
+                        <option value="DEPOT">{{ t.opt_deposit or '📥 DÉPÔT (Provision)' }}</option>
+                        <option value="RETRAIT">{{ t.opt_withdrawal or '📤 RETRAIT (Paiement/Honoraires)' }}</option>
+                        <option value="REMBOURSEMENT">{{ t.opt_refund or '💸 REMBOURSEMENT (Au client)' }}</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{{ t.lbl_amount or 'Amount ($)' }}</label>
+                    <input type="number" step="0.01" name="montant" id="montant" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" placeholder="0.00" required min="0.01">
+                </div>
+                <div class="form-group">
+                    <label>{{ t.lbl_payee_payer or 'Payee / Payer' }}</label>
+                    <input type="text" name="beneficiaire" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" placeholder="{{ t.ph_full_name or 'Full Name' }}" required>
+                </div>
+                <div class="form-group">
+                    <label>{{ t.lbl_motif or 'Description / Purpose' }}</label>
+                    <textarea name="motif" rows="2" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" placeholder="{{ t.ph_motif_trust or 'e.g. Initial retainer...' }}"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>{{ t.lbl_bank_ref or 'Bank Ref. / Check #' }}</label>
+                    <input type="text" name="ref_bancaire" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </div>
+                <div class="form-group" id="invoice-number-group" style="display:none;">
+                    <label>{{ t.lbl_invoice_number or 'No de facture' }}</label>
+                    <input type="text" name="invoice_number" id="fid-invoice-number" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;" placeholder="{{ t.ph_invoice_number or 'Ex: INV-001-001-ABC123' }}">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">{{ t.btn_post_entry or 'Post Entry' }}</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Ledger Table -->
+    <div style="flex:1;min-width:0;background:var(--surface-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
+        <div style="padding:12px 16px;background:var(--surface-alt);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <h6 style="margin:0;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);">
+                {{ t.lbl_client_num or 'Client' }}: {{ dossier.client.client_number if dossier.client else '' }}
+                — {{ t.lbl_matter_ledger or 'Dossier' }}: {% if dossier.matter_description %}{{ dossier.matter_description }} — {% endif %}{{ dossier.matter_number }}
+            </h6>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-sm btn-secondary" onclick="window.location.href=SCRIPT_ROOT + '/fiducie/{{ dossier.id }}/print'">{{ t.btn_print_statement or '🖨️ Imprimer l\'état de compte' }}</button>
+                <button class="btn btn-sm btn-secondary" onclick="openPrintRangeModal()">{{ t.btn_print_range or '🖨️ Imprimer par date' }}</button>
+                <button class="btn btn-sm btn-secondary" onclick="exportFiducie()">{{ t.btn_export_fiducie or '📥 Exporter (CSV)' }}</button>
+            </div>
+        </div>
+        <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px);padding-top:0;border:none;border-radius:0;box-shadow:none;">
+            <table id="ledger-table" style="min-width:700px;">
+                <thead>
+                    <tr>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_date or 'Date' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_payee_desc or 'Payee/Description' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_ref or 'Ref.' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_invoice_number or 'No Facture' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_deposit or 'Deposit' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;text-align:right;">{{ t.th_withdrawal or 'Withdrawal' }}</th>
+                        <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_created_by or 'Created By' }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for trans in transactions %}
+                    <tr {% if trans.est_annulee %}style="text-decoration: line-through; color: #ccc;"{% endif %}>
+                        <td>{{ trans.date_trans.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            <strong>{{ trans.beneficiaire or '' }}</strong><br>
+                            <small style="color:var(--text-secondary);">{{ trans.motif or '' }}</small>
+                        </td>
+                        <td>{{ trans.ref_bancaire or '' }}</td>
+                        <td>{% if trans.invoice_number %}<a href="{{ url_for('print_invoice_by_number', invoice_number=trans.invoice_number) }}" style="color:#0078d4;text-decoration:underline;">{{ trans.invoice_number }}</a>{% endif %}</td>
+                        <td style="text-align:right;color:var(--success);">{% if trans.type_trans == 'DEPOT' %}+{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
+                        <td style="text-align:right;color:var(--danger);">{% if trans.type_trans == 'RETRAIT' %}-{{ "{:,.2f}".format(trans.montant) }}${% endif %}</td>
+                        <td>{{ trans.created_by or '' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary);">
+            {{ t.lbl_client_num or 'Client No.' }}: <strong>{{ dossier.client.client_number if dossier.client else '' }}</strong>
+            &nbsp;|&nbsp;
+            {{ t.lbl_dossier_number or 'No de dossier' }}: <strong>{{ dossier.matter_number }}</strong>
+        </div>
+    </div>
+</div>
+{% else %}
+<p style="margin-top:30px;text-align:center;color:var(--text-secondary);font-size:15px;">{{ t.msg_select_client_matter or 'Sélectionnez un client et un dossier ci-dessus pour accéder au compte en fiducie.' }}</p>
+{% endif %}
+
+<!-- Trust Summary Report Modal -->
+<div id="trust-summary-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.5);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:1200px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+        <!-- Sticky header row (title + close) -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">📊 {{ t.btn_trust_summary or 'Rapport de fiducie' }}</h2>
+            <span onclick="closeTrustSummary()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <!-- Sticky filter toolbar -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;padding:12px 24px;align-items:flex-end;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#fff;">
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_filter_client or 'Client' }}</label>
+                <select id="summary-client-filter" onchange="summaryLoadMatters()" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;min-width:180px;">
+                    <option value="">{{ t.lbl_all_clients or '— Tous les clients —' }}</option>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}">{{ c.client_number }} – {{ c.client_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_filter_matter or 'Dossier' }}</label>
+                <select id="summary-matter-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;min-width:180px;">
+                    <option value="">{{ t.lbl_all_matters or '— Tous les dossiers —' }}</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_from or 'Du' }}</label>
+                <input type="date" id="summary-date-from" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_to or 'Au' }}</label>
+                <input type="date" id="summary-date-to" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadTrustSummary()">{{ t.btn_filter_action or 'Filtrer' }}</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨 {{ t.btn_print or 'Imprimer' }}</button>
+        </div>
+        <!-- Scrollable result area -->
+        <div id="trust-summary-content" style="overflow-y:auto;padding:16px 24px;flex:1 1 auto;">
+            <p style="color:#888;">{{ t.msg_select_filters or 'Sélectionnez des filtres et cliquez sur Filtrer.' }}</p>
+        </div>
+    </div>
+</div>
+
+<!-- Trust Summary by Account Modal -->
+<div id="trust-account-modal" style="display:none;position:fixed;inset:0;z-index:1100;background:rgba(0,0,0,.5);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">📑 {{ t.btn_trust_summary_by_account or 'Sommaire par code comptable' }}</h2>
+            <span onclick="closeSummaryByAccount()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;padding:12px 24px;align-items:flex-end;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#fff;">
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_filter_client or 'Client' }}</label>
+                <select id="acct-client-filter" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;min-width:180px;">
+                    <option value="">{{ t.lbl_all_clients or '— Tous les clients —' }}</option>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}">{{ c.client_number }} – {{ c.client_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_from or 'Du' }}</label>
+                <input type="date" id="acct-date-from" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <div>
+                <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_date_to or 'Au' }}</label>
+                <input type="date" id="acct-date-to" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadSummaryByAccount()">{{ t.btn_filter_action or 'Filtrer' }}</button>
+        </div>
+        <div id="trust-account-content" style="overflow-y:auto;padding:16px 24px;flex:1 1 auto;">
+            <p style="color:#888;">{{ t.msg_select_filters or 'Sélectionnez des filtres et cliquez sur Filtrer.' }}</p>
+        </div>
+    </div>
+</div>
+
+
+{% if dossier %}
+<div id="print-range-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);">
+    <div style="background:#fff;border-radius:8px;padding:24px;width:90%;max-width:420px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);">
+        <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+            <span>{{ t.modal_print_range or 'Imprimer par période' }}</span>
+            <span onclick="closePrintRangeModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+        </h2>
+        <div class="form-group">
+            <label>{{ t.lbl_date_from_print or 'Du :' }}</label>
+            <input type="date" id="print-date-from" class="form-control" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+            <label>{{ t.lbl_date_to_print or 'Au :' }}</label>
+            <input type="date" id="print-date-to" class="form-control" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+            <button class="btn btn-primary" onclick="printWithDateRange()">{{ t.btn_print_confirm or 'Imprimer' }}</button>
+            <button class="btn btn-secondary" onclick="closePrintRangeModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+<!-- Trust Reconciliation Modal -->
+<div id="reconciliation-modal" style="display:none;position:fixed;inset:0;z-index:1200;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:900px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🏦 {{ t.title_trust_reconciliation or 'Rapprochement bancaire – Fiducie' }}</h2>
+            <span onclick="closeReconciliationModal()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <!-- New reconciliation form -->
+        <div style="padding:16px 24px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#f8f9fa;">
+            <h3 style="margin:0 0 12px;font-size:0.95rem;font-weight:600;">{{ t.btn_new_reconciliation or '+ Nouveau rapprochement' }}</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_reconciliation_date or 'Date du relevé' }}</label>
+                    <input type="date" id="rec-date" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_bank_balance or 'Solde bancaire (relevé)' }}</label>
+                    <input type="number" id="rec-bank-balance" step="0.01" min="0" placeholder="0.00"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:140px;">
+                </div>
+                <div style="flex:1;min-width:200px;">
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_reconciliation_notes or 'Notes' }}</label>
+                    <input type="text" id="rec-notes" placeholder="..."
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="saveReconciliation()">{{ t.btn_save_reconciliation or 'Enregistrer' }}</button>
+            </div>
+            <div id="rec-result" style="margin-top:10px;font-size:13px;display:none;"></div>
+        </div>
+        <!-- History -->
+        <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
+            <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_history or 'Historique' }}</h3>
+            <div id="rec-history-content">
+                <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Client/matter selector for the fiducie module
+async function fidLoadMatters() {
+    const clientId = document.getElementById('fid-client-select').value;
+    const matterSel = document.getElementById('fid-matter-select');
+    matterSel.innerHTML = '<option value="">{{ t.ph_select_matter or "— Sélectionner un dossier —" }}</option>';
+    if (!clientId) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters');
+        if (!res.ok) return;
+        const matters = await res.json();
+        // Add "all dossiers" option first
+        const allOpt = document.createElement('option');
+        allOpt.value = 'all';
+        allOpt.textContent = '{{ t.opt_all_matters or "— Tous les dossiers —" }}';
+        matterSel.appendChild(allOpt);
+        matters.forEach(function(m) {
+            var opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.matter_number + (m.matter_description ? ' – ' + m.matter_description : '');
+            matterSel.appendChild(opt);
+        });
+    } catch (e) {}
+}
+
+function fidGoToMatter() {
+    var matterId = document.getElementById('fid-matter-select').value;
+    if (!matterId) return;
+    // "All dossiers" – open the trust summary report for this client
+    if (matterId === 'all') {
+        var clientId = document.getElementById('fid-client-select').value;
+        if (clientId) {
+            document.getElementById('summary-client-filter').value = clientId;
+        }
+        showTrustSummary();
+        return;
+    }
+    var url = SCRIPT_ROOT + '/fiducie/' + matterId;
+    var dateFrom = document.getElementById('fid-date-from').value;
+    var dateTo = document.getElementById('fid-date-to').value;
+    var params = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (params.length) url += '?' + params.join('&');
+    window.location.href = url;
+}
+
+{% if dossier %}
+const MATTER_ID = {{ dossier.id }};
+let currentBalance = {{ solde | float }};
+const LOW_BALANCE_THRESHOLD = 500;
+
+const FID_STR = {
+    lowBalance:    {{ (t.msg_low_balance_warning or 'Avertissement : Le solde en fiducie est maintenant inférieur à 500 $.') | tojson }},
+    noFunds:       {{ (t.msg_insufficient_funds or 'Fonds insuffisants. Solde actuel : {balance}$. Retrait demandé : {amount}$.') | tojson }},
+    errGeneric:    {{ (t.msg_error or 'Une erreur est survenue') | tojson }},
+    balanceLabel:  {{ (t.trust_balance or 'Solde en Fiducie') | tojson }},
+};
+
+// Show/hide invoice number field based on transaction type
+document.getElementById('trans-type').addEventListener('change', function() {
+    var invoiceGroup = document.getElementById('invoice-number-group');
+    if (invoiceGroup) {
+        invoiceGroup.style.display = (this.value === 'RETRAIT') ? '' : 'none';
+        if (this.value !== 'RETRAIT') {
+            document.getElementById('fid-invoice-number').value = '';
+        }
+    }
+});
+
+// Handle form submission via AJAX for better validation UX
+document.getElementById('fiducie-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const errorDiv = document.getElementById('form-error');
+    errorDiv.style.display = 'none';
+
+    const type_trans = document.getElementById('trans-type').value;
+    const montant = parseFloat(document.getElementById('montant').value) || 0;
+
+    // Client-side withdrawal validation
+    if (type_trans === 'RETRAIT' && montant > currentBalance) {
+        const msg = FID_STR.noFunds
+            .replace('{balance}', currentBalance.toFixed(2))
+            .replace('{amount}', montant.toFixed(2));
+        errorDiv.textContent = '🚫 ' + msg;
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    const formData = new FormData(this);
+    const data = {
+        type_trans: type_trans,
+        montant: montant,
+        beneficiaire: formData.get('beneficiaire') || '',
+        motif: formData.get('motif') || '',
+        ref_bancaire: formData.get('ref_bancaire') || '',
+        invoice_number: formData.get('invoice_number') || '',
+    };
+
+    try {
+        const resp = await fetch(SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (!resp.ok) {
+            errorDiv.textContent = '🚫 ' + (result.error || FID_STR.errGeneric);
+            errorDiv.style.display = 'block';
+            return;
+        }
+        // Success: reload the page to update the ledger and balance
+        window.location.reload();
+    } catch (err) {
+        errorDiv.textContent = FID_STR.errGeneric;
+        errorDiv.style.display = 'block';
+    }
+});
+
+// Export fiducie transactions as CSV
+function exportFiducie() {
+    var dateFrom = document.getElementById('export-date-from') ? document.getElementById('export-date-from').value : '';
+    var dateTo = document.getElementById('export-date-to') ? document.getElementById('export-date-to').value : '';
+    var url = SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID + '/export';
+    var params = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (params.length) url += '?' + params.join('&');
+    window.location.href = url;
+}
+
+// Print by date range modal
+function openPrintRangeModal() {
+    document.getElementById('print-range-modal').style.display = 'block';
+}
+
+function closePrintRangeModal() {
+    document.getElementById('print-range-modal').style.display = 'none';
+}
+
+function printWithDateRange() {
+    var dateFrom = document.getElementById('print-date-from').value;
+    var dateTo = document.getElementById('print-date-to').value;
+    closePrintRangeModal();
+
+    // Navigate to the dedicated print template
+    var url = SCRIPT_ROOT + '/fiducie/{{ dossier.id }}/print';
+    var params = [];
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (params.length) url += '?' + params.join('&');
+    window.location.href = url;
+}
+
+// Pre-load matters for the currently selected client in the selector
+window.addEventListener('DOMContentLoaded', function() {
+    var clientSel = document.getElementById('fid-client-select');
+    if (clientSel && clientSel.value) {
+        fidLoadMatters().then(function() {
+            var matterSel = document.getElementById('fid-matter-select');
+            if (matterSel) matterSel.value = '{{ dossier.id }}';
+        });
+    }
+});
+{% endif %}
+
+// ── Trust Summary Report ────────────────────────────────────────────────────
+async function summaryLoadMatters() {
+    var clientId = document.getElementById('summary-client-filter').value;
+    var matterSel = document.getElementById('summary-matter-filter');
+    matterSel.innerHTML = '<option value="">{{ t.lbl_all_matters or "— Tous les dossiers —" }}</option>';
+    if (!clientId) return;
+    try {
+        var res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters');
+        if (!res.ok) return;
+        var matters = await res.json();
+        matters.forEach(function(m) {
+            var opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.matter_number + (m.matter_description ? ' – ' + m.matter_description : '');
+            matterSel.appendChild(opt);
+        });
+    } catch (e) {}
+}
+
+function showTrustSummary() {
+    // Pre-fill date inputs from the main filter if set
+    var dateFrom = document.getElementById('fid-date-from').value;
+    var dateTo = document.getElementById('fid-date-to').value;
+    if (dateFrom) document.getElementById('summary-date-from').value = dateFrom;
+    if (dateTo) document.getElementById('summary-date-to').value = dateTo;
+    {% if dossier %}
+    var clientSel = document.getElementById('fid-client-select');
+    if (clientSel && clientSel.value) {
+        document.getElementById('summary-client-filter').value = clientSel.value;
+        summaryLoadMatters().then(function() {
+            document.getElementById('summary-matter-filter').value = '{{ dossier.id }}';
+        });
+    }
+    {% endif %}
+    document.getElementById('trust-summary-modal').style.display = 'block';
+    loadTrustSummary();
+}
+
+function closeTrustSummary() {
+    document.getElementById('trust-summary-modal').style.display = 'none';
+}
+
+async function loadTrustSummary() {
+    var content = document.getElementById('trust-summary-content');
+    content.innerHTML = '<p style="color:#888;">{{ t.msg_loading or "Chargement..." }}</p>';
+    var clientId = document.getElementById('summary-client-filter').value;
+    var matterId = document.getElementById('summary-matter-filter').value;
+    var dateFrom = document.getElementById('summary-date-from').value;
+    var dateTo = document.getElementById('summary-date-to').value;
+    var url = SCRIPT_ROOT + '/api/fiducie/summary?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (matterId) url += 'matter_id=' + encodeURIComponent(matterId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+    try {
+        var res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var rows = await res.json();
+        renderTrustSummary(rows, dateFrom, dateTo);
+    } catch (err) {
+        content.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
+    }
+}
+
+// Shared th style for modal table — overrides global top:60px to top:0 (inside scroll container)
+var TH_STYLE = 'padding:6px 10px;border-bottom:2px solid #e0e0e0;background:#f3f3f3;position:sticky;top:0;z-index:3;';
+
+function renderTrustSummary(rows, dateFrom, dateTo) {
+    var content = document.getElementById('trust-summary-content');
+    if (!rows.length) {
+        content.innerHTML = '<p style="color:#888;">{{ t.msg_no_results or "Aucun résultat." }}</p>';
+        return;
+    }
+    var totalOpen = rows.reduce(function(s, r) { return s + r.opening_balance; }, 0);
+    var totalDep  = rows.reduce(function(s, r) { return s + r.period_deposits; }, 0);
+    var totalWith = rows.reduce(function(s, r) { return s + r.period_withdrawals; }, 0);
+    var totalClose= rows.reduce(function(s, r) { return s + r.closing_balance; }, 0);
+    var period = '';
+    if (dateFrom || dateTo) {
+        period = (dateFrom || '…') + ' → ' + (dateTo || '…');
+    }
+    var html = '';
+    if (period) html += '<p style="font-size:12px;color:#888;margin-bottom:8px;">{{ t.lbl_period or "Période" }}: ' + period + '</p>';
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px;">';
+    html += '<thead><tr style="background:#f3f3f3;">' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.lbl_client_num or "Numéro de client" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.matter_number or "No de dossier" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.trust_opening_balance or "Solde ouverture" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.th_deposit or "Dépôts" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.th_withdrawal or "Retraits" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.th_trust_invoice or "No Facture" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.trust_closing_balance or "Solde final" }}</th>' +
+        '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+        var rowStyle = r.closing_balance < 0 ? 'color:#c42b1c;' : '';
+        var invoiceLinks = '';
+        if (r.invoice_numbers && r.invoice_numbers.length) {
+            invoiceLinks = r.invoice_numbers.map(function(n) {
+                return '<a href="' + SCRIPT_ROOT + '/invoices/by-number/' + encodeURIComponent(n) + '/print" style="color:#0078d4;text-decoration:underline;white-space:nowrap;">' + escHtml(n) + '</a>';
+            }).join('<br>');
+        }
+        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+            '<td style="padding:6px 10px;">' + escHtml(r.client_number) + ' – ' + escHtml(r.client_name) + '</td>' +
+            '<td style="padding:6px 10px;">' + escHtml(r.matter_number) + (r.matter_description ? ' – ' + escHtml(r.matter_description) : '') + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;' + rowStyle + '">' + r.opening_balance.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:green;">+' + r.period_deposits.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:#c42b1c;">-' + r.period_withdrawals.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;font-size:12px;">' + invoiceLinks + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-weight:600;' + (r.closing_balance < 0 ? 'color:#c42b1c;' : 'color:green;') + '">' + r.closing_balance.toFixed(2) + '$</td>' +
+            '</tr>';
+    });
+    html += '<tr style="background:#f8f9fa;font-weight:700;border-top:2px solid #e0e0e0;">' +
+        '<td style="padding:6px 10px;" colspan="2">{{ t.lbl_total or "Total" }}</td>' +
+        '<td style="padding:6px 10px;text-align:right;">' + totalOpen.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;text-align:right;color:green;">+' + totalDep.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;text-align:right;color:#c42b1c;">-' + totalWith.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;"></td>' +
+        '<td style="padding:6px 10px;text-align:right;font-weight:700;">' + totalClose.toFixed(2) + '$</td>' +
+        '</tr>';
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Summary by Account Code ───────────────────────────────────────────────────
+function showSummaryByAccount() {
+    var dateFrom = document.getElementById('fid-date-from').value;
+    var dateTo = document.getElementById('fid-date-to').value;
+    if (dateFrom) document.getElementById('acct-date-from').value = dateFrom;
+    if (dateTo) document.getElementById('acct-date-to').value = dateTo;
+    {% if dossier %}
+    var clientSel = document.getElementById('fid-client-select');
+    if (clientSel && clientSel.value) {
+        document.getElementById('acct-client-filter').value = clientSel.value;
+    }
+    {% endif %}
+    document.getElementById('trust-account-modal').style.display = 'block';
+    loadSummaryByAccount();
+}
+
+function closeSummaryByAccount() {
+    document.getElementById('trust-account-modal').style.display = 'none';
+}
+
+async function loadSummaryByAccount() {
+    var content = document.getElementById('trust-account-content');
+    content.innerHTML = '<p style="color:#888;">{{ t.msg_loading or "Chargement..." }}</p>';
+    var clientId = document.getElementById('acct-client-filter').value;
+    var dateFrom = document.getElementById('acct-date-from').value;
+    var dateTo = document.getElementById('acct-date-to').value;
+    var url = SCRIPT_ROOT + '/api/fiducie/summary-by-account?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+    try {
+        var res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var rows = await res.json();
+        renderSummaryByAccount(rows, dateFrom, dateTo);
+    } catch (err) {
+        content.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
+    }
+}
+
+function renderSummaryByAccount(rows, dateFrom, dateTo) {
+    var content = document.getElementById('trust-account-content');
+    if (!rows.length) {
+        content.innerHTML = '<p style="color:#888;">{{ t.msg_no_results or "Aucun résultat." }}</p>';
+        return;
+    }
+    var period = '';
+    if (dateFrom || dateTo) period = (dateFrom || '…') + ' → ' + (dateTo || '…');
+    var html = '';
+    if (period) html += '<p style="font-size:12px;color:#888;margin-bottom:8px;">{{ t.lbl_period or "Période" }}: ' + period + '</p>';
+    var totalDebit = rows.reduce(function(s,r){return s+r.total_debit;},0);
+    var totalCredit = rows.reduce(function(s,r){return s+r.total_credit;},0);
+    html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px;">';
+    html += '<thead><tr style="background:#f3f3f3;">' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.lbl_trust_account_code or "Code comptable" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:left;">{{ t.lbl_trust_account_name or "Nom du compte" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_debit or "Débit" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_credit or "Crédit" }}</th>' +
+        '<th style="' + TH_STYLE + 'text-align:right;">{{ t.lbl_trust_net or "Net" }}</th>' +
+        '</tr></thead><tbody>';
+    rows.forEach(function(r) {
+        var netStyle = r.net < 0 ? 'color:#c42b1c;' : r.net > 0 ? 'color:green;' : '';
+        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+            '<td style="padding:6px 10px;"><span style="background:#eef3ff;color:#2c4a8a;padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600;">' + escHtml(r.account_code) + '</span></td>' +
+            '<td style="padding:6px 10px;">' + escHtml(r.account_name) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;">' + r.total_debit.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;">' + r.total_credit.toFixed(2) + '$</td>' +
+            '<td style="padding:6px 10px;text-align:right;font-weight:600;' + netStyle + '">' + r.net.toFixed(2) + '$</td>' +
+            '</tr>';
+    });
+    html += '<tr style="background:#f8f9fa;font-weight:700;border-top:2px solid #e0e0e0;">' +
+        '<td style="padding:6px 10px;" colspan="2">{{ t.lbl_total or "Total" }}</td>' +
+        '<td style="padding:6px 10px;text-align:right;">' + totalDebit.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;text-align:right;">' + totalCredit.toFixed(2) + '$</td>' +
+        '<td style="padding:6px 10px;"></td>' +
+        '</tr>';
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+}
+
+document.getElementById('trust-account-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeSummaryByAccount();
+});
+
+
+const REC_STR = {
+    balanced:   {{ (t.msg_reconciliation_balanced   or '✅ Compte réconcilié (différence = 0).') | tojson }},
+    unbalanced: {{ (t.msg_reconciliation_unbalanced or '⚠️ Différence détectée. Veuillez vérifier.') | tojson }},
+    saved:      {{ (t.msg_reconciliation_saved       or '✅ Rapprochement enregistré.') | tojson }},
+    noHistory:  {{ (t.msg_no_reconciliations         or 'Aucun rapprochement enregistré.') | tojson }},
+    glLabel:    {{ (t.lbl_gl_balance_trust           or 'Solde GL fiducie') | tojson }},
+    bankLabel:  {{ (t.lbl_bank_balance               or 'Solde bancaire (relevé)') | tojson }},
+    diffLabel:  {{ (t.lbl_reconciliation_difference  or 'Différence') | tojson }},
+    dateLabel:  {{ (t.lbl_reconciliation_date        or 'Date du relevé') | tojson }},
+    notesLabel: {{ (t.lbl_reconciliation_notes       or 'Notes') | tojson }},
+    deleteConfirm: {{ (t.lbl_confirm_delete or 'Supprimer ce rapprochement?') | tojson }},
+};
+
+function showReconciliationModal() {
+    // Default date to today
+    const today = new Date().toISOString().slice(0,10);
+    document.getElementById('rec-date').value = today;
+    document.getElementById('rec-bank-balance').value = '';
+    document.getElementById('rec-notes').value = '';
+    document.getElementById('rec-result').style.display = 'none';
+    loadReconciliationHistory();
+    document.getElementById('reconciliation-modal').style.display = 'block';
+}
+
+function closeReconciliationModal() {
+    document.getElementById('reconciliation-modal').style.display = 'none';
+}
+
+async function saveReconciliation() {
+    const stmtDate = document.getElementById('rec-date').value;
+    const bankBal  = document.getElementById('rec-bank-balance').value;
+    const notes    = document.getElementById('rec-notes').value;
+    if (!stmtDate || bankBal === '') {
+        const resultDiv = document.getElementById('rec-result');
+        resultDiv.style.display = 'block';
+        resultDiv.style.color = '#c0392b';
+        resultDiv.textContent = {{ (t.lbl_reconciliation_date or 'Date du relevé') | tojson }} + ' ' +
+            {{ (t.lbl_bank_balance or 'Solde bancaire') | tojson }} + ' — ' +
+            {{ (t.lbl_required or 'requis') | tojson }};
+        return;
+    }
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                statement_date: stmtDate,
+                bank_balance: parseFloat(bankBal),
+                notes: notes,
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || 'Error'); return; }
+        const resultDiv = document.getElementById('rec-result');
+        resultDiv.style.display = 'block';
+        const diff = data.difference;
+        if (Math.abs(diff) < 0.005) {
+            resultDiv.style.color = 'green';
+            resultDiv.textContent = REC_STR.balanced
+                + ' | ' + REC_STR.glLabel + ': $' + data.gl_balance.toFixed(2)
+                + ' | ' + REC_STR.bankLabel + ': $' + data.bank_balance.toFixed(2);
+        } else {
+            resultDiv.style.color = '#c0392b';
+            resultDiv.textContent = REC_STR.unbalanced
+                + ' | ' + REC_STR.diffLabel + ': $' + diff.toFixed(2)
+                + ' | GL: $' + data.gl_balance.toFixed(2)
+                + ' | Banque: $' + data.bank_balance.toFixed(2);
+        }
+        loadReconciliationHistory();
+    } catch(err) { console.error(err); }
+}
+
+async function loadReconciliationHistory() {
+    const cont = document.getElementById('rec-history-content');
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        if (!rows.length) {
+            cont.innerHTML = '<p style="color:#888;">' + escHtml(REC_STR.noHistory) + '</p>';
+            return;
+        }
+        let html = '<div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:13px;width:100%;min-width:680px;">'
+            + '<thead><tr style="background:#f3f3f3;">'
+            + '<th style="' + TH_STYLE + 'text-align:left;">' + escHtml(REC_STR.dateLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.bankLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.glLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'text-align:right;">' + escHtml(REC_STR.diffLabel) + '</th>'
+            + '<th style="' + TH_STYLE + '">' + escHtml(REC_STR.notesLabel) + '</th>'
+            + '<th style="' + TH_STYLE + 'width:50px;"></th>'
+            + '</tr></thead><tbody>';
+        rows.forEach(r => {
+            const balanced = Math.abs(r.difference) < 0.005;
+            const diffStyle = balanced ? 'color:green;' : 'color:#c0392b;font-weight:600;';
+            html += '<tr style="border-bottom:1px solid #f0f0f0;">'
+                + '<td style="padding:6px 10px;">' + escHtml(r.statement_date) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;">$' + r.bank_balance.toFixed(2) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;">$' + r.gl_balance.toFixed(2) + '</td>'
+                + '<td style="padding:6px 10px;text-align:right;' + diffStyle + '">$' + r.difference.toFixed(2) + (balanced ? ' ✅' : ' ⚠️') + '</td>'
+                + '<td style="padding:6px 10px;font-size:12px;">' + escHtml(r.notes) + '</td>'
+                + '<td style="padding:6px 10px;text-align:center;white-space:nowrap;"><button class="btn btn-sm btn-danger" onclick="deleteReconciliation(' + r.id + ')">🗑</button></td>'
+                + '</tr>';
+        });
+        html += '</tbody></table></div>';
+        cont.innerHTML = html;
+    } catch(err) {
+        cont.innerHTML = '<p style="color:red;">Erreur: ' + err.message + '</p>';
+    }
+}
+
+async function deleteReconciliation(id) {
+    if (!confirm(REC_STR.deleteConfirm)) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/trust/reconciliation/' + id, {method:'DELETE'});
+        if (res.status === 204) loadReconciliationHistory();
+        else { const d = await res.json(); alert(d.error || 'Error'); }
+    } catch(err) { console.error(err); }
+}
+
+// Close reconciliation modal on overlay click
+document.getElementById('reconciliation-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeReconciliationModal();
+});
+</script>
+{% endblock %}

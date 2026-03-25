@@ -1,0 +1,735 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_employees or 'Employees' }} - LawLedger{% endblock %}
+
+{% block container_class %}container-wide{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_employees or 'Employees' }}</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="show-deactivated" onchange="toggleShowDeactivated()" {% if show_deactivated %}checked{% endif %}>
+            {{ t.lbl_show_deactivated or 'Show Deactivated' }}
+        </label>
+        <button class="btn btn-primary" onclick="showAddForm()">{{ t.btn_create_employee or '+ Create New Employee' }}</button>
+        <button class="btn btn-secondary" onclick="showExportForm()">{{ t.btn_export or '📥 Export' }}</button>
+    </div>
+</div>
+
+<!-- Export Employees Modal -->
+<div id="export-employees-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:400px;">
+        <span class="close" onclick="document.getElementById('export-employees-modal').style.display='none'">&times;</span>
+        <h2>{{ t.btn_export or 'Export Employees' }}</h2>
+        <div class="form-group">
+            <label>{{ t.lbl_export_format or 'File Format' }}:</label>
+            <select id="export-emp-format">
+                <option value="csv">CSV</option>
+                <option value="xlsx">Excel (.xlsx)</option>
+                <option value="tsv">TSV</option>
+            </select>
+        </div>
+        <div class="form-group" id="export-emp-sep-group">
+            <label>{{ t.lbl_export_separator or 'Separator (for CSV)' }}:</label>
+            <select id="export-emp-separator">
+                <option value="comma">{{ t.opt_comma or 'Comma (,)' }}</option>
+                <option value="semicolon">{{ t.opt_semicolon or 'Semicolon (;)' }}</option>
+                <option value="tab">{{ t.opt_tab or 'Tab' }}</option>
+                <option value="pipe">{{ t.opt_pipe or 'Pipe (|)' }}</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label style="display:flex;align-items:center;gap:6px;font-weight:normal;cursor:pointer;">
+                <input type="checkbox" id="export-emp-include-inactive">
+                {{ t.lbl_include_inactive or 'Include inactive employees' }}
+            </label>
+        </div>
+        <button class="btn btn-primary" onclick="doExportEmployees()">{{ t.btn_start_export or 'Export' }}</button>
+    </div>
+</div>
+
+<!-- Add Employee Modal -->
+<div id="add-form" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideAddForm()">&times;</span>
+        <h2>{{ t.btn_create_employee or '+ Create New Employee' }}</h2>
+        <form id="employee-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_first_name">{{ t.first_name or 'First Name' }}: <span style="color:red">*</span></label>
+                    <input type="text" id="emp_first_name" name="first_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="emp_last_name">{{ t.lbl_last_name or 'Last Name' }}: <span style="color:red">*</span></label>
+                    <input type="text" id="emp_last_name" name="last_name" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="emp_username">{{ t.lbl_username or 'Username' }}:</label>
+                <input type="text" id="emp_username" name="username" placeholder="{{ t.ph_username or 'Optional — auto-generated if left blank' }}">
+            </div>
+            <div class="form-group">
+                <label for="emp_email">{{ t.lbl_work_email or 'Work Email' }}:</label>
+                <input type="email" id="emp_email" name="email" placeholder="employee@example.com">
+            </div>
+            <div class="form-group">
+                <label for="emp_personal_email">{{ t.lbl_personal_email or 'Personal Email' }}:</label>
+                <input type="email" id="emp_personal_email" name="personal_email" placeholder="personal@example.com">
+            </div>
+            <div class="form-group">
+                <label for="emp_address">{{ t.lbl_address or 'Address' }}:</label>
+                <input type="text" id="emp_address" name="address" placeholder="{{ t.lbl_street or 'Street, City, Province, Postal Code' }}">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_phone">{{ t.lbl_phone or 'Phone Number' }}:</label>
+                    <input type="text" id="emp_phone" name="phone_number" placeholder="e.g. 514-555-0100">
+                </div>
+                <div class="form-group">
+                    <label for="emp_office_phone">{{ t.lbl_office_phone or 'Office Phone' }}:</label>
+                    <input type="text" id="emp_office_phone" name="office_phone" placeholder="e.g. 514-555-0200">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_pin">{{ t.lbl_pin or 'PIN / NIP' }}:</label>
+                    <input type="text" id="emp_pin" name="pin" placeholder="e.g. 1234">
+                </div>
+                <div class="form-group">
+                    <label for="emp_network_id">{{ t.lbl_network_id or 'Network ID' }}:</label>
+                    <input type="text" id="emp_network_id" name="network_id" placeholder="e.g. jsmith">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="emp_group_name">{{ t.lbl_group or 'Group' }}:</label>
+                <input type="text" id="emp_group_name" name="group_name" placeholder="e.g. Litigation">
+            </div>
+            <div class="form-group">
+                <label for="emp_title">{{ t.lbl_title_position or 'Title' }}:</label>
+                <input type="text" id="emp_title" name="title">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_hiring_date">{{ t.lbl_hiring_date or 'Hiring Date' }}:</label>
+                    <input type="date" id="emp_hiring_date" name="hiring_date">
+                </div>
+                <div class="form-group">
+                    <label for="emp_leave_date">{{ t.lbl_leave_date or 'Leave Date' }}:</label>
+                    <input type="date" id="emp_leave_date" name="leave_date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_sin">{{ t.lbl_sin or 'Social Insurance Number' }}:</label>
+                    <input type="text" id="emp_sin" name="social_insurance_number">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="emp_salary_type">{{ t.lbl_salary_type or 'Salary Type' }}:</label>
+                    <select id="emp_salary_type" name="salary_type">
+                        <option value="">-- {{ t.opt_select_employee or 'Select' }} --</option>
+                        <option value="yearly">{{ t.opt_yearly or 'Yearly' }}</option>
+                        <option value="hourly">{{ t.opt_hourly or 'Hourly' }}</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="emp_salary">{{ t.lbl_salary or 'Salary' }}:</label>
+                    <input type="number" id="emp_salary" name="salary" step="0.01" min="0" value="0.00">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="emp_emergency_contact">{{ t.lbl_emergency_contact or 'Emergency Contact' }}:</label>
+                <input type="text" id="emp_emergency_contact" name="emergency_contact" placeholder="{{ t.ph_emergency_name or 'Full name' }}">
+            </div>
+            <div class="form-group">
+                <label for="emp_emergency_phone">{{ t.lbl_emergency_phone or 'Emergency Phone' }}:</label>
+                <input type="text" id="emp_emergency_phone" name="emergency_phone" placeholder="{{ t.ph_phone_format or '(555) 123-4567' }}">
+            </div>
+            <div class="form-group">
+                <label for="emp_supervisor">{{ t.lbl_supervisor or 'Supervisor' }}:</label>
+                <input type="text" id="emp_supervisor" name="supervisor" placeholder="{{ t.ph_full_name or '' }}">
+            </div>
+            <div class="form-group">
+                <label for="emp_notes">{{ t.lbl_notes_opt or 'Notes' }}:</label>
+                <textarea id="emp_notes" name="notes" rows="3" placeholder="{{ t.ph_review_notes or 'Additional notes about this employee' }}"></textarea>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_is_active" name="is_active" checked>
+                    {{ t.lbl_active or 'Active' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_is_user" name="is_user">
+                    {{ t.lbl_can_login or 'Can log in (Application User)' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_is_manager" name="is_manager">
+                    {{ t.lbl_is_manager or 'Manager' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_timer_user" name="timer_user">
+                    {{ t.lbl_timer_user_desc or 'Timer User (time-entry only access)' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_is_accounting" name="is_accounting">
+                    {{ t.lbl_accounting_checkbox or 'Comptabilité' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label for="emp_hourly_rate">{{ t.lbl_hourly_rate or 'Hourly Rate' }} ({{ t.lbl_timer_user or 'required for Timer Users' }}):</label>
+                <input type="number" id="emp_hourly_rate" name="hourly_rate" step="0.01" min="0" placeholder="e.g. 150.00">
+            </div>
+            <div class="form-group">
+                <label for="emp_initial_password">{{ t.lbl_initial_password or 'Mot de passe initial' }}:</label>
+                <input type="password" id="emp_initial_password" name="initial_password" autocomplete="new-password" placeholder="{{ t.ph_initial_password or 'Laisser vide pour aucun mot de passe' }}">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="emp_must_change_password" name="must_change_password">
+                    {{ t.lbl_must_change_password or 'Forcer le changement de mot de passe au prochain login' }}
+                </label>
+            </div>
+            <div id="form-error" class="alert alert-error" style="display:none;"></div>
+            <div id="form-success" class="alert alert-success" style="display:none;"></div>
+            <div id="form-buttons">
+                <button type="submit" class="btn btn-primary">{{ t.btn_save or 'Save Employee' }}</button>
+            </div>
+            <button type="button" id="form-complete-btn" class="btn btn-primary" style="display:none;width:100%;margin-top:8px;" onclick="completeAddEmployee()">✔ {{ t.btn_complete or 'Complete' }}</button>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Employee Modal -->
+<div id="edit-form" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideEditForm()">&times;</span>
+        <h2>{{ t.modal_edit_employee or 'Edit Employee' }}</h2>
+        <form id="edit-employee-form">
+            <input type="hidden" id="edit_emp_id">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_first_name">{{ t.first_name or 'First Name' }}: <span style="color:red">*</span></label>
+                    <input type="text" id="edit_emp_first_name" name="first_name" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_emp_last_name">{{ t.lbl_last_name or 'Last Name' }}: <span style="color:red">*</span></label>
+                    <input type="text" id="edit_emp_last_name" name="last_name" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_username">{{ t.lbl_username or 'Username' }}:</label>
+                <input type="text" id="edit_emp_username" name="username" placeholder="{{ t.ph_leave_blank_pwd or 'Optional — leave blank to keep current' }}">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_email">{{ t.lbl_work_email or 'Work Email' }}:</label>
+                <input type="email" id="edit_emp_email" name="email">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_personal_email">{{ t.lbl_personal_email or 'Personal Email' }}:</label>
+                <input type="email" id="edit_emp_personal_email" name="personal_email" placeholder="personal@example.com">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_address">{{ t.lbl_address or 'Address' }}:</label>
+                <input type="text" id="edit_emp_address" name="address">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_phone">{{ t.lbl_phone or 'Phone Number' }}:</label>
+                    <input type="text" id="edit_emp_phone" name="phone_number">
+                </div>
+                <div class="form-group">
+                    <label for="edit_emp_office_phone">{{ t.lbl_office_phone or 'Office Phone' }}:</label>
+                    <input type="text" id="edit_emp_office_phone" name="office_phone">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_pin">{{ t.lbl_pin or 'PIN / NIP' }}:</label>
+                    <input type="text" id="edit_emp_pin" name="pin">
+                </div>
+                <div class="form-group">
+                    <label for="edit_emp_network_id">{{ t.lbl_network_id or 'Network ID' }}:</label>
+                    <input type="text" id="edit_emp_network_id" name="network_id">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_group_name">{{ t.lbl_group or 'Group' }}:</label>
+                <input type="text" id="edit_emp_group_name" name="group_name">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_title">{{ t.lbl_title_position or 'Title' }}:</label>
+                    <input type="text" id="edit_emp_title" name="title">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_hiring_date">{{ t.lbl_hiring_date or 'Hiring Date' }}:</label>
+                    <input type="date" id="edit_emp_hiring_date" name="hiring_date">
+                </div>
+                <div class="form-group">
+                    <label for="edit_emp_leave_date">{{ t.lbl_leave_date or 'Leave Date' }}:</label>
+                    <input type="date" id="edit_emp_leave_date" name="leave_date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit_emp_salary_type">{{ t.lbl_salary_type or 'Salary Type' }}:</label>
+                    <select id="edit_emp_salary_type" name="salary_type">
+                        <option value="">-- {{ t.btn_filter_action or 'Select' }} --</option>
+                        <option value="yearly">{{ t.opt_yearly or 'Yearly' }}</option>
+                        <option value="hourly">{{ t.opt_hourly or 'Hourly' }}</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit_emp_salary">{{ t.lbl_salary or 'Salary' }}:</label>
+                    <input type="number" id="edit_emp_salary" name="salary" step="0.01" min="0" value="0.00" placeholder="0.00">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_emergency_contact">{{ t.lbl_emergency_contact or 'Emergency Contact' }}:</label>
+                <input type="text" id="edit_emp_emergency_contact" name="emergency_contact">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_emergency_phone">{{ t.lbl_emergency_phone or 'Emergency Phone' }}:</label>
+                <input type="text" id="edit_emp_emergency_phone" name="emergency_phone" placeholder="{{ t.ph_phone_format or '(555) 123-4567' }}">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_notes">{{ t.lbl_notes or 'Notes' }}:</label>
+                <textarea id="edit_emp_notes" name="notes" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_is_active" name="is_active">
+                    {{ t.lbl_active_checkbox or 'Active' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_is_user" name="is_user">
+                    {{ t.lbl_can_login_checkbox or 'Can log in (Application User)' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_is_manager" name="is_manager">
+                    {{ t.lbl_manager_checkbox or 'Manager' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_timer_user" name="timer_user">
+                    {{ t.lbl_timer_user_checkbox or 'Timer User (time-entry only access)' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_emp_is_accounting" name="is_accounting">
+                    {{ t.lbl_accounting_checkbox or 'Comptabilité' }}
+                </label>
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_hourly_rate">{{ t.lbl_hourly_rate_required or 'Hourly Rate (required for Timer Users):' }}</label>
+                <input type="number" id="edit_emp_hourly_rate" name="hourly_rate" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+                <label for="edit_emp_supervisor">{{ t.lbl_supervisor or 'Supervisor' }}:</label>
+                <input type="text" id="edit_emp_supervisor" name="supervisor">
+            </div>
+            <div id="edit-form-error" class="alert alert-error" style="display:none;"></div>
+            <div id="edit-form-success" class="alert alert-success" style="display:none;"></div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" id="edit-emp-update-btn" class="btn btn-primary" disabled>{{ t.btn_update_record or 'Update Employee' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="hideEditForm()">{{ t.btn_done or 'Done' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="table-container" style="overflow-x:auto;">
+    <table id="employees-table" style="min-width:1400px;table-layout:fixed;">
+        <thead>
+            <tr>
+                <th style="width:100px;">{{ t.th_first_name or 'First Name' }}</th>
+                <th style="width:100px;">{{ t.th_last_name or 'Last Name' }}</th>
+                <th style="width:180px;">{{ t.th_email or 'Work Email' }}</th>
+                <th style="width:180px;">{{ t.lbl_personal_email or 'Personal Email' }}</th>
+                <th style="width:110px;">{{ t.th_phone or 'Phone' }}</th>
+                <th style="width:100px;">{{ t.th_title or 'Title' }}</th>
+                <th style="width:80px;">{{ t.th_role or 'Role' }}</th>
+                <th style="width:70px;">{{ t.th_status or 'Status' }}</th>
+                <th style="width:90px;">{{ t.th_salary_type or 'Salary Type' }}</th>
+                <th style="width:80px;">{{ t.th_salary or 'Salary' }}</th>
+                <th style="width:170px;">{{ t.th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="employees-tbody">
+            {% if employees %}
+            {% for emp in employees %}
+            <tr>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.first_name or '-' }}">{{ emp.first_name or '-' }}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.last_name or '-' }}">{{ emp.last_name or '-' }}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.email or '-' }}">{{ emp.email or '-' }}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.personal_email or '-' }}">{{ emp.personal_email or '-' }}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.phone_number or '-' }}">{{ emp.phone_number or '-' }}</td>
+                <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ emp.title or '-' }}">{{ emp.title or '-' }}</td>
+                <td>
+                    <span class="badge {{ 'badge-warning' if emp.is_manager else 'badge-secondary' }}">
+                        {{ t.lbl_is_manager if emp.is_manager else (t.lbl_user or 'User') }}
+                    </span>
+                </td>
+                <td>
+                    <span class="badge {{ 'badge-success' if emp.is_active else 'badge-inactive' }}">
+                        {{ t.matter_active if emp.is_active else t.matter_closed or 'Inactive' }}
+                    </span>
+                </td>
+                <td>{{ emp.salary_type | capitalize if emp.salary_type else '-' }}</td>
+                <td>{{ "%.2f"|format(emp.salary or 0) }}$</td>
+                <td>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                        <button class="btn btn-sm btn-secondary" onclick="showEditForm({{ emp.id }})">
+                            {{ t.btn_edit or 'Edit' }}
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="toggleEmployeeStatus({{ emp.id }}, {{ emp.is_active | tojson }})">
+                            {{ t.btn_deactivate if emp.is_active else t.btn_activate or 'Toggle' }}
+                        </button>
+                        <button class="btn btn-sm" style="color:var(--danger);padding:2px 6px;" title="{{ t.btn_delete or 'Delete' }}" aria-label="{{ t.btn_delete or 'Delete' }}" onclick="deleteEmployee({{ emp.id }})">
+                            🗑
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr><td colspan="11">{{ t.msg_no_results or 'No employees found' }}</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Employee data map keyed by ID (populated server-side)
+const employeeData = {
+    {% for emp in employees %}
+    {{ emp.id }}: {
+        first_name: {{ emp.first_name | tojson }},
+        last_name: {{ emp.last_name | tojson }},
+        username: {{ emp.username | tojson }},
+        email: {{ emp.email | tojson }},
+        personal_email: {{ (emp.personal_email or '') | tojson }},
+        address: {{ emp.address | tojson }},
+        phone_number: {{ emp.phone_number | tojson }},
+        office_phone: {{ (emp.office_phone or '') | tojson }},
+        pin: {{ (emp.pin or '') | tojson }},
+        group_name: {{ (emp.group_name or '') | tojson }},
+        network_id: {{ (emp.network_id or '') | tojson }},
+        title: {{ emp.title | tojson }},
+        hiring_date: {{ (emp.hiring_date.isoformat() if emp.hiring_date else None) | tojson }},
+        leave_date: {{ (emp.leave_date.isoformat() if emp.leave_date else None) | tojson }},
+        salary_type: {{ emp.salary_type | tojson }},
+        salary: {{ (emp.salary or 0) | float }},
+        is_active: {{ emp.is_active | tojson }},
+        is_manager: {{ emp.is_manager | tojson }},
+        is_user: {{ emp.is_user | tojson }},
+        timer_user: {{ emp.timer_user | tojson }},
+        hourly_rate: {{ (emp.hourly_rate | float) if emp.hourly_rate else 0 }},
+        emergency_contact: {{ emp.emergency_contact | tojson }},
+        emergency_phone: {{ emp.emergency_phone | tojson }},
+        notes: {{ emp.notes | tojson }},
+        supervisor: {{ (emp.supervisor or '') | tojson }}
+    },
+    {% endfor %}
+};
+
+function showAddForm() {
+    document.getElementById('add-form').style.display = 'flex';
+    document.getElementById('employee-form').reset();
+    document.getElementById('form-error').style.display = 'none';
+    document.getElementById('form-success').style.display = 'none';
+    document.getElementById('form-buttons').style.display = '';
+    document.getElementById('form-complete-btn').style.display = 'none';
+}
+
+function hideAddForm() {
+    document.getElementById('add-form').style.display = 'none';
+}
+
+function completeAddEmployee() {
+    hideAddForm();
+    window.location.reload();
+}
+
+document.getElementById('employee-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+        first_name: formData.get('first_name'),
+        last_name: formData.get('last_name'),
+        username: formData.get('username') || null,
+        email: formData.get('email') || null,
+        personal_email: formData.get('personal_email') || null,
+        address: formData.get('address') || null,
+        phone_number: formData.get('phone_number') || null,
+        office_phone: formData.get('office_phone') || null,
+        pin: formData.get('pin') || null,
+        group_name: formData.get('group_name') || null,
+        network_id: formData.get('network_id') || null,
+        title: formData.get('title') || null,
+        hiring_date: formData.get('hiring_date') || null,
+        leave_date: formData.get('leave_date') || null,
+        social_insurance_number: formData.get('social_insurance_number') || null,
+        salary_type: formData.get('salary_type') || null,
+        salary: parseFloat(formData.get('salary')) || 0,
+        emergency_contact: formData.get('emergency_contact') || null,
+        emergency_phone: formData.get('emergency_phone') || null,
+        supervisor: formData.get('supervisor') || null,
+        notes: formData.get('notes') || null,
+        is_active: formData.get('is_active') === 'on',
+        is_user: document.getElementById('emp_is_user').checked,
+        is_manager: document.getElementById('emp_is_manager').checked,
+        timer_user: document.getElementById('emp_timer_user').checked,
+        is_accounting: document.getElementById('emp_is_accounting').checked,
+        hourly_rate: parseFloat(formData.get('hourly_rate')) || null,
+        password: formData.get('initial_password') || null,
+        must_change_password: document.getElementById('emp_must_change_password').checked
+    };
+
+    const response = await fetch(SCRIPT_ROOT + '/api/employees', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+        document.getElementById('form-error').style.display = 'none';
+        document.getElementById('form-buttons').style.display = 'none';
+        const successDiv = document.getElementById('form-success');
+        successDiv.textContent = {{ (t.msg_employee_created or 'Employee created successfully!') | tojson }};
+        successDiv.style.display = 'block';
+        document.getElementById('form-complete-btn').style.display = 'block';
+    } else {
+        const err = await response.json();
+        const errDiv = document.getElementById('form-error');
+        errDiv.textContent = err.error || 'Error creating employee';
+        errDiv.style.display = 'block';
+    }
+});
+
+// Track changes in the edit form to enable/disable the Update button
+let _editFormSnapshot = null;
+
+function _getEditFormSnapshot() {
+    return [
+        document.getElementById('edit_emp_first_name').value,
+        document.getElementById('edit_emp_last_name').value,
+        document.getElementById('edit_emp_username').value,
+        document.getElementById('edit_emp_email').value,
+        document.getElementById('edit_emp_personal_email').value,
+        document.getElementById('edit_emp_address').value,
+        document.getElementById('edit_emp_phone').value,
+        document.getElementById('edit_emp_office_phone').value,
+        document.getElementById('edit_emp_pin').value,
+        document.getElementById('edit_emp_group_name').value,
+        document.getElementById('edit_emp_network_id').value,
+        document.getElementById('edit_emp_title').value,
+        document.getElementById('edit_emp_hiring_date').value,
+        document.getElementById('edit_emp_leave_date').value,
+        document.getElementById('edit_emp_salary_type').value,
+        document.getElementById('edit_emp_salary').value,
+        document.getElementById('edit_emp_is_active').checked,
+        document.getElementById('edit_emp_is_user').checked,
+        document.getElementById('edit_emp_is_manager').checked,
+        document.getElementById('edit_emp_timer_user').checked,
+        document.getElementById('edit_emp_hourly_rate').value,
+        document.getElementById('edit_emp_emergency_contact').value,
+        document.getElementById('edit_emp_emergency_phone').value,
+        document.getElementById('edit_emp_supervisor').value,
+        document.getElementById('edit_emp_notes').value
+    ].join('|');
+}
+
+function _checkEditFormChanged() {
+    const btn = document.getElementById('edit-emp-update-btn');
+    if (!btn || !_editFormSnapshot) return;
+    btn.disabled = (_getEditFormSnapshot() === _editFormSnapshot);
+}
+
+// Attach change listeners to all edit form fields
+document.addEventListener('DOMContentLoaded', function () {
+    const editForm = document.getElementById('edit-employee-form');
+    if (!editForm) return;
+    editForm.addEventListener('input', _checkEditFormChanged);
+    editForm.addEventListener('change', _checkEditFormChanged);
+});
+
+function showEditForm(id) {
+    const emp = employeeData[id];
+    if (!emp) return;
+    document.getElementById('edit_emp_id').value = id;
+    document.getElementById('edit_emp_first_name').value = emp.first_name || '';
+    document.getElementById('edit_emp_last_name').value = emp.last_name || '';
+    document.getElementById('edit_emp_username').value = emp.username || '';
+    document.getElementById('edit_emp_email').value = emp.email || '';
+    document.getElementById('edit_emp_personal_email').value = emp.personal_email || '';
+    document.getElementById('edit_emp_address').value = emp.address || '';
+    document.getElementById('edit_emp_phone').value = emp.phone_number || '';
+    document.getElementById('edit_emp_office_phone').value = emp.office_phone || '';
+    document.getElementById('edit_emp_pin').value = emp.pin || '';
+    document.getElementById('edit_emp_group_name').value = emp.group_name || '';
+    document.getElementById('edit_emp_network_id').value = emp.network_id || '';
+    document.getElementById('edit_emp_title').value = emp.title || '';
+    document.getElementById('edit_emp_hiring_date').value = emp.hiring_date || '';
+    document.getElementById('edit_emp_leave_date').value = emp.leave_date || '';
+    document.getElementById('edit_emp_salary_type').value = emp.salary_type || '';
+    document.getElementById('edit_emp_salary').value = emp.salary || 0;
+    document.getElementById('edit_emp_is_active').checked = emp.is_active;
+    document.getElementById('edit_emp_is_user').checked = emp.is_user;
+    document.getElementById('edit_emp_is_manager').checked = emp.is_manager;
+    document.getElementById('edit_emp_timer_user').checked = emp.timer_user;
+    document.getElementById('edit_emp_is_accounting').checked = emp.is_accounting || false;
+    document.getElementById('edit_emp_hourly_rate').value = emp.hourly_rate || '';
+    document.getElementById('edit_emp_emergency_contact').value = emp.emergency_contact || '';
+    document.getElementById('edit_emp_emergency_phone').value = emp.emergency_phone || '';
+    document.getElementById('edit_emp_supervisor').value = emp.supervisor || '';
+    document.getElementById('edit_emp_notes').value = emp.notes || '';
+    document.getElementById('edit-form-error').style.display = 'none';
+    document.getElementById('edit-form-success').style.display = 'none';
+    document.getElementById('edit-emp-update-btn').disabled = true;
+    // Capture original state for change detection
+    _editFormSnapshot = _getEditFormSnapshot();
+    document.getElementById('edit-form').style.display = 'flex';
+}
+
+function hideEditForm() {
+    document.getElementById('edit-form').style.display = 'none';
+    if (document.getElementById('edit-form-success').style.display !== 'none') {
+        window.location.reload();
+    }
+}
+
+document.getElementById('edit-employee-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('edit_emp_id').value;
+    const formData = new FormData(e.target);
+    const data = {
+        first_name: formData.get('first_name'),
+        last_name: formData.get('last_name'),
+        username: formData.get('username') || null,
+        email: formData.get('email') || null,
+        personal_email: formData.get('personal_email') || null,
+        address: formData.get('address') || null,
+        phone_number: formData.get('phone_number') || null,
+        office_phone: formData.get('office_phone') || null,
+        pin: formData.get('pin') || null,
+        group_name: formData.get('group_name') || null,
+        network_id: formData.get('network_id') || null,
+        title: formData.get('title') || null,
+        hiring_date: formData.get('hiring_date') || null,
+        leave_date: formData.get('leave_date') || null,
+        salary_type: formData.get('salary_type') || null,
+        salary: parseFloat(formData.get('salary')) || 0,
+        emergency_contact: formData.get('emergency_contact') || null,
+        emergency_phone: formData.get('emergency_phone') || null,
+        supervisor: formData.get('supervisor') || null,
+        notes: formData.get('notes') || null,
+        is_active: document.getElementById('edit_emp_is_active').checked,
+        is_user: document.getElementById('edit_emp_is_user').checked,
+        is_manager: document.getElementById('edit_emp_is_manager').checked,
+        timer_user: document.getElementById('edit_emp_timer_user').checked,
+        is_accounting: document.getElementById('edit_emp_is_accounting').checked,
+        hourly_rate: parseFloat(formData.get('hourly_rate')) || null
+    };
+
+    const response = await fetch(`${SCRIPT_ROOT}/api/employees/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+        const updated = await response.json().catch(() => ({}));
+        // Update in-memory data so change detection stays accurate
+        if (updated && updated.id) {
+            employeeData[updated.id] = Object.assign(employeeData[updated.id] || {}, updated);
+        }
+        document.getElementById('edit-form-error').style.display = 'none';
+        const successDiv = document.getElementById('edit-form-success');
+        successDiv.textContent = '{{ t.msg_success or "Changes saved successfully." }}';
+        successDiv.style.display = 'block';
+        document.getElementById('edit-emp-update-btn').disabled = true;
+        _editFormSnapshot = _getEditFormSnapshot();
+    } else {
+        const err = await response.json().catch(() => ({}));
+        const errDiv = document.getElementById('edit-form-error');
+        errDiv.textContent = err.error || 'Error updating employee';
+        errDiv.style.display = 'block';
+    }
+});
+
+// Auto-check "Can log in" when Manager is checked (managers must be users)
+document.getElementById('emp_is_manager').addEventListener('change', function () {
+    if (this.checked) document.getElementById('emp_is_user').checked = true;
+});
+document.getElementById('edit_emp_is_manager').addEventListener('change', function () {
+    if (this.checked) document.getElementById('edit_emp_is_user').checked = true;
+});
+
+// Toggle show/hide deactivated employees
+function toggleShowDeactivated() {
+    const checked = document.getElementById('show-deactivated').checked;
+    window.location.href = SCRIPT_ROOT + '/employees?show_deactivated=' + checked;
+}
+
+// Deactivate / Activate employee
+async function toggleEmployeeStatus(empId, currentlyActive) {
+    if (currentlyActive) {
+        if (!confirm({{ (t.msg_confirm_deactivate_employee or 'Are you sure you want to deactivate this employee?') | tojson }})) return;
+    }
+    const res = await fetch(`${SCRIPT_ROOT}/api/employees/${empId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ is_active: !currentlyActive })
+    });
+    if (res.ok) window.location.reload();
+    else alert('Error updating employee status');
+}
+
+// Soft-delete employee
+async function deleteEmployee(empId) {
+    if (!confirm({{ (t.msg_confirm_delete_employee or 'Are you sure you want to delete this employee? This action cannot be undone.') | tojson }})) return;
+    const res = await fetch(`${SCRIPT_ROOT}/api/employees/${empId}`, { method: 'DELETE' });
+    if (res.ok) window.location.reload();
+    else alert('Error deleting employee');
+}
+
+// Export employees
+function showExportForm() {
+    document.getElementById('export-employees-modal').style.display = 'flex';
+}
+
+document.getElementById('export-emp-format').addEventListener('change', function () {
+    document.getElementById('export-emp-sep-group').style.display =
+        (this.value === 'xlsx' || this.value === 'tsv') ? 'none' : '';
+});
+
+function doExportEmployees() {
+    const fmt = document.getElementById('export-emp-format').value;
+    const sep = document.getElementById('export-emp-separator').value;
+    const inactive = document.getElementById('export-emp-include-inactive').checked;
+    let url = `${SCRIPT_ROOT}/api/export/employees?format=${encodeURIComponent(fmt)}&separator=${encodeURIComponent(sep)}&include_inactive=${inactive}`;
+    window.location.href = url;
+}
+</script>
+{% endblock %}

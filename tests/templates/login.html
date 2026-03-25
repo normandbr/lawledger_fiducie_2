@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t.title_login or 'Login - LawLedger' }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+<script>const SCRIPT_ROOT = {{ request.script_root|tojson }};</script>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1 class="auth-brand">⚖ LawLedger</h1>
+                <p class="auth-subtitle">{{ t.footer_tagline or 'Legal Matter Management System' }}</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endwith %}
+
+            <h2 class="auth-title">{{ t.header_signin or 'Sign In' }}</h2>
+
+            <form method="POST" action="{{ url_for('login') }}" id="login-form">
+                <div class="form-group">
+                    <label for="username">{{ t.lbl_username or 'Username' }}</label>
+                    <input type="text" id="username" name="username" required autofocus
+                           autocomplete="username"
+                           placeholder="{{ t.ph_login_username or 'Enter your username' }}"
+                           style="width:100%;padding:10px 14px;border:1px solid #e0e0e0;border-radius:4px;font-size:14px;font-family:inherit;">
+                </div>
+                <div class="form-group">
+                    <label for="password">{{ t.lbl_password or 'Password' }}</label>
+                    <div style="position:relative;">
+                        <input type="password" id="password" name="password" required
+                               autocomplete="current-password"
+                               placeholder="{{ t.ph_login_password or 'Enter your password' }}"
+                               style="width:100%;padding:10px 44px 10px 14px;border:1px solid #e0e0e0;border-radius:4px;font-size:14px;font-family:inherit;box-sizing:border-box;">
+                        <button type="button" id="toggle-password" onclick="togglePasswordVisibility()"
+                                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#666;font-size:13px;padding:4px 6px;">
+                            👁
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">{{ t.btn_signin or 'Sign In' }}</button>
+            </form>
+
+            <div class="auth-links">
+                <a href="{{ url_for('forgot_password') }}">{{ t.link_forgot_pwd or 'Forgot password?' }}</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Setup Modal (opened when username is 09182736) -->
+    <!-- Tab-based dialog: Manager Account | Firm Information -->
+    <div id="firm-info-overlay" style="display:none;position:fixed;inset:0;z-index:1000;
+         background:rgba(0,0,0,.5);backdrop-filter:blur(4px);">
+        <div id="firm-info-dialog" style="background:#fff;border-radius:8px;padding:28px;
+             width:90%;max-width:560px;position:absolute;top:50%;left:50%;
+             transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);
+             max-height:90vh;overflow-y:auto;">
+            <h2 id="firm-info-drag-handle" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;
+                cursor:move;user-select:none;padding-bottom:10px;border-bottom:1px solid #e0e0e0;
+                display:flex;justify-content:space-between;align-items:center;">
+                <span>Application Setup</span>
+                <span onclick="closeFirmInfoModal()" style="cursor:pointer;color:#888;
+                      font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+            </h2>
+
+            <!-- Tabs -->
+            <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e0e0e0;">
+                <button id="tab-manager-btn" onclick="switchTab('manager')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#0078d4;
+                               border-bottom:2px solid #0078d4;margin-bottom:-2px;">
+                    Manager Account
+                </button>
+                <button id="tab-firminfo-btn" onclick="switchTab('firminfo')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    Firm Information
+                </button>
+            </div>
+
+            <!-- Manager Tab -->
+            <div id="tab-manager" style="">
+                <p style="font-size:13px;color:#555;margin-bottom:14px;">
+                    Set up or update the application Manager account.
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label for="mgr_first_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">First Name <span style="color:red">*</span></label>
+                        <input id="mgr_first_name" type="text"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label for="mgr_last_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Last Name <span style="color:red">*</span></label>
+                        <input id="mgr_last_name" type="text"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="mgr_role" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Role</label>
+                    <input type="text" id="mgr_role" value="Manager" readonly autocomplete="off"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;background:#f8f8f8;color:#555;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="mgr_username" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Username <span style="color:red">*</span></label>
+                    <input id="mgr_username" type="text" placeholder="e.g. admin" autocomplete="username"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label for="mgr_password" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Password</label>
+                        <input id="mgr_password" type="password" placeholder="Leave blank to keep current" autocomplete="new-password"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label for="mgr_confirm_password" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Confirm Password</label>
+                        <input id="mgr_confirm_password" type="password" placeholder="Repeat password" autocomplete="new-password"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="mgr_title" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Title / Position</label>
+                    <input id="mgr_title" type="text" placeholder="e.g. Managing Partner" autocomplete="organization-title"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="mgr_email" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
+                    <input id="mgr_email" type="email" placeholder="manager@yourfirm.com" autocomplete="email"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label for="mgr_phone" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
+                    <input id="mgr_phone" type="text" placeholder="e.g. (514) 555-0100" autocomplete="tel"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+
+                <div id="mgr_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveManager()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        Save Manager
+                    </button>
+                    <button onclick="closeFirmInfoModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Firm Information Tab -->
+            <div id="tab-firminfo" style="display:none;">
+                <div style="margin-bottom:12px;">
+                    <label for="fi_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Firm Name <span style="color:red">*</span></label>
+                    <input id="fi_name" type="text" placeholder="e.g. Smith &amp; Associates Law Firm" autocomplete="organization"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="fi_addr1" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 1</label>
+                    <input id="fi_addr1" type="text" placeholder="Street address" autocomplete="address-line1"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="fi_addr2" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 2</label>
+                    <input id="fi_addr2" type="text" placeholder="Suite, floor, etc. (optional)" autocomplete="address-line2"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label for="fi_city" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">City</label>
+                        <input id="fi_city" type="text" autocomplete="address-level2" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label for="fi_prov" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Province / State</label>
+                        <input id="fi_prov" type="text" autocomplete="address-level1" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label for="fi_postal" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Postal Code</label>
+                        <input id="fi_postal" type="text" autocomplete="postal-code" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label for="fi_phone" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
+                        <input id="fi_phone" type="text" placeholder="e.g. (514) 555-0100" autocomplete="tel"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label for="fi_email" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
+                    <input id="fi_email" type="email" placeholder="info@yourfirm.com" autocomplete="email"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label for="fi_tax" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Tax Number (GST / QST registration)</label>
+                    <input id="fi_tax" type="text" placeholder="e.g. 123456789 RT0001" autocomplete="off"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Firm Logo</label>
+                    <div id="fi_logo_preview" style="margin-bottom:8px;min-height:40px;"></div>
+                    <label class="btn btn-secondary" style="cursor:pointer;font-size:13px;display:inline-block;">
+                        🖼 Upload Logo
+                        <input type="file" id="fi_logo_input" accept="image/*" style="display:none;">
+                    </label>
+                    <span id="fi_logo_status" style="font-size:12px;margin-left:8px;color:#555;"></span>
+                </div>
+
+                <div id="fi_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveFirmInfo()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        Save
+                    </button>
+                    <button onclick="closeFirmInfoModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Intercept login form: if username is the admin code, open setup dialog instead
+    document.getElementById('login-form').addEventListener('submit', function (e) {
+        var uname = document.getElementById('username').value.trim();
+        if (uname === '09182736') {
+            e.preventDefault();
+            // Clear password so browser required-validation does not block
+            document.getElementById('password').removeAttribute('required');
+            openFirmInfoModal();
+        }
+    });
+
+    function switchTab(tab) {
+        document.getElementById('tab-manager').style.display  = tab === 'manager'  ? '' : 'none';
+        document.getElementById('tab-firminfo').style.display = tab === 'firminfo' ? '' : 'none';
+        var activeColor = '#0078d4', activeBorder = '2px solid #0078d4';
+        var inactiveColor = '#666', inactiveBorder = 'none';
+        document.getElementById('tab-manager-btn').style.color  = tab === 'manager'  ? activeColor  : inactiveColor;
+        document.getElementById('tab-firminfo-btn').style.color = tab === 'firminfo' ? activeColor  : inactiveColor;
+        document.getElementById('tab-manager-btn').style.borderBottom  = tab === 'manager'  ? activeBorder : inactiveBorder;
+        document.getElementById('tab-firminfo-btn').style.borderBottom = tab === 'firminfo' ? activeBorder : inactiveBorder;
+    }
+
+    function openFirmInfoModal() {
+        document.getElementById('firm-info-overlay').style.display = 'block';
+        document.getElementById('mgr_msg').style.display = 'none';
+        document.getElementById('fi_msg').style.display  = 'none';
+        switchTab('manager');
+        // Load existing manager data
+        fetch(SCRIPT_ROOT + '/api/manager')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                document.getElementById('mgr_first_name').value = d.first_name  || '';
+                document.getElementById('mgr_last_name').value  = d.last_name   || '';
+                document.getElementById('mgr_username').value   = d.username    || '';
+                document.getElementById('mgr_title').value      = d.title       || '';
+                document.getElementById('mgr_email').value      = d.email       || '';
+                document.getElementById('mgr_phone').value      = d.phone_number || '';
+                document.getElementById('mgr_password').value = '';
+                document.getElementById('mgr_confirm_password').value = '';
+            })
+            .catch(function () {});
+        // Load existing firm info data
+        fetch(SCRIPT_ROOT + '/api/firm-info')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                document.getElementById('fi_name').value   = d.firm_name    || '';
+                document.getElementById('fi_addr1').value  = d.address_line1 || '';
+                document.getElementById('fi_addr2').value  = d.address_line2 || '';
+                document.getElementById('fi_city').value   = d.city          || '';
+                document.getElementById('fi_prov').value   = d.province      || '';
+                document.getElementById('fi_postal').value = d.postal_code   || '';
+                document.getElementById('fi_phone').value  = d.phone         || '';
+                document.getElementById('fi_email').value  = d.email         || '';
+                document.getElementById('fi_tax').value    = d.tax_number    || '';
+                // Show current logo if any
+                var preview = document.getElementById('fi_logo_preview');
+                preview.innerHTML = '';
+                if (d.logo_filename) {
+                    var img = document.createElement('img');
+                    img.src = SCRIPT_ROOT + '/static/uploads/' + d.logo_filename + '?t=' + Date.now();
+                    img.alt = 'Current Logo';
+                    img.style.cssText = 'max-height:60px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px;';
+                    preview.appendChild(img);
+                    document.getElementById('fi_logo_status').textContent = 'Current logo shown above.';
+                } else {
+                    document.getElementById('fi_logo_status').textContent = 'No logo uploaded yet.';
+                }
+            })
+            .catch(function () {});
+    }
+
+    function closeFirmInfoModal() {
+        document.getElementById('firm-info-overlay').style.display = 'none';
+    }
+
+    function saveManager() {
+        var first    = document.getElementById('mgr_first_name').value.trim();
+        var last     = document.getElementById('mgr_last_name').value.trim();
+        var username = document.getElementById('mgr_username').value.trim();
+        var password = document.getElementById('mgr_password').value;
+        var confirm  = document.getElementById('mgr_confirm_password').value;
+        var msg      = document.getElementById('mgr_msg');
+        if (!first || !last) {
+            msg.style.display = 'block';
+            msg.style.background = '#fde7e9';
+            msg.style.color = '#a4262c';
+            msg.textContent = 'First name and last name are required.';
+            return;
+        }
+        if (!username) {
+            msg.style.display = 'block';
+            msg.style.background = '#fde7e9';
+            msg.style.color = '#a4262c';
+            msg.textContent = 'Username is required.';
+            return;
+        }
+        if (password && password !== confirm) {
+            msg.style.display = 'block';
+            msg.style.background = '#fde7e9';
+            msg.style.color = '#a4262c';
+            msg.textContent = 'Passwords do not match.';
+            return;
+        }
+        var data = {
+            first_name:   first,
+            last_name:    last,
+            username:     username,
+            title:        document.getElementById('mgr_title').value.trim(),
+            email:        document.getElementById('mgr_email').value.trim(),
+            phone_number: document.getElementById('mgr_phone').value.trim()
+        };
+        if (password) {
+            data.password = password;
+        }
+        fetch(SCRIPT_ROOT + '/api/manager', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(function (r) {
+            if (!r.ok) { return r.json().then(function (e) { throw e; }); }
+            return r.json();
+        })
+        .then(function () {
+            msg.style.display = 'block';
+            msg.style.background = '#dff6dd';
+            msg.style.color = '#107c10';
+            msg.textContent = 'Manager saved successfully.';
+        })
+        .catch(function (e) {
+            msg.style.display = 'block';
+            msg.style.background = '#fde7e9';
+            msg.style.color = '#a4262c';
+            msg.textContent = (e && e.error) ? e.error : 'Error saving manager.';
+        });
+    }
+
+    function saveFirmInfo() {
+        var data = {
+            firm_name:    document.getElementById('fi_name').value.trim(),
+            address_line1: document.getElementById('fi_addr1').value.trim(),
+            address_line2: document.getElementById('fi_addr2').value.trim(),
+            city:         document.getElementById('fi_city').value.trim(),
+            province:     document.getElementById('fi_prov').value.trim(),
+            postal_code:  document.getElementById('fi_postal').value.trim(),
+            phone:        document.getElementById('fi_phone').value.trim(),
+            email:        document.getElementById('fi_email').value.trim(),
+            tax_number:   document.getElementById('fi_tax').value.trim()
+        };
+        var msg = document.getElementById('fi_msg');
+        fetch(SCRIPT_ROOT + '/api/firm-info', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(function (r) { return r.json(); })
+        .then(function () {
+            msg.style.display = 'block';
+            msg.style.background = '#dff6dd';
+            msg.style.color = '#107c10';
+            msg.textContent = 'Firm information saved successfully.';
+        })
+        .catch(function () {
+            msg.style.display = 'block';
+            msg.style.background = '#fde7e9';
+            msg.style.color = '#a4262c';
+            msg.textContent = 'Error saving firm information.';
+        });
+    }
+
+    // Hide firm info success/error message when user starts editing any field
+    (function () {
+        var fiInputs = document.querySelectorAll(
+            '#fi_name, #fi_addr1, #fi_addr2, #fi_city, #fi_prov, ' +
+            '#fi_postal, #fi_phone, #fi_email, #fi_tax'
+        );
+        fiInputs.forEach(function (el) {
+            el.addEventListener('input', function () {
+                var msgEl = document.getElementById('fi_msg');
+                if (msgEl) { msgEl.style.display = 'none'; }
+            });
+        });
+    })();
+
+    // Logo upload handler for setup dialog
+    document.getElementById('fi_logo_input').addEventListener('change', function () {
+        var file = this.files[0];
+        if (!file) return;
+        var fd = new FormData();
+        fd.append('logo', file);
+        var statusEl = document.getElementById('fi_logo_status');
+        statusEl.textContent = 'Uploading…';
+        fetch(SCRIPT_ROOT + '/api/firm-info/logo', { method: 'POST', body: fd })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.logo_url) {
+                    var preview = document.getElementById('fi_logo_preview');
+                    preview.innerHTML = '';
+                    var img = document.createElement('img');
+                    img.src = d.logo_url + '?t=' + Date.now();
+                    img.alt = 'Firm Logo';
+                    img.style.cssText = 'max-height:60px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px;';
+                    preview.appendChild(img);
+                    statusEl.textContent = 'Logo uploaded successfully.';
+                    statusEl.style.color = '#107c10';
+                }
+            })
+            .catch(function () {
+                statusEl.textContent = 'Error uploading logo.';
+                statusEl.style.color = '#a4262c';
+            });
+    });
+
+    // Draggable setup dialog
+    (function () {
+        var ds = null;
+        document.addEventListener('mousemove', function (e) {
+            if (!ds) return;
+            var el = document.getElementById('firm-info-dialog');
+            el.style.left      = (ds.origLeft + e.clientX - ds.startX) + 'px';
+            el.style.top       = (ds.origTop  + e.clientY - ds.startY) + 'px';
+            el.style.transform = 'none';
+        });
+        document.addEventListener('mouseup', function () { ds = null; });
+        document.getElementById('firm-info-drag-handle').addEventListener('mousedown', function (e) {
+            if (e.target.tagName === 'SPAN' && e.target.textContent.trim() === '×') return;
+            var el  = document.getElementById('firm-info-dialog');
+            var rc  = el.getBoundingClientRect();
+            ds = { startX: e.clientX, startY: e.clientY, origLeft: rc.left, origTop: rc.top };
+            e.preventDefault();
+        });
+    })();
+    </script>
+    <script>
+    function togglePasswordVisibility() {
+        var pwdInput = document.getElementById('password');
+        var btn = document.getElementById('toggle-password');
+        if (pwdInput.type === 'password') {
+            pwdInput.type = 'text';
+            btn.textContent = '🙈';
+        } else {
+            pwdInput.type = 'password';
+            btn.textContent = '👁';
+        }
+    }
+    </script>
+</body>
+</html>

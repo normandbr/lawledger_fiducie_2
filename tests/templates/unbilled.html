@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_unbilled or 'Accounts Receivable' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_unbilled or 'Accounts Receivable' }}</h1>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="printUnbilled()">{{ t.btn_print_page or '🖨 Print' }}</button>
+        <button class="btn btn-secondary" onclick="printARReport()">{{ t.btn_print_ar_report or '🖨️ Imprimer comptes à recevoir' }}</button>
+    </div>
+</div>
+
+<!-- Mode toggle -->
+<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button id="btn-mode-ar" class="btn btn-primary" onclick="setMode('ar')">{{ t.btn_ar_invoices or '📋 Factures envoyées non payées' }}</button>
+    <button id="btn-mode-draft" class="btn btn-secondary" onclick="setMode('draft')">{{ t.btn_draft_invoices or '📝 Factures non envoyées' }}</button>
+    <button id="btn-mode-unbilled" class="btn btn-secondary" onclick="setMode('unbilled')">{{ t.btn_unbilled_expenses or '📄 Frais non facturés' }}</button>
+</div>
+
+<!-- Filters -->
+<div id="unbilled-filters" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
+        <select id="filter-client" onchange="loadData()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:160px;">
+            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
+        </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_from or 'From' }}</label>
+        <input type="date" id="filter-date-from" onchange="loadData()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_to or 'To' }}</label>
+        <input type="date" id="filter-date-to" onchange="loadData()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div id="view-mode-wrap" style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_view_summary or 'Summary' }} / {{ t.lbl_view_detailed or 'Detailed' }}</label>
+        <select id="view-mode" onchange="renderResults()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+            <option value="detailed">{{ t.lbl_view_detailed or 'Detailed' }}</option>
+            <option value="summary">{{ t.lbl_view_summary or 'Summary' }}</option>
+        </select>
+    </div>
+    <button class="btn btn-sm btn-secondary" onclick="clearFilters()" style="height:32px;">{{ t.btn_clear or 'Clear' }}</button>
+</div>
+
+<!-- Print header (visible only during print) -->
+<div id="print-header" style="display:none;">
+    <h2>{{ t.title_unbilled or 'Accounts Receivable' }}</h2>
+    <p id="print-filters-desc"></p>
+</div>
+
+<!-- AR Invoices view -->
+<div id="ar-view">
+    <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+        <table id="ar-table" style="min-width:700px;">
+            <thead>
+                <tr>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_status or 'Statut' }}</th>
+                </tr>
+            </thead>
+            <tbody id="ar-tbody">
+                <tr><td colspan="5" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Draft Invoices view -->
+<div id="draft-view" style="display:none;">
+    <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+        <table id="draft-table" style="min-width:700px;">
+            <thead>
+                <tr>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
+                    <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
+                </tr>
+            </thead>
+            <tbody id="draft-tbody">
+                <tr><td colspan="5" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Unbilled expenses view -->
+<div id="unbilled-view" style="display:none;">
+    <div id="results-container">
+        <!-- Detailed view -->
+        <div id="detailed-view">
+            <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+                <table id="unbilled-table" style="min-width:700px;">
+                    <thead>
+                        <tr>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_client_name or 'Client' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_matter or 'Matter' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_expense_date or 'Date' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_description or 'Description' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_cost_code or 'Cost Code' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_amount or 'Amount' }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unbilled-tbody">
+                        <tr><td colspan="6" style="color:var(--text-secondary);">{{ t.inv_loading or 'Loading…' }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Summary view -->
+        <div id="summary-view" style="display:none;">
+            <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+                <table id="summary-table" style="min-width:500px;">
+                    <thead>
+                        <tr>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_client_name or 'Client' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_num_expenses or 'Number of Expenses' }}</th>
+                            <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.th_amount or 'Amount' }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summary-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Total -->
+<div id="unbilled-total" style="margin-top:16px;padding:12px 16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;font-size:14px;">
+    <strong id="total-label">{{ t.lbl_total_ar or 'Total à recevoir' }}:</strong> <span id="total-unbilled">$0.00</span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const UNB_STR = {
+    noResults: {{ (t.msg_no_unbilled or 'No unbilled items found.') | tojson }},
+    noAR:      {{ (t.msg_no_ar or 'No outstanding invoices found.') | tojson }},
+    noDraft:   {{ (t.msg_no_draft or 'No draft invoices found.') | tojson }},
+    allClients: {{ (t.lbl_all_clients or 'All Clients') | tojson }},
+    client: {{ (t.lbl_filter_client or 'Client') | tojson }},
+    dateFrom: {{ (t.lbl_filter_date_from or 'From') | tojson }},
+    dateTo: {{ (t.lbl_filter_date_to or 'To') | tojson }},
+    summary: {{ (t.lbl_view_summary or 'Summary') | tojson }},
+    detailed: {{ (t.lbl_view_detailed or 'Detailed') | tojson }},
+    totalAR: {{ (t.lbl_total_ar or 'Total à recevoir') | tojson }},
+    totalDraft: {{ (t.lbl_total_draft or 'Total brouillons') | tojson }},
+    totalUnbilled: {{ (t.lbl_total_unbilled or 'Total non facturé') | tojson }},
+    statusSent: {{ (t.inv_status_sent or 'Envoyé') | tojson }},
+    statusDraft: {{ (t.inv_status_draft or 'Brouillon') | tojson }},
+    btnEdit: {{ (t.btn_edit_invoice or '✏️ Modifier') | tojson }},
+    btnMarkSent: {{ (t.inv_mark_sent or '✉ Marquer envoyé') | tojson }},
+};
+
+let unbilledData = [];
+let arData = [];
+let draftData = [];
+let currentMode = 'ar';  // 'ar' = sent/unpaid invoices, 'draft' = draft invoices, 'unbilled' = unbilled expenses
+
+function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('ar-view').style.display = mode === 'ar' ? '' : 'none';
+    document.getElementById('draft-view').style.display = mode === 'draft' ? '' : 'none';
+    document.getElementById('unbilled-view').style.display = mode === 'unbilled' ? '' : 'none';
+    document.getElementById('view-mode-wrap').style.display = mode === 'unbilled' ? '' : 'none';
+    document.getElementById('btn-mode-ar').className = mode === 'ar' ? 'btn btn-primary' : 'btn btn-secondary';
+    document.getElementById('btn-mode-draft').className = mode === 'draft' ? 'btn btn-primary' : 'btn btn-secondary';
+    document.getElementById('btn-mode-unbilled').className = mode === 'unbilled' ? 'btn btn-primary' : 'btn btn-secondary';
+    document.getElementById('total-label').textContent = (mode === 'ar' ? UNB_STR.totalAR : mode === 'draft' ? UNB_STR.totalDraft : UNB_STR.totalUnbilled) + ':';
+    loadData();
+}
+
+async function loadClients() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/clients');
+        if (!res.ok) return;
+        const clients = await res.json();
+        const select = document.getElementById('filter-client');
+        clients.sort((a, b) => (a.client_number || a.client_name).localeCompare(b.client_number || b.client_name));
+        clients.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = (c.client_number ? c.client_number + ' \u2013 ' : '') + c.client_name;
+            select.appendChild(opt);
+        });
+    } catch (err) {
+        console.error('Error loading clients:', err);
+    }
+}
+
+async function loadData() {
+    if (currentMode === 'ar') {
+        await loadARInvoices();
+    } else if (currentMode === 'draft') {
+        await loadDraftInvoices();
+    } else {
+        await loadUnbilled();
+    }
+}
+
+async function loadARInvoices() {
+    const clientId = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+
+    let url = SCRIPT_ROOT + '/api/ar-invoices?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load');
+        arData = await res.json();
+        renderARInvoices();
+        updateTotal();
+    } catch (err) {
+        document.getElementById('ar-tbody').innerHTML =
+            `<tr><td colspan="5" style="color:var(--danger)">Error: ${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderARInvoices() {
+    const tbody = document.getElementById('ar-tbody');
+    if (arData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-secondary)">${UNB_STR.noAR}</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = arData.map(inv => `<tr>
+        <td><a href="${SCRIPT_ROOT}/invoices/${inv.id}/print">${escHtml(inv.invoice_number)}</a></td>
+        <td>${escHtml(inv.client_name || '—')}</td>
+        <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+        <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
+        <td><span class="badge badge-secondary">${escHtml(UNB_STR.statusSent)}</span></td>
+    </tr>`).join('');
+}
+
+async function loadDraftInvoices() {
+    const clientId = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+
+    let url = SCRIPT_ROOT + '/api/draft-invoices?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load');
+        draftData = await res.json();
+        renderDraftInvoices();
+        updateTotal();
+    } catch (err) {
+        document.getElementById('draft-tbody').innerHTML =
+            `<tr><td colspan="5" style="color:var(--danger)">Error: ${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderDraftInvoices() {
+    const tbody = document.getElementById('draft-tbody');
+    if (draftData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="color:var(--text-secondary)">${UNB_STR.noDraft}</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = draftData.map(inv => `<tr>
+        <td><a href="${SCRIPT_ROOT}/invoices/${inv.id}/print">${escHtml(inv.invoice_number)}</a></td>
+        <td>${escHtml(inv.client_name || '—')}</td>
+        <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+        <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
+        <td><span class="badge badge-draft">${escHtml(UNB_STR.statusDraft)}</span>&nbsp;<a href="${SCRIPT_ROOT}/invoices" class="btn btn-sm btn-secondary" style="font-size:11px;padding:2px 8px;">${escHtml(UNB_STR.btnEdit)}</a></td>
+    </tr>`).join('');
+}
+
+async function loadUnbilled() {
+    const clientId = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+
+    let url = SCRIPT_ROOT + '/api/unbilled?';
+    if (clientId) url += 'client_id=' + encodeURIComponent(clientId) + '&';
+    if (dateFrom) url += 'date_from=' + encodeURIComponent(dateFrom) + '&';
+    if (dateTo) url += 'date_to=' + encodeURIComponent(dateTo) + '&';
+
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load');
+        unbilledData = await res.json();
+        renderResults();
+    } catch (err) {
+        document.getElementById('unbilled-tbody').innerHTML =
+            `<tr><td colspan="6" style="color:var(--danger)">Error: ${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderResults() {
+    const mode = document.getElementById('view-mode').value;
+    document.getElementById('detailed-view').style.display = mode === 'detailed' ? '' : 'none';
+    document.getElementById('summary-view').style.display = mode === 'summary' ? '' : 'none';
+
+    if (mode === 'detailed') {
+        renderDetailed();
+    } else {
+        renderSummary();
+    }
+    updateTotal();
+}
+
+function renderDetailed() {
+    const tbody = document.getElementById('unbilled-tbody');
+    if (unbilledData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="color:var(--text-secondary)">${UNB_STR.noResults}</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = unbilledData.map(exp => `<tr>
+        <td>${escHtml(exp.client_name || '—')}</td>
+        <td>${escHtml(exp.matter_number || '—')}</td>
+        <td>${exp.expense_date ? new Date(exp.expense_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+        <td>${escHtml(exp.description || '—')}</td>
+        <td>${escHtml(exp.code || '—')}</td>
+        <td>$${parseFloat(exp.amount || 0).toFixed(2)}</td>
+    </tr>`).join('');
+}
+
+function renderSummary() {
+    const tbody = document.getElementById('summary-tbody');
+    if (unbilledData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="color:var(--text-secondary)">${UNB_STR.noResults}</td></tr>`;
+        return;
+    }
+    const byClient = {};
+    unbilledData.forEach(exp => {
+        const name = exp.client_name || '—';
+        if (!byClient[name]) byClient[name] = { count: 0, total: 0 };
+        byClient[name].count++;
+        byClient[name].total += parseFloat(exp.amount || 0);
+    });
+    tbody.innerHTML = Object.entries(byClient).sort((a, b) => a[0].localeCompare(b[0])).map(([name, data]) =>
+        `<tr><td>${escHtml(name)}</td><td>${data.count}</td><td>$${data.total.toFixed(2)}</td></tr>`
+    ).join('');
+}
+
+function updateTotal() {
+    let total = 0;
+    if (currentMode === 'ar') {
+        total = arData.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+    } else if (currentMode === 'draft') {
+        total = draftData.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+    } else {
+        total = unbilledData.reduce((sum, exp) => sum + parseFloat(exp.amount || 0), 0);
+    }
+    document.getElementById('total-unbilled').textContent = '$' + total.toFixed(2);
+}
+
+function clearFilters() {
+    document.getElementById('filter-client').value = '';
+    document.getElementById('filter-date-from').value = '';
+    document.getElementById('filter-date-to').value = '';
+    loadData();
+}
+
+function printUnbilled() {
+    const clientSel = document.getElementById('filter-client');
+    const clientText = clientSel.value ? clientSel.options[clientSel.selectedIndex].text : UNB_STR.allClients;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+    const mode = document.getElementById('view-mode').value;
+    let desc = UNB_STR.client + ': ' + clientText;
+    if (dateFrom) desc += ' | ' + UNB_STR.dateFrom + ': ' + dateFrom;
+    if (dateTo) desc += ' | ' + UNB_STR.dateTo + ': ' + dateTo;
+    desc += ' | ' + (mode === 'summary' ? UNB_STR.summary : UNB_STR.detailed);
+    document.getElementById('print-filters-desc').textContent = desc;
+    document.getElementById('print-header').style.display = '';
+    window.print();
+    document.getElementById('print-header').style.display = 'none';
+}
+
+function printARReport() {
+    var url = SCRIPT_ROOT + '/unbilled/print';
+    var clientId = document.getElementById('filter-client').value;
+    if (clientId) url += '?client_id=' + encodeURIComponent(clientId);
+    window.location.href = url;
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Initialize
+loadClients();
+setMode('ar');
+</script>
+{% endblock %}

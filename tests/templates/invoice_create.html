@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_create_invoice or 'Créer une facture' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_create_invoice or 'Créer une facture' }}</h1>
+    <a href="{{ url_for('list_invoices') }}" class="btn">{{ t.btn_back_invoices or '← Retour aux factures' }}</a>
+</div>
+
+<div class="form-container">
+    <form id="invoice-form">
+
+        <!-- Step 1: Select client → matter -->
+        <div class="form-row">
+            <div class="form-group">
+                <label for="client_select">{{ t.lbl_select_client or 'Client' }}</label>
+                <select id="client_select" required onchange="loadMattersForClient()">
+                    <option value="">{{ t.ph_select_client or '— Sélectionner un client —' }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="matter_select">{{ t.lbl_select_matter or 'Dossier' }}</label>
+                <select id="matter_select" required onchange="loadExpensesForMatter()">
+                    <option value="">{{ t.ph_select_matter or '— Sélectionner un dossier —' }}</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="invoice_date">{{ t.lbl_invoice_date or 'Date de facturation' }}</label>
+                <input type="date" id="invoice_date" name="invoice_date" required>
+            </div>
+            <div class="form-group">
+                <label for="due_date">{{ t.lbl_due_date_opt or 'Date d\'échéance (optionnel)' }}</label>
+                <input type="date" id="due_date" name="due_date">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">{{ t.lbl_notes_opt or 'Notes (optionnel)' }}</label>
+            <textarea id="notes" name="notes" rows="2" placeholder="{{ t.ph_notes or 'Notes supplémentaires pour cette facture…' }}"></textarea>
+        </div>
+
+        <!-- Step 2: Select expenses to include -->
+        <h3 style="margin:20px 0 10px;font-size:1rem;font-weight:600;border-bottom:1px solid var(--border);padding-bottom:8px;">
+            {{ t.header_select_expenses or 'Sélectionner les frais à inclure' }}
+        </h3>
+        <div id="expenses-section">
+            <p id="expenses-placeholder" style="color:var(--text-secondary);font-size:13px">
+                {{ t.msg_select_client_matter or 'Sélectionnez un client et un dossier ci-dessus pour charger les frais non facturés.' }}
+            </p>
+        </div>
+
+        <!-- Totals -->
+        <div class="invoice-summary">
+            <div id="tax2-compound-info" style="display:none;font-size:12px;color:var(--text-secondary);margin-bottom:8px;"></div>
+            <div class="summary-line"><span>{{ t.lbl_subtotal or 'Sous-total :' }}</span> <span id="subtotal">$0.00</span></div>
+            <div class="summary-line" id="tax1-summary-line"><span id="tax1-label-display">{{ t.lbl_tax1 or 'Taxe 1' }} (<span id="gst_rate_label">0.000</span>%):</span> <span id="gst">$0.00</span></div>
+            <div class="summary-line" id="tax2-summary-line"><span id="tax2-label-display">{{ t.lbl_tax2 or 'Taxe 2' }} (<span id="qst_rate_label">0.000</span>%):</span> <span id="qst">$0.00</span></div>
+            <div class="summary-line total"><span>{{ t.lbl_total or 'Total :' }}</span> <span id="total">$0.00</span></div>
+        </div>
+
+        <!-- Credit & Trust side by side -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;">
+            <div id="credit-section" style="display:none;flex:1;min-width:220px;padding:10px 14px;background:#e8f4fb;border:1px solid #b3d9f5;border-radius:6px;font-size:13px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="apply_credit" name="apply_credit">
+                    <span id="credit-label">{{ t.lbl_apply_credit or 'Appliquer le crédit disponible' }}: <strong id="credit-amount">$0.00</strong></span>
+                </label>
+            </div>
+            <div id="trust-section" style="display:none;flex:1;min-width:220px;padding:10px 14px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;font-size:13px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input type="checkbox" id="apply_trust" name="apply_trust">
+                    <span id="trust-label">{{ t.lbl_apply_trust or 'Payer avec le compte en fiducie' }}: <strong id="trust-amount">$0.00</strong></span>
+                </label>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:12px;align-items:center;">
+            <button type="submit" class="btn btn-primary" id="create-btn" disabled>{{ t.btn_create_invoice_mark or 'Créer la facture et marquer comme facturé' }}</button>
+            <span id="no-expenses-msg" style="color:var(--text-secondary);font-size:13px">{{ t.msg_select_expense or 'Sélectionnez au moins un frais.' }}</span>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allExpenses = [];
+let firmInfo = { tax1_name: 'GST', tax2_name: '', tax2_compound: false };
+let selectedClientId = null;
+let selectedMatterId = null;  // null = "All Matters"
+let clientTrustBalance = 0.0;
+let clientTrustBreakdown = [];  // per-matter trust balance breakdown
+let matterTrustAuthorized = false;  // true when selected matter has an active trust authorization
+
+const INV_STR = {
+    selectClient:   {{ (t.ph_select_client or '— Sélectionner un client —') | tojson }},
+    selectMatter:   {{ (t.ph_select_matter or '— Sélectionner un dossier —') | tojson }},
+    allMatters:     {{ (t.opt_all_matters or '— Tous les dossiers —') | tojson }},
+    loadingExp:     {{ (t.msg_loading or 'Chargement des frais…') | tojson }},
+    errLoadExp:     {{ (t.msg_error_loading or 'Erreur lors du chargement des frais.') | tojson }},
+    noExpenses:     {{ (t.msg_no_expenses_found or 'Aucun frais non facturé trouvé pour ce dossier.') | tojson }},
+    selectAll:      {{ (t.btn_select_all or 'Tout sélectionner') | tojson }},
+    deselectAll:    {{ (t.btn_deselect_all or 'Tout désélectionner') | tojson }},
+    selectMatter2:  {{ (t.msg_select_matter_first or 'Veuillez sélectionner un dossier.') | tojson }},
+    selectExpense:  {{ (t.msg_select_expense or 'Sélectionnez au moins un frais.') | tojson }},
+    errCreateInv:   {{ (t.msg_error_creating_invoice or 'Erreur lors de la création de la facture :') | tojson }},
+    creating:       {{ (t.msg_creating or 'Création en cours…') | tojson }},
+    createBtn:      {{ (t.btn_create_invoice_mark or 'Créer la facture et marquer comme facturé') | tojson }},
+    taxCompound:    {{ (t.msg_tax_compound or 'est calculée sur (sous-total +') | tojson }},
+    applyCredit:    {{ (t.lbl_apply_credit or 'Appliquer le crédit disponible') | tojson }},
+    applyTrust:     {{ (t.lbl_apply_trust or 'Payer avec le compte en fiducie') | tojson }},
+};
+
+let clientCreditBalance = 0.0;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+    document.getElementById('invoice_date').valueAsDate = new Date();
+    await Promise.all([loadClients(), loadFirmInfo()]);
+    // Pre-select client and matter from URL params (e.g. from clients page)
+    const params = new URLSearchParams(window.location.search);
+    const preClientId = params.get('client_id');
+    const preMatterId = params.get('matter_id');
+    if (preClientId) {
+        const clientSel = document.getElementById('client_select');
+        clientSel.value = preClientId;
+        if (clientSel.value === preClientId) {
+            await loadMattersForClient();
+            if (preMatterId) {
+                const matterSel = document.getElementById('matter_select');
+                matterSel.value = preMatterId;
+                if (matterSel.value === preMatterId) {
+                    await loadExpensesForMatter();
+                }
+            }
+        }
+    }
+}
+
+async function loadFirmInfo() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/firm-info');
+        if (!res.ok) return;
+        firmInfo = await res.json();
+    } catch (e) { /* use defaults */ }
+    applyTaxSettings();
+}
+
+function applyTaxSettings() {
+    const tax1Name = firmInfo.tax1_name || '';
+    const tax2Name = firmInfo.tax2_name || '';
+    const compound = firmInfo.tax2_compound || false;
+    const tax1Rate = firmInfo.tax1_rate || 0;
+    const tax2Rate = firmInfo.tax2_rate || 0;
+
+    // Compound info
+    const compoundInfo = document.getElementById('tax2-compound-info');
+    if (tax2Name && compound) {
+        compoundInfo.style.display = '';
+        compoundInfo.textContent = '* ' + tax2Name + ' ' + INV_STR.taxCompound + ' ' + (tax1Name || 'Taxe 1') + ').';
+    } else {
+        compoundInfo.style.display = 'none';
+    }
+
+    // Summary line labels
+    document.getElementById('tax1-summary-line').style.display = tax1Name ? '' : 'none';
+    document.getElementById('tax2-summary-line').style.display = tax2Name ? '' : 'none';
+    if (tax1Name) {
+        document.getElementById('tax1-label-display').innerHTML =
+            escHtml(tax1Name) + ' (<span id="gst_rate_label">' + tax1Rate.toFixed(3) + '</span>%):';
+    }
+    if (tax2Name) {
+        document.getElementById('tax2-label-display').innerHTML =
+            escHtml(tax2Name) + (compound ? '*' : '') + ' (<span id="qst_rate_label">' + tax2Rate.toFixed(3) + '</span>%):';
+    }
+    recalcTotals();
+}
+
+async function loadClients() {
+    const res = await fetch(SCRIPT_ROOT + '/api/clients?show_inactive=false');
+    if (!res.ok) return;
+    const clients = await res.json();
+    const sel = document.getElementById('client_select');
+    sel.innerHTML = '<option value="">' + INV_STR.selectClient + '</option>' +
+        clients.map(c => `<option value="${c.id}">${escHtml(c.client_number)} – ${escHtml(c.client_name)}</option>`).join('');
+}
+
+async function loadMattersForClient() {
+    selectedClientId = document.getElementById('client_select').value || null;
+    const sel = document.getElementById('matter_select');
+    sel.innerHTML = '<option value="">' + INV_STR.selectMatter + '</option>';
+    allExpenses = [];
+    renderExpenseList([]);
+    // Reset credit section
+    clientCreditBalance = 0.0;
+    clientTrustBalance = 0.0;
+    clientTrustBreakdown = [];
+    document.getElementById('credit-section').style.display = 'none';
+    document.getElementById('apply_credit').checked = false;
+    document.getElementById('trust-section').style.display = 'none';
+    document.getElementById('apply_trust').checked = false;
+    if (!selectedClientId) return;
+    const [mattersRes, creditRes, trustRes] = await Promise.all([
+        fetch(`${SCRIPT_ROOT}/api/clients/${selectedClientId}/matters?show_inactive=false`),
+        fetch(`${SCRIPT_ROOT}/api/clients/${selectedClientId}/credit-balance`),
+        fetch(`${SCRIPT_ROOT}/api/clients/${selectedClientId}/trust-balance`)
+    ]);
+    if (mattersRes.ok) {
+        const matters = await mattersRes.json();
+        sel.innerHTML = '<option value="">' + INV_STR.selectMatter + '</option>' +
+            '<option value="all">' + INV_STR.allMatters + '</option>' +
+            matters.map(m => `<option value="${m.id}">${escHtml(m.matter_number)}${m.matter_description ? ' – ' + escHtml(m.matter_description) : ''}</option>`).join('');
+    }
+    if (creditRes.ok) {
+        const creditData = await creditRes.json();
+        clientCreditBalance = creditData.credit_balance || 0.0;
+        const section = document.getElementById('credit-section');
+        const cb = document.getElementById('apply_credit');
+        document.getElementById('credit-amount').textContent = '$' + clientCreditBalance.toFixed(2);
+        section.style.display = '';
+        if (clientCreditBalance > 0) {
+            cb.disabled = false;
+            section.style.opacity = '1';
+        } else {
+            cb.disabled = true;
+            cb.checked = false;
+            section.style.opacity = '0.5';
+        }
+    }
+    if (trustRes && trustRes.ok) {
+        const trustData = await trustRes.json();
+        clientTrustBalance = trustData.trust_balance || 0.0;
+        clientTrustBreakdown = trustData.matters || [];
+        const section = document.getElementById('trust-section');
+        const cb = document.getElementById('apply_trust');
+        document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
+        if (clientTrustBalance > 0) {
+            section.style.display = '';
+        } else {
+            section.style.display = 'none';
+        }
+        // Always disable until a specific matter with active authorization is selected
+        cb.disabled = true;
+        cb.checked = false;
+        section.style.opacity = '0.5';
+        section.title = '';
+    }
+}
+
+async function loadExpensesForMatter() {
+    const matterVal = document.getElementById('matter_select').value;
+    selectedMatterId = (matterVal && matterVal !== 'all') ? parseInt(matterVal) : null;
+    const section = document.getElementById('expenses-section');
+
+    // Update trust checkbox based on matter authorization and matter-specific trust balance
+    const trustSection = document.getElementById('trust-section');
+    const trustCb = document.getElementById('apply_trust');
+    if (clientTrustBalance > 0 && trustSection.style.display !== 'none') {
+        if (matterVal && matterVal !== 'all') {
+            // Look up this matter's specific trust balance from the breakdown
+            const matterIdNum = selectedMatterId;  // already parsed above
+            const matterEntry = clientTrustBreakdown.find(m => m.matter_id === matterIdNum);
+            const matterTrustBalance = matterEntry ? (matterEntry.balance || 0.0) : 0.0;
+
+            // Update the displayed trust balance to be matter-specific
+            document.getElementById('trust-amount').textContent = '$' + matterTrustBalance.toFixed(2);
+
+            if (matterTrustBalance <= 0) {
+                // This matter has no trust funds even though client total is positive
+                matterTrustAuthorized = false;
+                trustCb.disabled = true;
+                trustCb.checked = false;
+                trustSection.style.opacity = '0.5';
+                trustSection.title = "Aucun solde en fiducie pour ce dossier";
+            } else {
+                // Specific matter selected with funds – check for active trust authorization
+                matterTrustAuthorized = false;
+                try {
+                    const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
+                    if (authRes.ok) {
+                        const activeAuths = await authRes.json();
+                        matterTrustAuthorized = activeAuths.length > 0;
+                    }
+                } catch (e) {
+                    // Log fetch/network errors; keep checkbox disabled on failure
+                    console.warn('Trust authorization check failed:', e);
+                }
+                if (matterTrustAuthorized) {
+                    trustCb.disabled = false;
+                    trustSection.style.opacity = '1';
+                    trustSection.title = '';
+                } else {
+                    trustCb.disabled = true;
+                    trustCb.checked = false;
+                    trustSection.style.opacity = '0.5';
+                    trustSection.title = "Aucune autorisation active pour ce dossier";
+                }
+            }
+        } else {
+            // No specific matter (none or "all") – trust payment requires a single matter
+            // with an active authorization; server-side ignores apply_trust without matter_id
+            matterTrustAuthorized = false;
+            trustCb.disabled = true;
+            trustCb.checked = false;
+            trustSection.style.opacity = '0.5';
+            trustSection.title = '';
+            // Restore the total client trust balance display when no matter selected
+            document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
+        }
+    }
+
+    if (!matterVal) {
+        renderExpenseList([]);
+        return;
+    }
+    section.innerHTML = '<p style="color:var(--text-secondary);font-size:13px">' + INV_STR.loadingExp + '</p>';
+
+    let url;
+    if (matterVal === 'all') {
+        url = `${SCRIPT_ROOT}/api/clients/${selectedClientId}/expenses?show_billed=false`;
+    } else {
+        url = `${SCRIPT_ROOT}/api/matters/${matterVal}/expenses?show_billed=false`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) { section.innerHTML = '<p style="color:var(--danger);font-size:13px">' + INV_STR.errLoadExp + '</p>'; return; }
+    allExpenses = await res.json();
+    renderExpenseList(allExpenses);
+}
+
+function renderExpenseList(expenses) {
+    const section = document.getElementById('expenses-section');
+    if (expenses.length === 0) {
+        section.innerHTML = '<p style="color:var(--text-secondary);font-size:13px">' + INV_STR.noExpenses + '</p>';
+        recalcTotals();
+        return;
+    }
+    section.innerHTML = `
+        <div style="margin-bottom:8px;display:flex;gap:8px;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAll(true)">${INV_STR.selectAll}</button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="selectAll(false)">${INV_STR.deselectAll}</button>
+        </div>
+        <div class="expense-select-list">
+            ${expenses.map(exp => `
+                <div class="expense-select-row">
+                    <label>
+                        <input type="checkbox" name="expense_ids" value="${exp.id}"
+                               onchange="recalcTotals()" checked>
+                        <span>
+                            <strong>${escHtml(exp.code || '')}</strong>
+                            ${exp.code ? '–' : ''} ${escHtml(exp.description)}
+                            <span style="color:var(--text-secondary);font-size:11px;margin-left:4px">
+                                ${exp.expense_date ? new Date(exp.expense_date + 'T00:00:00').toLocaleDateString() : '—'}
+                            </span>
+                        </span>
+                    </label>
+                    <span class="amount">$${parseFloat(exp.amount).toFixed(2)}</span>
+                </div>
+            `).join('')}
+        </div>`;
+    recalcTotals();
+}
+
+function selectAll(checked) {
+    document.querySelectorAll('input[name="expense_ids"]').forEach(cb => cb.checked = checked);
+    recalcTotals();
+}
+
+function recalcTotals() {
+    const checked = [...document.querySelectorAll('input[name="expense_ids"]:checked')];
+    const ids = checked.map(cb => parseInt(cb.value));
+    const subtotal = allExpenses
+        .filter(e => ids.includes(e.id))
+        .reduce((s, e) => s + parseFloat(e.amount), 0);
+
+    const tax1Name = firmInfo.tax1_name || '';
+    const tax2Name = firmInfo.tax2_name || '';
+    const compound = firmInfo.tax2_compound || false;
+
+    const gstRate = tax1Name ? (firmInfo.tax1_rate || 0) : 0;
+    const qstRate = tax2Name ? (firmInfo.tax2_rate || 0) : 0;
+
+    // Round each tax independently using "round half up" so the displayed
+    // total always equals the sum of the displayed line amounts (no ±1¢ drift).
+    const gst = roundHalfUp(subtotal * gstRate / 100, 2);
+    const qstBase = compound ? subtotal + gst : subtotal;
+    const qst = roundHalfUp(qstBase * qstRate / 100, 2);
+    const total = roundHalfUp(subtotal + gst + qst, 2);
+
+    document.getElementById('subtotal').textContent = '$' + subtotal.toFixed(2);
+
+    const gstRateLabel = document.getElementById('gst_rate_label');
+    if (gstRateLabel) gstRateLabel.textContent = gstRate.toFixed(3);
+    document.getElementById('gst').textContent = '$' + gst.toFixed(2);
+
+    const qstRateLabel = document.getElementById('qst_rate_label');
+    if (qstRateLabel) qstRateLabel.textContent = qstRate.toFixed(3);
+    document.getElementById('qst').textContent = '$' + qst.toFixed(2);
+
+    document.getElementById('total').textContent = '$' + total.toFixed(2);
+
+    const createBtn = document.getElementById('create-btn');
+    const msg = document.getElementById('no-expenses-msg');
+    createBtn.disabled = ids.length === 0;
+    msg.style.display = ids.length === 0 ? '' : 'none';
+}
+
+document.getElementById('invoice-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const matterVal = document.getElementById('matter_select').value;
+    if (!matterVal) { alert(INV_STR.selectMatter2); return; }
+
+    const checkedIds = [...document.querySelectorAll('input[name="expense_ids"]:checked')].map(cb => parseInt(cb.value));
+    if (checkedIds.length === 0) { alert(INV_STR.selectExpense); return; }
+
+    const tax1Name = firmInfo.tax1_name || '';
+    const tax2Name = firmInfo.tax2_name || '';
+
+    const data = {
+        invoice_date: document.getElementById('invoice_date').value,
+        due_date: document.getElementById('due_date').value || null,
+        notes: document.getElementById('notes').value || null,
+        gst_rate: tax1Name ? (firmInfo.tax1_rate || 0) : 0,
+        qst_rate: tax2Name ? (firmInfo.tax2_rate || 0) : 0,
+        tax2_compound: firmInfo.tax2_compound || false,
+        expense_ids: checkedIds,
+        apply_credit: document.getElementById('apply_credit').checked,
+        apply_trust: document.getElementById('apply_trust').checked
+    };
+
+    if (matterVal === 'all') {
+        data.client_id = parseInt(selectedClientId);
+    } else {
+        data.matter_id = parseInt(matterVal);
+    }
+
+    const btn = document.getElementById('create-btn');
+    btn.disabled = true;
+    btn.textContent = INV_STR.creating;
+
+    const res = await fetch(SCRIPT_ROOT + '/api/invoices', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    if (res.ok) {
+        const inv = await res.json();
+        window.location.href = `${SCRIPT_ROOT}/invoices/${inv.id}/print`;
+    } else {
+        const err = await res.json().catch(() => ({}));
+        alert(INV_STR.errCreateInv + ' ' + (err.error || res.statusText));
+        btn.disabled = false;
+        btn.textContent = INV_STR.createBtn;
+    }
+});
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/**
+ * Round *n* to *dp* decimal places using "round half up"
+ * (0.5 always rounds away from zero, matching standard accounting rules).
+ * JavaScript's Number.toFixed() and Math.round() can give unexpected results
+ * due to IEEE-754 floating point representation; the exponent-string trick
+ * below avoids those pitfalls.
+ */
+function roundHalfUp(n, dp) {
+    return Number(Math.round(+(n + 'e+' + dp)) + 'e-' + dp);
+}
+
+init();
+</script>
+{% endblock %}

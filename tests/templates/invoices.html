@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_invoices or 'Invoices' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t.title_invoices or 'Invoices' }}</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-secondary" onclick="printInvoicePage()">{{ t.btn_print_page or '🖨 Print' }}</button>
+        <button class="btn btn-secondary" onclick="printARFromInvoices()">{{ t.print_ar_title or 'Accounts Receivable' }}</button>
+        <button class="btn btn-success" onclick="postInvoicesToGL()" style="background:#28a745;color:#fff;border:none;">{{ t.btn_post_invoices_to_gl or '📤 Soumettre au GL' }}</button>
+        <a href="{{ url_for('create_invoice_page') }}" class="btn btn-primary">{{ t.btn_create_invoice or '+ Create Invoice' }}</a>
+    </div>
+</div>
+
+<!-- Status legend -->
+<div style="margin-bottom:12px;font-size:12px;color:var(--text-secondary);display:flex;gap:16px;flex-wrap:wrap;">
+    <span><span class="badge badge-draft">{{ t.inv_status_draft or 'draft' }}</span> {{ t.inv_desc_draft or 'Created, not yet sent to client' }}</span>
+    <span><span class="badge badge-secondary">{{ t.inv_status_sent or 'sent' }}</span> {{ t.inv_desc_sent or 'Sent to client, awaiting payment' }}</span>
+    <span><span class="badge badge-success">{{ t.inv_status_paid or 'paid' }}</span> {{ t.inv_desc_paid or 'Payment received' }}</span>
+    <span><span class="badge badge-inactive">{{ t.inv_status_cancelled or 'cancelled' }}</span> {{ t.inv_desc_cancelled or 'Voided — expenses marked as un-billed' }}</span>
+</div>
+
+<!-- Filters -->
+<div id="invoice-filters" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.ph_search_invoice_number or 'Search by invoice number...' }}</label>
+        <input type="text" id="filter-invoice-number" placeholder="{{ t.ph_search_invoice_number or 'Search by invoice number...' }}"
+               oninput="applyFilters()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;width:200px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_client or 'Client' }}</label>
+        <select id="filter-client" onchange="applyFilters()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;min-width:180px;">
+            <option value="">{{ t.lbl_all_clients or 'All Clients' }}</option>
+        </select>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_from or 'From' }}</label>
+        <input type="date" id="filter-date-from" onchange="applyFilters()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:11px;color:var(--text-secondary);">{{ t.lbl_filter_date_to or 'To' }}</label>
+        <input type="date" id="filter-date-to" onchange="applyFilters()" style="padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;font-size:13px;">
+    </div>
+    <button class="btn btn-sm btn-secondary" onclick="clearFilters()" style="height:32px;">{{ t.btn_clear or 'Clear' }}</button>
+    <button id="btn-show-draft" class="btn btn-sm btn-secondary" onclick="toggleShowDraft()" style="height:32px;">{{ t.inv_show_draft or 'Afficher Brouillon' }}</button>
+    <button id="btn-show-paid" class="btn btn-sm btn-secondary" onclick="toggleShowPaid()" style="height:32px;">{{ t.inv_show_paid or 'Show Paid' }}</button>
+    <button id="btn-show-cancelled" class="btn btn-sm btn-secondary" onclick="toggleShowCancelled()" style="height:32px;">{{ t.inv_show_cancelled or 'Show Cancelled' }}</button>
+    <button id="btn-show-unpaid-only" class="btn btn-sm btn-secondary" onclick="toggleShowUnpaidOnly()" style="height:32px;">{{ t.inv_show_unpaid_only or 'Non Payées Seulement' }}</button>
+</div>
+
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 300px);padding-top:0;">
+    <table id="invoices-table" style="min-width:760px;">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_status or 'Status' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="invoices-tbody">
+            <tr><td colspan="6" style="color:var(--text-secondary)">{{ t.inv_loading or 'Loading…' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Totals -->
+<div id="invoice-totals" style="margin-top:16px;padding:12px 16px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:6px;display:flex;gap:32px;flex-wrap:wrap;font-size:14px;">
+    <div><strong>{{ t.lbl_total_invoiced or 'Total Invoiced' }}:</strong> <span id="total-invoiced">$0.00</span></div>
+    <div><strong>{{ t.lbl_total_paid or 'Total Paid' }}:</strong> <span id="total-paid" style="color:var(--success);">$0.00</span></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ------------------------------------------------------------------
+   Translated strings for invoice page
+------------------------------------------------------------------ */
+const INV_STR = {
+    markSent:     {{ (t.inv_mark_sent or '✉ Mark Sent') | tojson }},
+    markPaid:     {{ (t.inv_mark_paid or '✔ Mark Paid') | tojson }},
+    cancel:       {{ (t.inv_cancel or '✕ Cancel') | tojson }},
+    printPdf:     {{ (t.inv_print_pdf or '🖨 Print / PDF') | tojson }},
+    noInvoices:   {{ (t.inv_no_invoices or 'No invoices found.') | tojson }},
+    createOne:    {{ (t.inv_create_one or 'Create one') | tojson }},
+    confirmStatus: {{ (t.inv_confirm_status or 'Mark this invoice as "{status}"?') | tojson }},
+    confirmCancel: {{ (t.inv_confirm_cancel or 'Cancel this invoice? Expenses will be marked as un-billed.') | tojson }},
+    errorPrefix:  'Error: ',
+    statusDraft:     {{ (t.inv_status_draft or 'draft') | tojson }},
+    statusSent:      {{ (t.inv_status_sent or 'sent') | tojson }},
+    statusPaid:      {{ (t.inv_status_paid or 'paid') | tojson }},
+    statusCancelled: {{ (t.inv_status_cancelled or 'cancelled') | tojson }},
+};
+
+/* ------------------------------------------------------------------
+   Uniform button width for invoice action buttons
+------------------------------------------------------------------ */
+const INV_BTN_STYLE = 'min-width:140px;text-align:center;white-space:nowrap;';
+
+let allInvoices = [];
+let showPaid = false;
+let showCancelled = false;
+let showDraft = false;
+let showUnpaidOnly = false;
+
+function toggleShowDraft() {
+    showDraft = !showDraft;
+    const btn = document.getElementById('btn-show-draft');
+    btn.style.fontWeight = showDraft ? '700' : '';
+    btn.style.borderColor = showDraft ? 'var(--warning)' : '';
+    btn.style.color = showDraft ? 'var(--warning)' : '';
+    applyFilters();
+}
+
+function toggleShowPaid() {
+    showPaid = !showPaid;
+    const btn = document.getElementById('btn-show-paid');
+    btn.style.fontWeight = showPaid ? '700' : '';
+    btn.style.borderColor = showPaid ? 'var(--success)' : '';
+    btn.style.color = showPaid ? 'var(--success)' : '';
+    applyFilters();
+}
+
+function toggleShowCancelled() {
+    showCancelled = !showCancelled;
+    const btn = document.getElementById('btn-show-cancelled');
+    btn.style.fontWeight = showCancelled ? '700' : '';
+    btn.style.borderColor = showCancelled ? 'var(--danger)' : '';
+    btn.style.color = showCancelled ? 'var(--danger)' : '';
+    applyFilters();
+}
+
+function toggleShowUnpaidOnly() {
+    showUnpaidOnly = !showUnpaidOnly;
+    const btn = document.getElementById('btn-show-unpaid-only');
+    btn.style.fontWeight = showUnpaidOnly ? '700' : '';
+    btn.style.borderColor = showUnpaidOnly ? 'var(--warning, #ffc107)' : '';
+    btn.style.color = showUnpaidOnly ? 'var(--warning, #856404)' : '';
+    if (showUnpaidOnly) {
+        // Hide paid/cancelled when switching to unpaid-only mode
+        showPaid = false;
+        showCancelled = false;
+    }
+    applyFilters();
+}
+
+async function loadInvoices() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/invoices');
+        if (!res.ok) throw new Error('Failed to load');
+        allInvoices = await res.json();
+        populateClientFilter(allInvoices);
+        // Pre-select client from URL parameter if present (e.g. linked from client dossier)
+        const urlParams = new URLSearchParams(window.location.search);
+        const preClientId = urlParams.get('client_id');
+        if (preClientId) {
+            document.getElementById('filter-client').value = preClientId;
+        }
+        applyFilters();
+    } catch (err) {
+        document.getElementById('invoices-tbody').innerHTML =
+            `<tr><td colspan="6" style="color:var(--danger)">${INV_STR.errorPrefix}${escHtml(err.message)}</td></tr>`;
+    }
+}
+
+function populateClientFilter(invoices) {
+    const select = document.getElementById('filter-client');
+    const existing = select.value;
+    // Deduplicate clients by client_id
+    const seen = new Set();
+    const clients = [];
+    invoices.forEach(i => {
+        const cid = i.client_id;
+        if (cid && !seen.has(cid)) {
+            seen.add(cid);
+            clients.push({ id: cid, name: i.client_name || '', number: i.client_number || '' });
+        }
+    });
+    clients.sort((a, b) => (a.number + a.name).localeCompare(b.number + b.name));
+    // Keep only the "All" option and add new ones
+    select.innerHTML = '<option value="">{{ t.lbl_all_clients or "All Clients" }}</option>';
+    clients.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = String(c.id);
+        opt.textContent = c.number ? c.number + ' \u2013 ' + c.name : c.name;
+        select.appendChild(opt);
+    });
+    if (existing) select.value = existing;
+}
+
+function applyFilters() {
+    const numFilter = document.getElementById('filter-invoice-number').value.trim().toLowerCase();
+    const clientFilter = document.getElementById('filter-client').value;
+    const dateFrom = document.getElementById('filter-date-from').value;
+    const dateTo = document.getElementById('filter-date-to').value;
+
+    const filtered = allInvoices.filter(inv => {
+        if (showUnpaidOnly) {
+            // Show only sent/draft invoices (not paid, not cancelled)
+            if (inv.status === 'paid' || inv.status === 'cancelled') return false;
+        } else {
+            if (!showPaid && inv.status === 'paid') return false;
+            if (!showCancelled && inv.status === 'cancelled') return false;
+            if (!showDraft && inv.status === 'draft') return false;
+        }
+        if (numFilter && !inv.invoice_number.toLowerCase().includes(numFilter)) return false;
+        if (clientFilter && String(inv.client_id) !== clientFilter) return false;
+        if (dateFrom && inv.invoice_date && inv.invoice_date < dateFrom) return false;
+        if (dateTo && inv.invoice_date && inv.invoice_date > dateTo) return false;
+        return true;
+    });
+    renderInvoices(filtered);
+    updateTotals(filtered);
+}
+
+function clearFilters() {
+    document.getElementById('filter-invoice-number').value = '';
+    document.getElementById('filter-client').value = '';
+    document.getElementById('filter-date-from').value = '';
+    document.getElementById('filter-date-to').value = '';
+    showPaid = false;
+    showCancelled = false;
+    showDraft = false;
+    showUnpaidOnly = false;
+    const btnPaid = document.getElementById('btn-show-paid');
+    btnPaid.style.fontWeight = '';
+    btnPaid.style.borderColor = '';
+    btnPaid.style.color = '';
+    const btnCancelled = document.getElementById('btn-show-cancelled');
+    btnCancelled.style.fontWeight = '';
+    btnCancelled.style.borderColor = '';
+    btnCancelled.style.color = '';
+    const btnDraft = document.getElementById('btn-show-draft');
+    btnDraft.style.fontWeight = '';
+    btnDraft.style.borderColor = '';
+    btnDraft.style.color = '';
+    const btnUnpaid = document.getElementById('btn-show-unpaid-only');
+    btnUnpaid.style.fontWeight = '';
+    btnUnpaid.style.borderColor = '';
+    btnUnpaid.style.color = '';
+    applyFilters();
+}
+
+function statusLabel(status) {
+    if (status === 'paid')      return INV_STR.statusPaid;
+    if (status === 'sent')      return INV_STR.statusSent;
+    if (status === 'cancelled') return INV_STR.statusCancelled;
+    return INV_STR.statusDraft;
+}
+
+function statusBadgeClass(status) {
+    if (status === 'paid')      return 'badge-success';
+    if (status === 'sent')      return 'badge-secondary';
+    if (status === 'cancelled') return 'badge-inactive';
+    return 'badge-draft';
+}
+
+function renderInvoices(invoices) {
+    const tbody = document.getElementById('invoices-tbody');
+    if (invoices.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="color:var(--text-secondary)">${INV_STR.noInvoices} <a href="${SCRIPT_ROOT}/invoices/create">${INV_STR.createOne}</a>.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = invoices.map(inv => {
+        const isCancelled = inv.status === 'cancelled';
+        const isPaid      = inv.status === 'paid';
+        const isSent      = inv.status === 'sent';
+        const isDraft     = inv.status === 'draft';
+
+        const printBtn = `<a href="${SCRIPT_ROOT}/invoices/${inv.id}/print" class="btn btn-sm" style="${INV_BTN_STYLE}">${INV_STR.printPdf}</a>`;
+        // Status transition buttons — always shown, disabled when not applicable
+        const markSentDisabled = (isCancelled || isPaid || isSent);
+        const markPaidDisabled = (isCancelled || isPaid);
+        const cancelDisabled   = (isCancelled || isPaid);
+
+        const markSentBtn = `<button class="btn btn-sm btn-secondary" style="${INV_BTN_STYLE}" onclick="updateStatus(${inv.id},'sent')"${markSentDisabled ? ' disabled title="' + escHtml(INV_STR.statusSent) + '"' : ''}>${INV_STR.markSent}</button>`;
+        const markPaidBtn = `<button class="btn btn-sm btn-secondary" style="${INV_BTN_STYLE}" onclick="updateStatus(${inv.id},'paid')"${markPaidDisabled ? ' disabled title="' + escHtml(INV_STR.statusPaid) + '"' : ''}>${INV_STR.markPaid}</button>`;
+        const cancelBtn   = `<button class="btn btn-sm btn-danger"    style="${INV_BTN_STYLE}" onclick="cancelInvoice(${inv.id})"${cancelDisabled   ? ' disabled title="' + escHtml(INV_STR.statusCancelled) + '"' : ''}>${INV_STR.cancel}</button>`;
+
+        return `<tr>
+            <td><strong>${escHtml(inv.invoice_number)}</strong></td>
+            <td>${escHtml(inv.client_name || '—')}</td>
+            <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
+            <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
+            <td><span class="badge ${statusBadgeClass(inv.status)}">${escHtml(statusLabel(inv.status))}</span></td>
+            <td style="white-space:nowrap;display:flex;gap:4px;">
+                ${printBtn}${markSentBtn}${markPaidBtn}${cancelBtn}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function updateTotals(invoices) {
+    const totalInvoiced = invoices.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+    const totalPaid = invoices.filter(inv => inv.status === 'paid').reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+    document.getElementById('total-invoiced').textContent = '$' + totalInvoiced.toFixed(2);
+    document.getElementById('total-paid').textContent = '$' + totalPaid.toFixed(2);
+}
+
+async function updateStatus(invoiceId, newStatus) {
+    if (!confirm(INV_STR.confirmStatus.replace('{status}', newStatus))) return;
+    try {
+        const res = await fetch(`${SCRIPT_ROOT}/api/invoices/${invoiceId}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status: newStatus})
+        });
+        if (!res.ok) throw new Error('Échec de la mise à jour');
+        loadInvoices();
+    } catch (err) {
+        alert(INV_STR.errorPrefix + err.message);
+    }
+}
+
+async function cancelInvoice(invoiceId) {
+    if (!confirm(INV_STR.confirmCancel)) return;
+    try {
+        const res = await fetch(`${SCRIPT_ROOT}/api/invoices/${invoiceId}/cancel`, {method: 'POST'});
+        if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Failed'); }
+        loadInvoices();
+    } catch (err) {
+        alert(INV_STR.errorPrefix + err.message);
+    }
+}
+
+function printInvoicePage() {
+    window.print();
+}
+
+function escHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function printARFromInvoices() {
+    var clientEl = document.getElementById('filter-client');
+    var clientId = clientEl ? clientEl.value : '';
+    var url = SCRIPT_ROOT + '/unbilled/print';
+    if (clientId) url += '?client_id=' + encodeURIComponent(clientId);
+    window.location.href = url;
+}
+
+async function postInvoicesToGL() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/invoices/post-to-gl', {method: 'POST'});
+        const data = await res.json();
+        alert(data.message || 'Done.');
+    } catch (err) {
+        alert('Error: ' + err.message);
+    }
+}
+
+loadInvoices();
+</script>
+{% endblock %}

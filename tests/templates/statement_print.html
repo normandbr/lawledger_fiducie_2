@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="{{ session.get('lang', 'fr') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ t.title_statement or 'État de compte' }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #333; background: #f3f3f3; }
+
+        .no-print {
+            background: #0078d4; color: #fff; padding: 10px 20px;
+            display: flex; align-items: center; gap: 12px;
+        }
+        .no-print button, .no-print a {
+            background: #fff; color: #0078d4; border: none; padding: 6px 16px;
+            border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
+            text-decoration: none; display: inline-block;
+        }
+
+        .statement-doc {
+            width: 816px; min-height: 1056px; margin: 24px auto;
+            background: #fff; padding: 40px 48px;
+            box-shadow: 0 2px 16px rgba(0,0,0,.12); border-radius: 8px;
+        }
+
+        .header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            margin-bottom: 28px; padding-bottom: 18px; border-bottom: 3px solid #0078d4;
+        }
+        .firm-name { font-size: 1.5rem; font-weight: 700; color: #0078d4; }
+        .firm-details { color: #5a5a5a; font-size: 11px; margin-top: 4px; line-height: 1.6; }
+        .doc-title { font-size: 1.8rem; font-weight: 700; color: #1a1a1a; text-align: right; letter-spacing: 1px; }
+        .doc-meta { font-size: 11px; color: #5a5a5a; text-align: right; margin-top: 4px; line-height: 1.6; }
+
+        .parties {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;
+        }
+        .party h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .8px; color: #5a5a5a; margin-bottom: 6px; }
+        .party p { font-size: 12px; line-height: 1.6; }
+
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th { background: #f3f3f3; font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+             color: #5a5a5a; padding: 7px 10px; border-bottom: 2px solid #e0e0e0; font-weight: 600; text-align: left; }
+        td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; font-size: 12px; vertical-align: top; }
+        .text-right { text-align: right; }
+        tr:hover td { background: #f8f8f8; }
+
+        .totals-section { display: flex; justify-content: flex-end; margin-bottom: 24px; }
+        .totals-box { width: 300px; border-top: 2px solid #e0e0e0; padding-top: 10px; }
+        .totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+        .totals-row span:first-child { color: #5a5a5a; }
+        .totals-row.grand {
+            border-top: 2px solid #1a1a1a; margin-top: 6px; padding-top: 8px;
+            font-size: 1rem; font-weight: 700;
+        }
+
+        .footer { text-align: center; color: #5a5a5a; font-size: 10px; border-top: 1px solid #e0e0e0; padding-top: 14px; margin-top: 8px; }
+
+        @media print {
+            body { background: #fff; }
+            .no-print { display: none !important; }
+            .statement-doc { margin: 0; padding: 0.75in; box-shadow: none; border-radius: 0; }
+            @page { size: letter portrait; margin: 0; }
+        }
+        @media screen {
+            .no-screen { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="no-print">
+    <span style="font-weight:600;">{{ t.title_statement or 'État de compte' }}</span>
+    <button onclick="window.print()">🖨 {{ t.btn_print or 'Imprimer' }} / PDF</button>
+    <a href="{{ url_for('statement_page') }}">← {{ t.btn_back or 'Retour' }}</a>
+</div>
+
+<div class="statement-doc">
+
+    <!-- Header -->
+    <div class="header">
+        <div>
+            {% if firm and firm.logo_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + firm.logo_filename) }}" alt="Logo"
+                 style="max-height:70px;max-width:140px;object-fit:contain;margin-bottom:8px;display:block;">
+            {% endif %}
+            {% if firm and firm.firm_name %}
+            <div class="firm-name">{{ firm.firm_name }}</div>
+            <div class="firm-details">
+                {% if firm.address_line1 %}{{ firm.address_line1 }}<br>{% endif %}
+                {% if firm.address_line2 %}{{ firm.address_line2 }}<br>{% endif %}
+                {% set loc = [] %}
+                {% if firm.city %}{% set _ = loc.append(firm.city) %}{% endif %}
+                {% if firm.province %}{% set _ = loc.append(firm.province) %}{% endif %}
+                {% if firm.postal_code %}{% set _ = loc.append(firm.postal_code) %}{% endif %}
+                {% if loc %}{{ loc | join(', ') }}<br>{% endif %}
+                {% if firm.phone %}{{ firm.phone }}{% if firm.email %} &nbsp;|&nbsp; {% endif %}{% endif %}
+                {% if firm.email %}{{ firm.email }}{% endif %}
+            </div>
+            {% else %}
+            <div class="firm-name">{{ t.lbl_firm or 'Cabinet juridique' }}</div>
+            {% endif %}
+        </div>
+        <div>
+            <div class="doc-title">{{ t.title_statement or 'ÉTAT DE COMPTE' }}</div>
+            <div class="doc-meta">
+                {{ t.lbl_date or 'Date' }}: {{ today.strftime('%Y-%m-%d') }}<br>
+                {{ t.lbl_period or 'Période' }}: {{ date_from }} – {{ date_to }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Parties -->
+    <div class="parties">
+        <div class="party">
+            <h4>{{ t.print_inv_bill_to or 'Facturer à' }}</h4>
+            {% if client %}
+            <p>
+                <strong>{{ client.client_name }}</strong><br>
+                {% if client.contact_name %}<em>{{ client.contact_name }}</em><br>{% endif %}
+                {% if client.street %}{{ client.street }}<br>{% endif %}
+                {% set loc = [] %}
+                {% if client.city %}{% set _ = loc.append(client.city) %}{% endif %}
+                {% if client.state %}{% set _ = loc.append(client.state) %}{% endif %}
+                {% if client.postal_code %}{% set _ = loc.append(client.postal_code) %}{% endif %}
+                {% if loc %}{{ loc | join(', ') }}<br>{% endif %}
+                {% if client.email %}{{ client.email }}<br>{% endif %}
+                {% if client.phone %}{{ client.phone }}{% endif %}
+            </p>
+            {% else %}
+            <p>{{ t.lbl_all_clients or 'Tous les clients' }}</p>
+            {% endif %}
+        </div>
+        <div class="party">
+            <h4>{{ t.lbl_statement_details or 'Détails' }}</h4>
+            <p>
+                {{ t.lbl_report_date or 'Date du rapport' }}: {{ today.strftime('%Y-%m-%d') }}<br>
+                {{ t.lbl_period or 'Période' }}: {{ date_from }} – {{ date_to }}<br>
+                {% if client %}{{ t.lbl_client_num or 'Client' }}: {{ client.client_number }}{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Invoice table -->
+    <table>
+        <thead>
+            <tr>
+                <th>{{ t.inv_th_date or 'Date' }}</th>
+                <th>{{ t.inv_th_invoice or 'Facture #' }}</th>
+                <th>{{ t.lbl_description or 'Description' }}</th>
+                <th class="text-right">{{ t.th_amount or 'Montant' }}</th>
+                <th class="text-right">{{ t.lbl_total_paid or 'Payé' }}</th>
+                <th class="text-right">{{ t.lbl_outstanding_balance or 'Solde' }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if prev_balance > 0 %}
+            <tr>
+                <td>–</td>
+                <td>–</td>
+                <td><em>{{ t.lbl_previous_balance or 'Solde précédent' }}</em></td>
+                <td class="text-right"></td>
+                <td class="text-right"></td>
+                <td class="text-right">${{ "%.2f"|format(prev_balance) }}</td>
+            </tr>
+            {% endif %}
+            {% for inv in invoices %}
+            {% set inv_paid = inv.total_amount if inv.status == 'paid' else 0 %}
+            {% set inv_balance = inv.total_amount - inv_paid %}
+            <tr>
+                <td>{{ inv.invoice_date.strftime('%Y-%m-%d') if inv.invoice_date else '—' }}</td>
+                <td><strong>{{ inv.invoice_number }}</strong></td>
+                <td>
+                    {% set c = inv.resolved_client %}
+                    {% if c %}{{ c.client_name }}{% endif %}
+                    {% if inv.matter %}
+                    <br><small style="color:#888;">{{ inv.matter.matter_number }}{% if inv.matter.matter_description %} – {{ inv.matter.matter_description }}{% endif %}</small>
+                    {% endif %}
+                </td>
+                <td class="text-right">${{ "%.2f"|format(inv.total_amount or 0) }}</td>
+                <td class="text-right"{% if inv.status == 'paid' %} style="color:green;"{% endif %}>${{ "%.2f"|format(inv_paid) }}</td>
+                <td class="text-right"{% if inv_balance > 0 %} style="color:#c42b1c;"{% endif %}>${{ "%.2f"|format(inv_balance) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">{{ t.msg_no_gl_entries or 'Aucune entrée.' }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Totals -->
+    <div class="totals-section">
+        <div class="totals-box">
+            {% if prev_balance > 0 %}
+            <div class="totals-row">
+                <span>{{ t.lbl_previous_balance or 'Solde précédent' }} :</span>
+                <span>${{ "%.2f"|format(prev_balance) }}</span>
+            </div>
+            {% endif %}
+            <div class="totals-row">
+                <span>{{ t.lbl_total_invoiced or 'Total facturé' }} :</span>
+                <span>${{ "%.2f"|format(total_invoiced) }}</span>
+            </div>
+            <div class="totals-row">
+                <span>{{ t.lbl_total_paid or 'Total payé' }} :</span>
+                <span style="color:green;">${{ "%.2f"|format(total_paid) }}</span>
+            </div>
+            <div class="totals-row grand">
+                <span>{{ t.lbl_outstanding_balance or 'Solde à payer' }} :</span>
+                <span style="color:{% if (prev_balance + balance) > 0 %}#c42b1c{% else %}green{% endif %};">
+                    ${{ "%.2f"|format(prev_balance + balance) }}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <p style="margin-bottom:4px;">{{ t.stmt_payment_due or 'Paiement dû dans les 30 jours. Merci de votre confiance.' }}</p>
+        {% if firm and firm.firm_name %}
+        <p>{{ firm.firm_name }}{% if firm.phone %} &nbsp;·&nbsp; {{ firm.phone }}{% endif %}{% if firm.email %} &nbsp;·&nbsp; {{ firm.email }}{% endif %}</p>
+        {% endif %}
+        <p style="margin-top:6px;font-size:10px;color:#aaa;">{{ t.doc_generated_by or 'Document généré par LawLedger' }}</p>
+    </div>
+
+</div>
+</body>
+</html>

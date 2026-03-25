@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ t.print_trust_title or 'Trust Statement' }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; color: #333; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #333; padding-bottom: 12px; }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header-left img { max-height: 60px; max-width: 180px; object-fit: contain; }
+        .firm-info { font-size: 11px; line-height: 1.5; }
+        .firm-name { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+        .report-title { font-size: 18px; font-weight: 700; text-align: right; }
+        .report-meta { font-size: 11px; color: #666; text-align: right; margin-top: 4px; line-height: 1.6; }
+
+        .info-section { margin: 12px 0 16px; display: flex; gap: 32px; flex-wrap: wrap; }
+        .info-item { font-size: 12px; }
+        .info-label { font-weight: 600; color: #555; }
+
+        .summary-boxes { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+        .summary-box { flex: 1; min-width: 140px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; text-align: center; }
+        .summary-box .label { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 4px; }
+        .summary-box .value { font-size: 16px; font-weight: 700; }
+        .summary-box .value.deposit { color: #27ae60; }
+        .summary-box .value.withdrawal { color: #e74c3c; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th { background: #f0f0f0; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 600; border-bottom: 2px solid #333; }
+        td { padding: 5px 8px; border-bottom: 1px solid #e0e0e0; font-size: 11px; }
+        .text-right { text-align: right; }
+        .cancelled { color: #999; text-decoration: line-through; }
+        .badge-cancelled { display: inline-block; background: #f0d0d0; color: #c0392b; font-size: 9px; padding: 1px 6px; border-radius: 3px; margin-left: 4px; }
+        .totals-row { font-weight: 700; border-top: 2px solid #333; background: #f8f8f8; }
+        .totals-row td { padding: 8px; font-size: 12px; }
+
+        .no-print { }
+
+        @media print {
+            body { padding: 0; }
+            .no-print { display: none !important; }
+            @page { size: letter; margin: 15mm; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="margin-bottom:16px;">
+        <button onclick="window.print()" style="padding:8px 16px;cursor:pointer;">🖨 {{ t.btn_print or 'Print' }}</button>
+        <a href="{{ url_for('module_fiducie', id=matter.id) }}" style="margin-left:12px;font-size:13px;">← {{ t.btn_back or 'Back' }}</a>
+    </div>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            {% if firm and firm.logo_filename %}
+            <img src="{{ url_for('static', filename='uploads/' + firm.logo_filename) }}" alt="Logo"
+                 onerror="this.style.display='none'">
+            {% endif %}
+            {% if firm %}
+            <div class="firm-info">
+                <div class="firm-name">{{ firm.firm_name or '' }}</div>
+                {% if firm.address_line1 %}{{ firm.address_line1 }}<br>{% endif %}
+                {% if firm.address_line2 %}{{ firm.address_line2 }}<br>{% endif %}
+                {% if firm.city or firm.province or firm.postal_code %}
+                    {{ firm.city or '' }}{% if firm.province %}, {{ firm.province }}{% endif %} {{ firm.postal_code or '' }}<br>
+                {% endif %}
+                {% if firm.phone %}{{ firm.phone }}<br>{% endif %}
+                {% if firm.email %}{{ firm.email }}{% endif %}
+            </div>
+            {% endif %}
+        </div>
+        <div>
+            <div class="report-title">{{ t.print_trust_title or 'Trust Statement' }}</div>
+            <div class="report-meta">
+                {% if date_from or date_to %}
+                {{ t.print_trust_period or 'Period' }}: {{ date_from or '…' }} — {{ date_to or '…' }}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Client / Matter Info -->
+    <div class="info-section">
+        <div class="info-item">
+            <span class="info-label">{{ t.print_trust_client or 'Client' }}:</span>
+            {{ client.client_name if client else '' }}
+            {% if client and client.client_number %}({{ client.client_number }}){% endif %}
+        </div>
+        <div class="info-item">
+            <span class="info-label">{{ t.print_trust_matter or 'Matter' }}:</span>
+            {{ matter.matter_number if matter else '' }}
+        </div>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-boxes">
+        <div class="summary-box">
+            <div class="label">{{ t.print_trust_total_deposits or 'Total Deposits' }}</div>
+            <div class="value deposit">${{ "%.2f"|format(total_deposits) }}</div>
+        </div>
+        <div class="summary-box">
+            <div class="label">{{ t.print_trust_total_withdrawals or 'Total Withdrawals' }}</div>
+            <div class="value withdrawal">${{ "%.2f"|format(total_withdrawals) }}</div>
+        </div>
+        <div class="summary-box">
+            <div class="label">{{ t.print_trust_closing_balance or 'Closing Balance' }}</div>
+            <div class="value">${{ "%.2f"|format(closing_balance) }}</div>
+        </div>
+    </div>
+
+    <!-- Transactions Table -->
+    <table>
+        <thead>
+            <tr>
+                <th>{{ t.print_trust_date or 'Date' }}</th>
+                <th>{{ t.print_trust_type or 'Type' }}</th>
+                <th class="text-right">{{ t.print_trust_amount or 'Amount' }}</th>
+                <th>{{ t.print_trust_beneficiary or 'Beneficiary / Payer' }}</th>
+                <th>{{ t.print_trust_reason or 'Reason' }}</th>
+                <th>{{ t.print_trust_reference or 'Bank Reference' }}</th>
+                <th>{{ t.print_trust_invoice or 'No Facture' }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set ns = namespace(running=0.0) %}
+            {% for t_row in transactions %}
+            <tr{% if t_row.est_annulee %} class="cancelled"{% endif %}>
+                <td>{{ t_row.date_trans.strftime('%Y-%m-%d') if t_row.date_trans else '' }}</td>
+                <td>
+                    {% if t_row.type_trans == 'DEPOT' %}
+                        {{ t.print_trust_deposit or 'Deposit' }}
+                    {% else %}
+                        {{ t.print_trust_withdrawal or 'Withdrawal' }}
+                    {% endif %}
+                    {% if t_row.est_annulee %}<span class="badge-cancelled">{{ t.print_trust_cancelled or 'Cancelled' }}</span>{% endif %}
+                </td>
+                <td class="text-right">
+                    {% if t_row.type_trans == 'DEPOT' %}
+                        ${{ "%.2f"|format(t_row.montant) }}
+                    {% else %}
+                        -${{ "%.2f"|format(t_row.montant) }}
+                    {% endif %}
+                </td>
+                <td>{{ t_row.beneficiaire or '' }}</td>
+                <td>{{ t_row.motif or '' }}</td>
+                <td>{{ t_row.ref_bancaire or '' }}</td>
+                <td>{{ t_row.invoice_number or '' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" style="text-align:center;color:#888;">{{ t.msg_no_gl_entries or 'No entries found.' }}</td></tr>
+            {% endfor %}
+        </tbody>
+        {% if transactions %}
+        <tfoot>
+            <tr class="totals-row">
+                <td colspan="2" style="text-align:right;">{{ t.print_trust_closing_balance or 'Closing Balance' }}:</td>
+                <td class="text-right">${{ "%.2f"|format(closing_balance) }}</td>
+                <td colspan="4"></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+</body>
+</html>

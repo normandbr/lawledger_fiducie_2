@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+
+{% block title %}{{ t.title_cost_codes_page or 'Cost Codes' }} - LawLedger{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>{{ t.title_cost_codes_page or 'Codes de frais' }}</h1>
+    <div style="display: flex; gap: 10px; align-items: center;">
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="show-inactive-codes" onchange="renderCostCodes()">
+            {{ t.lbl_show_inactive or 'Afficher inactifs' }}
+        </label>
+        <!-- Import button navigates to the import module -->
+        <a href="{{ url_for('import_page') }}" class="btn btn-secondary">{{ t.btn_import_csv or 'Importer CSV/Excel' }}</a>
+        <button class="btn btn-primary" onclick="showAddForm()">{{ t.btn_add_cost_code or 'Ajouter un nouveau code' }}</button>
+    </div>
+</div>
+
+<div id="add-form" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideAddForm()">&times;</span>
+        <h2>{{ t.modal_add_cost_code or 'Ajouter un nouveau code de frais' }}</h2>
+        <form id="code-form">
+            <div class="form-group">
+                <label for="code">{{ t.lbl_code or 'Code :' }}</label>
+                <input type="text" id="code" name="code" required>
+            </div>
+            <div class="form-group">
+                <label for="description">{{ t.lbl_description or 'Description :' }}</label>
+                <input type="text" id="description" name="description" required>
+            </div>
+            <div class="form-group">
+                <label for="charge_type">{{ t.lbl_charge_type or 'Type de facturation :' }}</label>
+                <select id="charge_type" name="charge_type" required>
+                    <option value="Professional Services">{{ t.type_prof_services or 'Services professionnels' }}</option>
+                    <option value="Administrative">{{ t.type_admin or 'Administratif' }}</option>
+                    <option value="Disbursements">{{ t.type_disbursements or 'Débours' }}</option>
+                    <option value="Expenses">{{ t.type_expenses or 'Dépenses' }}</option>
+                    <option value="Other">{{ t.type_other or 'Autre' }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="rate">{{ t.lbl_default_rate or 'Taux par défaut :' }}</label>
+                <input type="number" id="rate" name="rate" step="0.01" min="0" value="0.00">
+            </div>
+            <div class="form-group">
+                <label for="account_code">{{ t.lbl_account_code or 'Code comptable :' }}</label>
+                <select id="account_code" name="account_code" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    <option value="">— {{ t.lbl_none or 'Aucun' }} —</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="is_active" name="is_active" checked>
+                    {{ t.lbl_active_check or 'Actif' }}
+                </label>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn btn-primary">{{ t.btn_save_cost_code or 'Enregistrer le code' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="hideAddForm()">{{ t.btn_cancel or 'Annuler' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Cost Code Modal -->
+<div id="edit-code-form" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="close" onclick="hideEditCodeForm()">&times;</span>
+        <h2>{{ t.modal_edit_cost_code or 'Modifier le code de frais' }}</h2>
+        <form id="edit-code-inner-form">
+            <input type="hidden" id="edit_code_id">
+            <div class="form-group">
+                <label for="edit_code_code">{{ t.lbl_code or 'Code :' }}</label>
+                <input type="text" id="edit_code_code" name="code" required>
+            </div>
+            <div class="form-group">
+                <label for="edit_code_description">{{ t.lbl_description or 'Description :' }}</label>
+                <input type="text" id="edit_code_description" name="description" required>
+            </div>
+            <div class="form-group">
+                <label for="edit_code_charge_type">{{ t.lbl_charge_type or 'Type de facturation :' }}</label>
+                <select id="edit_code_charge_type" name="charge_type">
+                    <option value="Professional Services">{{ t.type_prof_services or 'Services professionnels' }}</option>
+                    <option value="Administrative">{{ t.type_admin or 'Administratif' }}</option>
+                    <option value="Disbursements">{{ t.type_disbursements or 'Débours' }}</option>
+                    <option value="Expenses">{{ t.type_expenses or 'Dépenses' }}</option>
+                    <option value="Other">{{ t.type_other or 'Autre' }}</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="edit_code_rate">{{ t.lbl_default_rate or 'Taux par défaut :' }}</label>
+                <input type="number" id="edit_code_rate" name="rate" step="0.01" min="0">
+            </div>
+            <div class="form-group">
+                <label for="edit_code_account_code">{{ t.lbl_account_code or 'Code comptable :' }}</label>
+                <select id="edit_code_account_code" name="account_code" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    <option value="">— {{ t.lbl_none or 'Aucun' }} —</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="edit_code_is_active" name="is_active">
+                    {{ t.lbl_active_check or 'Actif' }}
+                </label>
+            </div>
+            <div id="edit-code-error" class="alert alert-error" style="display:none;"></div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn btn-primary">{{ t.btn_update_cost_code or 'Mettre à jour le code' }}</button>
+                <button type="button" class="btn btn-secondary" onclick="hideEditCodeForm()">{{ t.btn_cancel or 'Annuler' }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 220px);padding-top:0;">
+    <table id="codes-table">
+        <thead>
+            <tr>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_code or 'Code' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.lbl_description or 'Description' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.lbl_charge_type or 'Type de facturation' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.lbl_rate or 'Taux' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.lbl_account_code or 'Code comptable' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_status or 'Statut' }}</th>
+                <th style="position:sticky;top:0;z-index:2;background-color:#f3f3f3;">{{ t.th_actions or 'Actions' }}</th>
+            </tr>
+        </thead>
+        <tbody id="codes-tbody">
+            <tr><td colspan="7">{{ t.msg_loading or 'Chargement...' }}</td></tr>
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let costCodes = [];
+let accountOptions = [];
+
+const CC_STR = {
+    active:   {{ (t.status_active or 'Actif') | tojson }},
+    inactive: {{ (t.status_inactive or 'Inactif') | tojson }},
+    edit:     {{ (t.btn_edit or 'Modifier') | tojson }},
+    noData:   {{ (t.msg_no_codes or 'Aucun code de frais trouvé') | tojson }},
+    none:     {{ (t.lbl_none or 'Aucun') | tojson }},
+};
+
+const CHARGE_TYPE_LABELS = {
+    'Professional Services': {{ (t.type_prof_services or 'Services professionnels') | tojson }},
+    'Administrative': {{ (t.type_admin or 'Administratif') | tojson }},
+    'Disbursements': {{ (t.type_disbursements or 'Débours') | tojson }},
+    'Expenses': {{ (t.type_expenses or 'Dépenses') | tojson }},
+    'Other': {{ (t.type_other or 'Autre') | tojson }},
+};
+
+async function loadAccountOptions() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/accounts');
+        if (!res.ok) return;
+        accountOptions = (await res.json()).filter(a => !a.is_deleted && a.is_active);
+        ['account_code', 'edit_code_account_code'].forEach(selId => {
+            const sel = document.getElementById(selId);
+            if (!sel) return;
+            accountOptions.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.code;
+                opt.textContent = a.code + ' – ' + a.name;
+                sel.appendChild(opt);
+            });
+        });
+    } catch (err) { console.error('Could not load accounts:', err); }
+}
+
+function showAddForm() {
+    document.getElementById('add-form').style.display = 'flex';
+    document.getElementById('code-form').reset();
+    document.getElementById('account_code').value = '';
+}
+
+function hideAddForm() {
+    document.getElementById('add-form').style.display = 'none';
+}
+
+function showEditCodeForm(id) {
+    const code = costCodes.find(c => c.id === parseInt(id, 10));
+    if (!code) return;
+    document.getElementById('edit_code_id').value = id;
+    document.getElementById('edit_code_code').value = code.code;
+    document.getElementById('edit_code_description').value = code.description;
+    document.getElementById('edit_code_charge_type').value = code.charge_type || 'Professional Services';
+    document.getElementById('edit_code_rate').value = code.rate || 0;
+    document.getElementById('edit_code_account_code').value = code.account_code || '';
+    document.getElementById('edit_code_is_active').checked = code.is_active;
+    document.getElementById('edit-code-error').style.display = 'none';
+    document.getElementById('edit-code-form').style.display = 'flex';
+}
+
+function hideEditCodeForm() {
+    document.getElementById('edit-code-form').style.display = 'none';
+}
+
+async function loadCostCodes() {
+    const response = await fetch(SCRIPT_ROOT + '/api/cost-codes');
+    costCodes = await response.json();
+    renderCostCodes();
+}
+
+function renderCostCodes() {
+    const tbody = document.getElementById('codes-tbody');
+    const showInactive = document.getElementById('show-inactive-codes').checked;
+    const visible = showInactive ? costCodes : costCodes.filter(c => c.is_active);
+    if (visible.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7">${CC_STR.noData}</td></tr>`;
+        return;
+    }
+    
+    tbody.innerHTML = visible.map(code => `
+        <tr>
+            <td><strong>${code.code}</strong></td>
+            <td>${code.description}</td>
+            <td>${CHARGE_TYPE_LABELS[code.charge_type] || code.charge_type || '-'}</td>
+            <td>$${code.rate.toFixed(2)}</td>
+            <td>${code.account_code ? `<span class="badge" style="background:#e8f0fe;color:#1a73e8;padding:2px 8px;border-radius:4px;font-size:12px;">${code.account_code}</span>` : '-'}</td>
+            <td>
+                <span class="badge ${code.is_active ? 'badge-success' : 'badge-inactive'}">
+                    ${code.is_active ? CC_STR.active : CC_STR.inactive}
+                </span>
+            </td>
+            <td>
+                <button class="btn btn-sm" onclick="showEditCodeForm(${code.id})">${CC_STR.edit}</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+document.getElementById('code-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+        code: formData.get('code'),
+        description: formData.get('description'),
+        charge_type: formData.get('charge_type'),
+        rate: parseFloat(formData.get('rate')),
+        account_code: formData.get('account_code') || '',
+        is_active: formData.get('is_active') === 'on'
+    };
+    
+    const response = await fetch(SCRIPT_ROOT + '/api/cost-codes', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    
+    if (response.ok) {
+        hideAddForm();
+        loadCostCodes();
+    } else {
+        alert('{{ t.msg_error or "Une erreur est survenue" }}');
+    }
+});
+
+document.getElementById('edit-code-inner-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('edit_code_id').value;
+    const data = {
+        code: document.getElementById('edit_code_code').value,
+        description: document.getElementById('edit_code_description').value,
+        charge_type: document.getElementById('edit_code_charge_type').value,
+        rate: parseFloat(document.getElementById('edit_code_rate').value) || 0,
+        account_code: document.getElementById('edit_code_account_code').value || '',
+        is_active: document.getElementById('edit_code_is_active').checked
+    };
+
+    const response = await fetch(`${SCRIPT_ROOT}/api/cost-codes/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+
+    if (response.ok) {
+        hideEditCodeForm();
+        loadCostCodes();
+    } else {
+        const err = await response.json().catch(() => ({}));
+        const errDiv = document.getElementById('edit-code-error');
+        errDiv.textContent = err.error || '{{ t.msg_error or "Une erreur est survenue" }}';
+        errDiv.style.display = 'block';
+    }
+});
+
+loadCostCodes();
+loadAccountOptions();
+</script>
+{% endblock %}
