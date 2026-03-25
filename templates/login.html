@@ -27,6 +27,7 @@
                 <div class="form-group">
                     <label for="username">{{ t.lbl_username or 'Username' }}</label>
                     <input type="text" id="username" name="username" required autofocus
+                           autocomplete="username"
                            placeholder="{{ t.ph_login_username or 'Enter your username' }}"
                            style="width:100%;padding:10px 14px;border:1px solid #e0e0e0;border-radius:4px;font-size:14px;font-family:inherit;">
                 </div>
@@ -34,6 +35,7 @@
                     <label for="password">{{ t.lbl_password or 'Password' }}</label>
                     <div style="position:relative;">
                         <input type="password" id="password" name="password" required
+                               autocomplete="current-password"
                                placeholder="{{ t.ph_login_password or 'Enter your password' }}"
                                style="width:100%;padding:10px 44px 10px 14px;border:1px solid #e0e0e0;border-radius:4px;font-size:14px;font-family:inherit;box-sizing:border-box;">
                         <button type="button" id="toggle-password" onclick="togglePasswordVisibility()"
@@ -89,51 +91,51 @@
                 </p>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">First Name <span style="color:red">*</span></label>
+                        <label for="mgr_first_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">First Name <span style="color:red">*</span></label>
                         <input id="mgr_first_name" type="text"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Last Name <span style="color:red">*</span></label>
+                        <label for="mgr_last_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Last Name <span style="color:red">*</span></label>
                         <input id="mgr_last_name" type="text"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Role</label>
-                    <input type="text" value="Manager" readonly
+                    <label for="mgr_role" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Role</label>
+                    <input type="text" id="mgr_role" value="Manager" readonly autocomplete="off"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;background:#f8f8f8;color:#555;">
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Username <span style="color:red">*</span></label>
-                    <input id="mgr_username" type="text" placeholder="e.g. admin"
+                    <label for="mgr_username" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Username <span style="color:red">*</span></label>
+                    <input id="mgr_username" type="text" placeholder="e.g. admin" autocomplete="username"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Password</label>
-                        <input id="mgr_password" type="password" placeholder="Leave blank to keep current"
+                        <label for="mgr_password" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Password</label>
+                        <input id="mgr_password" type="password" placeholder="Leave blank to keep current" autocomplete="new-password"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Confirm Password</label>
-                        <input id="mgr_confirm_password" type="password" placeholder="Repeat password"
+                        <label for="mgr_confirm_password" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Confirm Password</label>
+                        <input id="mgr_confirm_password" type="password" placeholder="Repeat password" autocomplete="new-password"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Title / Position</label>
-                    <input id="mgr_title" type="text" placeholder="e.g. Managing Partner"
+                    <label for="mgr_title" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Title / Position</label>
+                    <input id="mgr_title" type="text" placeholder="e.g. Managing Partner" autocomplete="organization-title"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
-                    <input id="mgr_email" type="email" placeholder="manager@yourfirm.com"
+                    <label for="mgr_email" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
+                    <input id="mgr_email" type="email" placeholder="manager@yourfirm.com" autocomplete="email"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:16px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
-                    <input id="mgr_phone" type="text" placeholder="e.g. (514) 555-0100"
+                    <label for="mgr_phone" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
+                    <input id="mgr_phone" type="text" placeholder="e.g. (514) 555-0100" autocomplete="tel"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
 
@@ -156,49 +158,49 @@
             <!-- Firm Information Tab -->
             <div id="tab-firminfo" style="display:none;">
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Firm Name <span style="color:red">*</span></label>
-                    <input id="fi_name" type="text" placeholder="e.g. Smith &amp; Associates Law Firm"
+                    <label for="fi_name" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Firm Name <span style="color:red">*</span></label>
+                    <input id="fi_name" type="text" placeholder="e.g. Smith &amp; Associates Law Firm" autocomplete="organization"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 1</label>
-                    <input id="fi_addr1" type="text" placeholder="Street address"
+                    <label for="fi_addr1" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 1</label>
+                    <input id="fi_addr1" type="text" placeholder="Street address" autocomplete="address-line1"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 2</label>
-                    <input id="fi_addr2" type="text" placeholder="Suite, floor, etc. (optional)"
+                    <label for="fi_addr2" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Address Line 2</label>
+                    <input id="fi_addr2" type="text" placeholder="Suite, floor, etc. (optional)" autocomplete="address-line2"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">City</label>
-                        <input id="fi_city" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        <label for="fi_city" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">City</label>
+                        <input id="fi_city" type="text" autocomplete="address-level2" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Province / State</label>
-                        <input id="fi_prov" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        <label for="fi_prov" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Province / State</label>
+                        <input id="fi_prov" type="text" autocomplete="address-level1" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Postal Code</label>
-                        <input id="fi_postal" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        <label for="fi_postal" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Postal Code</label>
+                        <input id="fi_postal" type="text" autocomplete="postal-code" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                     <div>
-                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
-                        <input id="fi_phone" type="text" placeholder="e.g. (514) 555-0100"
+                        <label for="fi_phone" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Phone</label>
+                        <input id="fi_phone" type="text" placeholder="e.g. (514) 555-0100" autocomplete="tel"
                                style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                     </div>
                 </div>
                 <div style="margin-bottom:12px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
-                    <input id="fi_email" type="email" placeholder="info@yourfirm.com"
+                    <label for="fi_email" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Email</label>
+                    <input id="fi_email" type="email" placeholder="info@yourfirm.com" autocomplete="email"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
                 <div style="margin-bottom:16px;">
-                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Tax Number (GST / QST registration)</label>
-                    <input id="fi_tax" type="text" placeholder="e.g. 123456789 RT0001"
+                    <label for="fi_tax" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">Tax Number (GST / QST registration)</label>
+                    <input id="fi_tax" type="text" placeholder="e.g. 123456789 RT0001" autocomplete="off"
                            style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
                 </div>
 
