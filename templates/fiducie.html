@@ -325,7 +325,7 @@ async function fidLoadMatters() {
     matterSel.innerHTML = '<option value="">{{ t.ph_select_matter or "— Sélectionner un dossier —" }}</option>';
     if (!clientId) return;
     try {
-        const res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters?show_inactive=true');
+        const res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters');
         if (!res.ok) return;
         const matters = await res.json();
         // Add "all dossiers" option first
@@ -490,7 +490,7 @@ async function summaryLoadMatters() {
     matterSel.innerHTML = '<option value="">{{ t.lbl_all_matters or "— Tous les dossiers —" }}</option>';
     if (!clientId) return;
     try {
-        var res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters?show_inactive=true');
+        var res = await fetch(SCRIPT_ROOT + '/api/clients/' + clientId + '/matters');
         if (!res.ok) return;
         var matters = await res.json();
         matters.forEach(function(m) {

@@ -47,7 +47,7 @@
 
     {# 3b. General Ledger #}
     <div class="card{% if license_modules_restricted %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-        <h3>📒 {{ t.nav_gl or 'General Ledger' }}</h3>
+        <h3>{{ t.nav_gl or 'General Ledger' }}</h3>
         <p style="flex-grow: 1;">{{ t.card_gl_desc or 'View the general ledger with billing and payment entries.' }}</p>
         <a href="{{ url_for('gl_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
         {% if license_modules_restricted %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}
@@ -56,7 +56,7 @@
     {# 3c. Suppliers #}
     {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
     <div class="card{% if _sup_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-        <h3>🏢 {{ t.nav_suppliers or 'Suppliers' }}</h3>
+        <h3>{{ t.nav_suppliers or 'Suppliers' }}</h3>
         <p style="flex-grow: 1;">{{ t.card_suppliers_desc or 'Manage suppliers, their contact information, and payments.' }}</p>
         <a href="{{ url_for('suppliers_page') }}" class="btn btn-primary">{{ t.btn_view }}</a>
         {% if _sup_disabled %}
@@ -77,7 +77,7 @@
 
     {# 5. Timer #}
     <div class="card{% if not current_user.timer_user %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-        <h3>⏱ {{ t.nav_timer }}</h3>
+        <h3>{{ t.nav_timer }}</h3>
         <p style="flex-grow: 1;">{{ t.card_timer_desc }}</p>
         <a href="{{ url_for('timer_page') }}" class="btn btn-primary">{{ t.btn_open }}</a>
         {% if not current_user.timer_user %}<span class="card-locked-badge">🔒 {{ t.msg_timer_req }}</span>{% endif %}
@@ -106,7 +106,7 @@
     {# 8. Fiducie #}
     {% set _trust_disabled = license_modules_restricted %}
     <div class="card{% if _trust_disabled %} card-disabled{% endif %}" style="display: flex; flex-direction: column; height: 100%;">
-        <h3>💼 {{ t.nav_trust or 'Fiducie' }}</h3>
+        <h3>{{ t.nav_trust or 'Fiducie' }}</h3>
         <p style="flex-grow: 1;">{{ t.card_trust_desc or 'Gérez la comptabilité en fiducie, les dépôts et retraits.' }}</p>
         <a href="{{ url_for('fiducie_select') }}" class="btn btn-primary">{{ t.btn_view }}</a>
         {% if _trust_disabled %}<span class="card-locked-badge">🔒 {{ t.msg_license_req }}</span>{% endif %}

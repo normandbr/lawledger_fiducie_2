@@ -4,8 +4,14 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>📊 {{ t.title_accounts or 'Chart of Accounts' }}</h1>
-    <button class="btn btn-primary" onclick="openAccountModal()">{{ t.btn_add_account or '+ Add Account' }}</button>
+    <h1>{{ t.title_accounts or 'Chart of Accounts' }}</h1>
+    <div style="display:flex;align-items:center;gap:16px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="show-inactive-accounts" onchange="renderAccountsFiltered()" style="width:15px;height:15px;">
+            {{ t.lbl_show_inactive or 'Afficher les inactifs' }}
+        </label>
+        <button class="btn btn-primary" onclick="openAccountModal()">{{ t.btn_add_account or '+ Add Account' }}</button>
+    </div>
 </div>
 
 <!-- Table -->
@@ -104,9 +110,15 @@ async function loadAccounts() {
         const res = await fetch(SCRIPT_ROOT + '/api/accounts');
         if (!res.ok) return;
         _allAccounts = await res.json();
-        renderAccounts(_allAccounts);
+        renderAccountsFiltered();
         populateParentSelect(_allAccounts, null);
     } catch(e) { console.error(e); }
+}
+
+function renderAccountsFiltered() {
+    const showInactive = document.getElementById('show-inactive-accounts').checked;
+    const visible = showInactive ? _allAccounts : _allAccounts.filter(a => a.is_active);
+    renderAccounts(visible);
 }
 
 function renderAccounts(list) {
@@ -130,14 +142,7 @@ function renderAccounts(list) {
         html += `<td style="font-size:12px;color:var(--text-secondary);">${escHtml(parentName)}</td>`;
         html += `<td style="text-align:center;">${a.is_active ? '✅' : '—'}</td>`;
         html += `<td style="text-align:center;white-space:nowrap;">`;
-        html += `<span style="display:inline-flex;gap:4px;align-items:center;">`;
         html += `<button class="btn btn-sm" style="background:#e8e8e8;color:#444;border:1px solid #ccc;" onclick="editAccount(${a.id})">✏</button>`;
-        if (!isSystem) {
-            html += `<button class="btn btn-sm btn-danger" onclick="deleteAccount(${a.id})">🗑</button>`;
-        } else {
-            html += `<button class="btn btn-sm" style="visibility:hidden;background:transparent;border:none;" disabled>🗑</button>`;
-        }
-        html += `</span>`;
         html += `</td></tr>`;
     });
     tbody.innerHTML = html;
@@ -149,6 +154,7 @@ function populateParentSelect(list, excludeId) {
     sel.innerHTML = `<option value="">— Parent —</option>`;
     list.forEach(a => {
         if (a.id === excludeId) return;
+        if (!a.is_active) return;
         const opt = document.createElement('option');
         opt.value = a.id;
         opt.textContent = `${a.code} – ${a.name}`;

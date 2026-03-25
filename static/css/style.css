@@ -107,7 +107,7 @@ body {
     right: 0;
     bottom: 0;
     z-index: 150;
-    background: rgba(0,0,0,.18);
+    background: transparent;
 }
 .nav-dropdown-overlay.nav-dropdown-overlay-active { display: block; }
 
@@ -382,6 +382,11 @@ th {
 .cm-matter-list table {
     border-collapse: separate;
     border-spacing: 0;
+}
+/* Inside fixed modals there is no 60 px page navbar, so the headers must stick
+   at the very top of the modal's own scroll container (top: 0 instead of 60px). */
+#auth-list-table th {
+    top: 0;
 }
 tr:hover td { background: var(--accent-light); }
 
