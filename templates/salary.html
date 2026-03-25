@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>💰 {{ t.title_salary or 'Salary' }}</h1>
+    <h1>{{ t.title_salary or 'Salary' }}</h1>
     <div class="page-header-actions">
         <button class="btn btn-secondary" onclick="openConfigModal()">{{ t.btn_salary_config or '⚙ Configuration' }}</button>
         <button class="btn btn-primary" onclick="openAddEntryModal()">{{ t.btn_add_salary_entry or '+ Add Entry' }}</button>

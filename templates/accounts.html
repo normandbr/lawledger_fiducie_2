@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="page-header">
-    <h1>📊 {{ t.title_accounts or 'Chart of Accounts' }}</h1>
+    <h1>{{ t.title_accounts or 'Chart of Accounts' }}</h1>
     <div style="display:flex;align-items:center;gap:16px;">
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
             <input type="checkbox" id="show-inactive-accounts" onchange="renderAccountsFiltered()" style="width:15px;height:15px;">
