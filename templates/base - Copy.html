@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="{{ current_lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LawLedger{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<script>const SCRIPT_ROOT = {{ request.script_root|tojson }};</script>
+    <nav class="navbar">
+        <div class="nav-container">
+            <!-- Left: Hamburger + Firm name -->
+            <div class="nav-left">
+                {% if current_user.is_authenticated %}
+                <button class="hamburger-btn" id="hamburger-btn" onclick="toggleNavMenu()" aria-label="Menu" aria-expanded="false" aria-controls="nav-dropdown">
+                    <span class="hamburger-icon">
+                        <span></span><span></span><span></span><span></span>
+                    </span>
+                </button>
+                {% endif %}
+                <a href="{{ url_for('index') }}" class="nav-brand">
+                    <span id="nav-logo-container"></span>
+                    <span id="nav-firm-name">⚖ LawLedger</span>
+                </a>
+                {% if current_user.is_authenticated %}
+                <a href="{{ url_for('index') }}" class="nav-home-btn" title="{{ t.nav_home_btn or 'Accueil' }}">🏠 {{ t.nav_home_btn or 'Accueil' }}</a>
+                {% endif %}
+            </div>
+
+            <!-- Right: Language + User dropdown -->
+            <div class="nav-right">
+                {% if current_user.is_authenticated %}
+                <!-- Language dropdown -->
+                <div class="lang-dropdown">
+                    <button type="button" class="lang-btn">
+                        🌐 {{ 'FR' if current_lang == 'fr' else 'EN' }} ▾
+                    </button>
+                    <ul class="lang-menu-content">
+                        <li><a href="{{ url_for('set_lang', lang='fr') }}">Français</a></li>
+                        <li><a href="{{ url_for('set_lang', lang='en') }}">English</a></li>
+                    </ul>
+                </div>
+
+                <!-- User dropdown -->
+                <div class="user-dropdown">
+                    <button type="button" class="user-btn">
+                        👤 {{ current_user.username }} ▾
+                    </button>
+                    <ul class="user-menu-content">
+                        <li><a href="{{ url_for('reset_password') }}">{{ t.user_change_pwd or 'Change Password' }}</a></li>
+                        {% if current_user.is_manager %}
+                        <li><a href="#" onclick="openAppSetupModal();return false;">⚙ {{ t.nav_settings or 'Setup' }}</a></li>
+                        {% endif %}
+                        <li><a href="#" onclick="openAboutModal();return false;">ℹ {{ t.nav_about or 'About' }}</a></li>
+                        <li><a href="{{ url_for('logout') }}" id="logout-link" onclick="return confirmLogout()">{{ t.user_logout or 'Logout' }}</a></li>
+                    </ul>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <!-- Navigation dropdown panel -->
+    {% if current_user.is_authenticated %}
+    <div class="nav-dropdown-overlay" id="nav-dropdown-overlay" onclick="closeNavMenu()"></div>
+    <div class="nav-dropdown" id="nav-dropdown" role="navigation">
+        {% set _timer_only = current_user.timer_user and not current_user.is_user and not current_user.is_manager %}
+        <ul class="nav-dropdown-list">
+            {% if not _timer_only %}
+                <li><a href="{{ url_for('index') }}" onclick="closeNavMenu()">{{ t.nav_home or 'Home' }}</a></li>
+            {% endif %}
+
+            {% if current_user.is_user or current_user.is_manager %}
+                <li><a href="{{ url_for('calendar_page') }}" onclick="closeNavMenu()">{{ t.nav_calendar or 'Calendar' }}</a></li>
+            {% endif %}
+
+            {% if current_user.timer_user %}
+                <li><a href="{{ url_for('timer_page') }}" onclick="closeNavMenu()">{{ t.nav_timer or 'Timer' }}</a></li>
+            {% endif %}
+
+            {% if not _timer_only %}
+                {% set _clients_disabled = license_modules_restricted and not current_user.is_manager %}
+                <li><a href="{{ url_for('list_clients') }}"{% if _clients_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_matters or 'Clients & Matters' }}</a></li>
+
+                {% set _accounts_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('accounts_page') }}"{% if _accounts_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_accounts or 'Chart of Accounts' }}</a></li>
+
+                {% set _cc_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('list_cost_codes') }}"{% if _cc_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_cost_codes or 'Cost Codes' }}</a></li>
+
+                {% set _sup_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('suppliers_page') }}"{% if _sup_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_suppliers or 'Suppliers' }}</a></li>
+
+                <li><a href="{{ url_for('unbilled_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_unbilled or 'Unbilled' }}</a></li>
+
+                {% set _hr_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('hr_records_page') }}"{% if _hr_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_hr or 'HR Records' }}</a></li>
+
+                {% set _emp_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('list_employees') }}"{% if _emp_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_employees or 'Employees' }}</a></li>
+
+                <li><a href="{{ url_for('statement_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_statement or 'Account Statement' }}</a></li>
+
+                <li><a href="{{ url_for('list_invoices') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_billing or 'Invoices' }}</a></li>
+            {% endif %}
+
+            {% if current_user.timer_user or current_user.is_user or current_user.is_manager %}
+                <li><a href="{{ url_for('time_logs_page') }}" onclick="closeNavMenu()">{{ t.nav_timelogs or 'Time Logs' }}</a></li>
+            {% endif %}
+
+            {% if not _timer_only %}
+                <li><a href="{{ url_for('fiducie_select') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_trust or 'Fiducie' }}</a></li>
+
+                <li><a href="{{ url_for('gl_page') }}"{% if license_modules_restricted %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_gl or 'General Ledger' }}</a></li>
+
+                {% set _import_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('import_page') }}"{% if _import_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_import or 'Import' }}</a></li>
+
+                {% set _salary_disabled = not current_user.is_manager or license_modules_restricted %}
+                <li><a href="{{ url_for('salary_page') }}"{% if _salary_disabled %} class="nav-disabled"{% endif %} onclick="closeNavMenu()">{{ t.nav_salary or 'Salary' }}</a></li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <style>
+        /* Modern 4-bar hamburger icon */
+        .hamburger-icon { display: flex; flex-direction: column; gap: 4px; width: 20px; }
+        .hamburger-icon span { display: block; height: 2px; background: #fff; border-radius: 2px; width: 100%; transition: all 0.2s ease; }
+        .hamburger-icon span:nth-child(2) { width: 85%; }
+        .hamburger-icon span:nth-child(4) { width: 70%; }
+        /* Home button in navbar */
+        .nav-home-btn { color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 5px 10px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.35); border-radius: 4px; margin-left: 8px; transition: background 0.15s ease; white-space: nowrap; }
+        .nav-home-btn:hover { background: rgba(255,255,255,0.28); color: #fff; }
+    </style>
+
+    <main class="container {% block container_class %}{% endblock %}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>&copy; 2026 LawLedger &mdash; Legal Matter Management System</p>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+
+    {% if current_user.is_authenticated %}
+    <!--
+    <script>
+    /* ── Browser-close session guard ──────────────────────────────────────────
+       sessionStorage is cleared automatically when the browser window/tab is
+       closed (unlike cookies which can survive a browser-restore).  We store a
+       small marker here and check for it on every protected page-load so that
+       if the user re-opens the app after closing the browser the server session
+       is properly invalidated and they are taken back to the login screen.
+    ──────────────────────────────────────────────────────────────────────── */
+    (function () {
+        {% if post_login %}
+        // First page rendered after a successful login – set the marker.
+        sessionStorage.setItem('_ll_active', '1');
+        {% else %}
+        // Subsequent page – verify the marker still exists.
+        if (!sessionStorage.getItem('_ll_active')) {
+            // Marker is gone → browser was closed and reopened (or session
+            // storage was cleared).  Force a clean logout so the user must
+            // re-authenticate.
+            window.location.replace('{{ url_for("logout") }}');
+        }
+        {% endif %}
+    })();
+    </script>
+    -->
+    {% endif %}
+  
+
+    <!-- About Modal -->
+    {% if current_user.is_authenticated %}
+    <div id="about-overlay" style="display:none;position:fixed;inset:0;z-index:1000;
+         background:rgba(0,0,0,.5);backdrop-filter:blur(4px);">
+        <div style="background:#fff;border-radius:8px;padding:28px;
+             width:90%;max-width:420px;position:absolute;top:50%;left:50%;
+             transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);">
+            <h2 style="margin:0 0 16px;font-size:1.1rem;font-weight:600;
+                padding-bottom:10px;border-bottom:1px solid #e0e0e0;
+                display:flex;justify-content:space-between;align-items:center;">
+                <span>{{ t.nav_about or 'About' }}</span>
+                <span onclick="closeAboutModal()" style="cursor:pointer;color:#888;
+                      font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+            </h2>
+            <div style="text-align:center;padding:16px 0;">
+                <p style="font-size:1.5rem;margin:0 0 8px;">⚖ LawLedger</p>
+                <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;">{{ t.footer_tagline or 'Legal Matter Management System' }}</p>
+                <p style="font-size:14px;margin:0 0 8px;"><strong>{{ t.lbl_version or 'Version' }}:</strong> {{ app_version }}</p>
+                <p style="font-size:12px;color:var(--text-secondary);margin:16px 0 0;">&copy; 2026 LawLedger</p>
+            </div>
+            <div style="text-align:right;padding-top:12px;border-top:1px solid #e0e0e0;">
+                <button class="btn btn-secondary" onclick="closeAboutModal()">{{ t.btn_close or 'Close' }}</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    function openAboutModal() { document.getElementById('about-overlay').style.display = ''; }
+    function closeAboutModal() { document.getElementById('about-overlay').style.display = 'none'; }
+    document.getElementById('about-overlay').addEventListener('click', function(e) {
+        if (e.target === this) closeAboutModal();
+    });
+    </script>
+    {% endif %}
+
+    <!-- Application Setup Modal (Manager Account + Firm Information) -->
+    {% if current_user.is_authenticated %}
+    <div id="app-setup-overlay" style="display:none;position:fixed;inset:0;z-index:1000;
+         background:rgba(0,0,0,.5);backdrop-filter:blur(4px);">
+        <div id="app-setup-dialog" style="background:#fff;border-radius:8px;padding:28px;
+             width:90%;max-width:720px;position:absolute;top:50%;left:50%;
+             transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);
+             max-height:90vh;overflow-y:auto;">
+            <h2 id="app-setup-drag-handle" style="margin:0 0 16px;font-size:1.1rem;font-weight:600;
+                cursor:move;user-select:none;padding-bottom:10px;border-bottom:1px solid #e0e0e0;
+                display:flex;justify-content:space-between;align-items:center;">
+                <span>{{ t.setup_title or 'Application Setup' }}</span>
+                <span onclick="closeAppSetupModal()" style="cursor:pointer;color:#888;
+                      font-size:20px;font-weight:bold;line-height:1;">&times;</span>
+            </h2>
+
+            <!-- Tabs -->
+            <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:2px solid #e0e0e0;">
+                <button id="setup-tab-manager-btn" onclick="switchSetupTab('manager')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#0078d4;
+                               border-bottom:2px solid #0078d4;margin-bottom:-2px;">
+                    {{ t.setup_tab_mgr or 'Manager Account' }}
+                </button>
+                <button id="setup-tab-firminfo-btn" onclick="switchSetupTab('firminfo')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    {{ t.setup_tab_firm or 'Firm Information' }}
+                </button>
+                <button id="setup-tab-license-btn" onclick="switchSetupTab('license')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    {{ t.setup_tab_license or 'License' }}
+                </button>
+            </div>
+
+            <!-- Manager Tab -->
+            <div id="setup-tab-manager" style="">
+                <!-- Mode toggle bar -->
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <p id="setup_mgr_mode_label" style="font-size:13px;color:#555;margin:0;">
+                        {{ t.setup_mgr_instruction or 'Configurer ou mettre à jour le compte gestionnaire.' }}
+                    </p>
+                    <button id="setup_mgr_toggle_btn" onclick="toggleSetupMgrMode()"
+                            style="background:none;border:1px solid #0078d4;color:#0078d4;padding:5px 12px;
+                                   border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+                        {{ t.btn_add_manager or '➕ Ajouter gestionnaire' }}
+                    </button>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.first_name or 'First Name' }} <span style="color:red">*</span></label>
+                        <input id="setup_mgr_first_name" type="text"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_last_name or 'Last Name' }} <span style="color:red">*</span></label>
+                        <input id="setup_mgr_last_name" type="text"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_role or 'Role' }}</label>
+                    <input type="text" value="Manager" readonly
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;background:#f8f8f8;color:#555;">
+                </div>
+                <div id="setup_mgr_username_row" style="margin-bottom:12px;">
+                    <label id="setup_mgr_username_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_username or "Nom d'utilisateur" }} <span style="color:red">*</span></label>
+                    <input id="setup_mgr_username" type="text" placeholder="e.g. admin"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    <p id="setup_mgr_username_hint" style="display:none;font-size:11px;color:#666;margin:4px 0 0;">
+                        {{ t.ph_mgr_username_hint or 'Optional — auto-generated from first &amp; last name if left blank.' }}
+                    </p>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label id="setup_mgr_pwd_label" style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_password or 'Mot de passe' }}</label>
+                        <input id="setup_mgr_password" type="password" placeholder="{{ t.ph_leave_blank_pwd or 'Leave blank to keep current' }}"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_confirm_password or 'Confirm Password' }}</label>
+                        <input id="setup_mgr_confirm_password" type="password" placeholder="{{ t.ph_leave_blank_pwd or 'Leave blank to keep current' }}"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_title_position or 'Title / Position' }}</label>
+                    <input id="setup_mgr_title" type="text" placeholder="e.g. Managing Partner"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_work_email or 'Work Email' }}</label>
+                    <input id="setup_mgr_email" type="email" placeholder="manager@yourfirm.com"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_personal_email or 'Personal Email' }}</label>
+                    <input id="setup_mgr_personal_email" type="email" placeholder="personal@example.com"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_phone or 'Phone' }}</label>
+                    <input id="setup_mgr_phone" type="text" placeholder="e.g. (514) 555-0100"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+
+                <div id="setup_mgr_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+
+                <div style="display:flex;gap:8px;">
+                    <button id="setup_mgr_save_btn" onclick="saveSetupManager()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_save_manager or 'Enregistrer le gestionnaire' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        {{ t.btn_cancel or 'Cancel' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Firm Information Tab -->
+            <div id="setup-tab-firminfo" style="display:none;">
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_firm_name or 'Firm Name' }} <span style="color:red">*</span></label>
+                    <input id="setup_fi_name" type="text" placeholder="e.g. Smith &amp; Associates Law Firm"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_addr_line1 or 'Address Line 1' }}</label>
+                    <input id="setup_fi_addr1" type="text" placeholder="{{ t.lbl_street or 'Street address' }}"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_addr_line2 or 'Address Line 2' }}</label>
+                    <input id="setup_fi_addr2" type="text" placeholder="Suite, floor, etc. (optional)"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_city or 'City' }}</label>
+                        <input id="setup_fi_city" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_state_prov or 'Province / State' }}</label>
+                        <input id="setup_fi_prov" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_postal_code or 'Postal Code' }}</label>
+                        <input id="setup_fi_postal" type="text" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_phone or 'Phone' }}</label>
+                        <input id="setup_fi_phone" type="text" placeholder="e.g. (514) 555-0100"
+                               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_email or 'Email' }}</label>
+                    <input id="setup_fi_email" type="email" placeholder="info@yourfirm.com"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_tax_number or 'Tax Number (GST / QST registration)' }}</label>
+                    <input id="setup_fi_tax" type="text" placeholder="e.g. 123456789 RT0001"
+                           style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                </div>
+
+                <div style="border-top:1px solid #e8e8e8;padding-top:14px;margin-bottom:12px;">
+                    <p style="font-size:12px;color:#666;margin-bottom:10px;">
+                        {% if current_lang == 'fr' %}Noms et taux de taxes appliqués aux factures. Laissez un nom vide pour masquer cette taxe.{% else %}Tax names and rates applied to invoices. Leave a name blank to hide that tax from invoices.{% endif %}
+                    </p>
+                    <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:10px;align-items:end;">
+                        <div>
+                            <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_tax1_name or 'Tax 1 Name' }}</label>
+                            <input id="setup_fi_tax1_name" type="text" placeholder="e.g. GST, HST, VAT"
+                                   style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_tax_rate_pct or 'Rate (%)' }}</label>
+                            <input id="setup_fi_tax1_rate" type="number" step="0.001" min="0" placeholder="0.000"
+                                   style="width:100px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:10px;align-items:end;">
+                        <div>
+                            <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_tax2_name or 'Tax 2 Name' }}</label>
+                            <input id="setup_fi_tax2_name" type="text" placeholder="e.g. QST, PST (blank to hide)"
+                                   style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        <div>
+                            <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_tax_rate_pct or 'Rate (%)' }}</label>
+                            <input id="setup_fi_tax2_rate" type="number" step="0.001" min="0" placeholder="0.000"
+                                   style="width:100px;padding:8px 12px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div style="margin-bottom:4px;">
+                        <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" id="setup_fi_tax2_compound">
+                            {{ t.lbl_tax2_compound_desc or 'Tax 2 is calculated on (subtotal + Tax 1) — compound tax' }}
+                        </label>
+                    </div>
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;font-size:13px;margin-bottom:4px;font-weight:500;">{{ t.lbl_firm_logo or 'Firm Logo' }}</label>
+                    <div id="setup_fi_logo_preview" style="margin-bottom:8px;min-height:40px;"></div>
+                    <label class="btn btn-secondary" style="cursor:pointer;font-size:13px;display:inline-block;">
+                        {{ t.btn_upload_logo or '🖼 Upload Logo' }}
+                        <input type="file" id="setup_fi_logo_input" accept="image/*" style="display:none;">
+                    </label>
+                    <span id="setup_fi_logo_status" style="font-size:12px;margin-left:8px;color:#555;"></span>
+                </div>
+
+                <div id="setup_fi_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveSetupFirmInfo()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_save or 'Save' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        {{ t.btn_cancel or 'Cancel' }}
+                    </button>
+                    <button id="setup_fi_done_btn" onclick="closeAppSetupModal()"
+                            style="display:none;background:#107c10;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_done or 'Done' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- License Tab -->
+            <div id="setup-tab-license" style="display:none;">
+                <div id="setup_lic_loading" style="color:#888;font-size:13px;margin-bottom:12px;">{{ t.msg_loading_license or 'Loading license information…' }}</div>
+                <div id="setup_lic_content" style="display:none;">
+                    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+                        <tr>
+                            <td style="padding:7px 8px;font-weight:600;color:#555;white-space:nowrap;width:40%;">{{ t.lbl_lic_status or 'Status' }}</td>
+                            <td id="lic_status" style="padding:7px 8px;"></td>
+                        </tr>
+                        <tr style="background:#f8f9fa;">
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_message or 'Message' }}</td>
+                            <td id="lic_message" style="padding:7px 8px;"></td>
+                        </tr>
+                        <tr>
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_id or 'License ID' }}</td>
+                            <td id="lic_id" style="padding:7px 8px;font-family:monospace;"></td>
+                        </tr>
+                        <tr style="background:#f8f9fa;">
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_issued_to or 'Issued To' }}</td>
+                            <td id="lic_issued_to" style="padding:7px 8px;"></td>
+                        </tr>
+                        <tr>
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_expires or 'Expires' }}</td>
+                            <td id="lic_expires" style="padding:7px 8px;"></td>
+                        </tr>
+                        <tr style="background:#f8f9fa;">
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_fingerprint or 'Device Fingerprint' }}</td>
+                            <td id="lic_fingerprint" style="padding:7px 8px;font-family:monospace;font-size:11px;word-break:break-all;"></td>
+                        </tr>
+                        <tr>
+                            <td style="padding:7px 8px;font-weight:600;color:#555;">{{ t.lbl_lic_file or 'License File' }}</td>
+                            <td id="lic_path" style="padding:7px 8px;font-family:monospace;font-size:11px;word-break:break-all;"></td>
+                        </tr>
+                    </table>
+                    <p style="font-size:12px;color:#888;margin:0;">
+                        {{ t.msg_lic_fingerprint_hint | safe or 'To generate the device fingerprint for this machine, run <code>Computer Identity.exe</code> and provide the fingerprint to your license administrator.' }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Translated strings for setup modal JavaScript
+    const SETUP_STR = {
+        managerSaved:    {{ (t.msg_manager_saved or 'Manager saved successfully.') | tojson }},
+        managerError:    {{ (t.msg_manager_error or 'Error saving manager.') | tojson }},
+        firmInfoSaved:   {{ (t.msg_firm_info_saved or 'Firm information saved successfully.') | tojson }},
+        firmInfoError:   {{ (t.msg_firm_info_error or 'Error saving firm information.') | tojson }},
+        logoUploading:   {{ (t.msg_logo_uploading or 'Uploading…') | tojson }},
+        logoUploaded:    {{ (t.msg_logo_uploaded or 'Logo uploaded successfully.') | tojson }},
+        logoError:       {{ (t.msg_logo_error or 'Error uploading logo.') | tojson }},
+        btnDone:         {{ (t.btn_done or 'Done') | tojson }},
+    };
+
+    let setupMgrMode = 'edit'; // 'edit' | 'add'
+
+    function _applyEditMode() {
+        document.getElementById('setup_mgr_username').placeholder   = 'ex. admin';
+        document.getElementById('setup_mgr_username_label').innerHTML =
+            'Nom d\'utilisateur <span style="color:red">*</span>';
+        document.getElementById('setup_mgr_username_hint').style.display = 'none';
+        document.getElementById('setup_mgr_mode_label').textContent = 'Configurer ou mettre à jour le compte gestionnaire.';
+        document.getElementById('setup_mgr_toggle_btn').textContent = '➕ Ajouter gestionnaire';
+        document.getElementById('setup_mgr_save_btn').textContent   = 'Enregistrer le gestionnaire';
+        document.getElementById('setup_mgr_pwd_label').innerHTML    = 'Mot de passe';
+        document.getElementById('setup_mgr_password').placeholder  = 'Laisser vide pour conserver';
+    }
+
+    function _clearManagerForm() {
+        ['setup_mgr_first_name', 'setup_mgr_last_name', 'setup_mgr_username',
+         'setup_mgr_title', 'setup_mgr_email', 'setup_mgr_phone',
+         'setup_mgr_password', 'setup_mgr_confirm_password'].forEach(function (id) {
+            document.getElementById(id).value = '';
+        });
+    }
+
+    function toggleSetupMgrMode() {
+        setupMgrMode = (setupMgrMode === 'edit') ? 'add' : 'edit';
+        const msg = document.getElementById('setup_mgr_msg');
+        msg.style.display = 'none';
+        if (setupMgrMode === 'add') {
+            _clearManagerForm();
+            // Username stays visible but is now optional; update label and show hint
+            document.getElementById('setup_mgr_username').placeholder   = 'Optionnel — généré automatiquement si laissé vide';
+            document.getElementById('setup_mgr_username_label').textContent = 'Nom d\'utilisateur';
+            document.getElementById('setup_mgr_username_hint').style.display = 'block';
+            // Update labels / button text
+            document.getElementById('setup_mgr_mode_label').textContent =
+                'Créer un nouveau compte gestionnaire.';
+            document.getElementById('setup_mgr_toggle_btn').textContent = '← Modifier existant';
+            document.getElementById('setup_mgr_save_btn').textContent   = 'Créer le gestionnaire';
+            document.getElementById('setup_mgr_pwd_label').innerHTML    =
+                'Mot de passe <span style="color:red">*</span>';
+            document.getElementById('setup_mgr_password').placeholder  = 'Requis';
+        } else {
+            // Restore edit-mode labels and reload primary manager data
+            _applyEditMode();
+            loadPrimaryManager();
+        }
+    }
+
+    function loadPrimaryManager() {
+        fetch(SCRIPT_ROOT + '/api/manager')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                document.getElementById('setup_mgr_first_name').value    = d.first_name    || '';
+                document.getElementById('setup_mgr_last_name').value     = d.last_name     || '';
+                document.getElementById('setup_mgr_username').value      = d.username      || '';
+                document.getElementById('setup_mgr_title').value         = d.title         || '';
+                document.getElementById('setup_mgr_email').value         = d.email         || '';
+                document.getElementById('setup_mgr_personal_email').value= d.personal_email|| '';
+                document.getElementById('setup_mgr_phone').value         = d.phone_number  || '';
+                document.getElementById('setup_mgr_password').value = '';
+                document.getElementById('setup_mgr_confirm_password').value = '';
+            })
+            .catch(function () {});
+    }
+
+    function openAppSetupModal() {
+        document.getElementById('app-setup-overlay').style.display = 'block';
+        document.getElementById('setup_mgr_msg').style.display = 'none';
+        document.getElementById('setup_fi_msg').style.display  = 'none';
+        var doneBtnFi = document.getElementById('setup_fi_done_btn');
+        if (doneBtnFi) doneBtnFi.style.display = 'none';
+        // Always open in edit mode
+        setupMgrMode = 'edit';
+        _applyEditMode();
+        switchSetupTab('manager');
+        loadPrimaryManager();
+        fetch(SCRIPT_ROOT + '/api/firm-info')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                document.getElementById('setup_fi_name').value   = d.firm_name     || '';
+                document.getElementById('setup_fi_addr1').value  = d.address_line1 || '';
+                document.getElementById('setup_fi_addr2').value  = d.address_line2 || '';
+                document.getElementById('setup_fi_city').value   = d.city          || '';
+                document.getElementById('setup_fi_prov').value   = d.province      || '';
+                document.getElementById('setup_fi_postal').value = d.postal_code   || '';
+                document.getElementById('setup_fi_phone').value  = d.phone         || '';
+                document.getElementById('setup_fi_email').value  = d.email         || '';
+                document.getElementById('setup_fi_tax').value    = d.tax_number    || '';
+                document.getElementById('setup_fi_tax1_name').value  = d.tax1_name !== undefined ? d.tax1_name : 'GST';
+                document.getElementById('setup_fi_tax2_name').value  = d.tax2_name  || '';
+                document.getElementById('setup_fi_tax2_compound').checked = d.tax2_compound || false;
+                document.getElementById('setup_fi_tax1_rate').value  = d.tax1_rate !== undefined ? d.tax1_rate : 0;
+                document.getElementById('setup_fi_tax2_rate').value  = d.tax2_rate !== undefined ? d.tax2_rate : 0;
+                var preview = document.getElementById('setup_fi_logo_preview');
+                preview.innerHTML = '';
+                if (d.logo_filename) {
+                    var img = document.createElement('img');
+                    img.src = SCRIPT_ROOT + '/static/uploads/' + d.logo_filename + '?t=' + Date.now();
+                    img.alt = 'Current Logo';
+                    img.style.cssText = 'max-height:60px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px;';
+                    preview.appendChild(img);
+                    document.getElementById('setup_fi_logo_status').textContent = 'Current logo shown above.';
+                } else {
+                    document.getElementById('setup_fi_logo_status').textContent = 'No logo uploaded yet.';
+                }
+            })
+            .catch(function () {});
+    }
+
+    function closeAppSetupModal() {
+        document.getElementById('app-setup-overlay').style.display = 'none';
+    }
+
+    function switchSetupTab(tab) {
+        document.getElementById('setup-tab-manager').style.display  = tab === 'manager'  ? '' : 'none';
+        document.getElementById('setup-tab-firminfo').style.display = tab === 'firminfo' ? '' : 'none';
+        document.getElementById('setup-tab-license').style.display  = tab === 'license'  ? '' : 'none';
+        var activeColor = '#0078d4', activeBorder = '2px solid #0078d4';
+        var inactiveColor = '#666', inactiveBorder = 'none';
+        document.getElementById('setup-tab-manager-btn').style.color        = tab === 'manager'  ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-firminfo-btn').style.color       = tab === 'firminfo' ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-license-btn').style.color        = tab === 'license'  ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-manager-btn').style.borderBottom = tab === 'manager'  ? activeBorder  : inactiveBorder;
+        document.getElementById('setup-tab-firminfo-btn').style.borderBottom = tab === 'firminfo' ? activeBorder  : inactiveBorder;
+        document.getElementById('setup-tab-license-btn').style.borderBottom  = tab === 'license'  ? activeBorder  : inactiveBorder;
+        if (tab === 'license') { loadLicenseInfo(); }
+    }
+
+    function loadLicenseInfo() {
+        var loading = document.getElementById('setup_lic_loading');
+        var content = document.getElementById('setup_lic_content');
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        fetch(SCRIPT_ROOT + '/api/license-info')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                var statusBadge = d.status || '—';
+                var badgeColor = d.status === 'valid' ? '#107c10' : '#c0392b';
+                var badgeBg    = d.status === 'valid' ? '#dff6dd' : '#fdecea';
+                document.getElementById('lic_status').innerHTML =
+                    '<span style="display:inline-block;background:' + badgeBg + ';color:' + badgeColor +
+                    ';border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;">' +
+                    statusBadge + '</span>';
+                document.getElementById('lic_message').textContent     = d.message      || '—';
+                document.getElementById('lic_id').textContent          = d.license_id   || '—';
+                document.getElementById('lic_issued_to').textContent   = d.issued_to    || '—';
+                document.getElementById('lic_expires').textContent     = d.expires_at   || '—';
+                document.getElementById('lic_fingerprint').textContent = d.fingerprint  || '—';
+                document.getElementById('lic_path').textContent        = d.license_path || '—';
+                loading.style.display = 'none';
+                content.style.display = 'block';
+            })
+            .catch(function () {
+                loading.textContent = 'Could not load license information.';
+            });
+    }
+
+    function saveSetupManager() {
+        var first    = document.getElementById('setup_mgr_first_name').value.trim();
+        var last     = document.getElementById('setup_mgr_last_name').value.trim();
+        var username = document.getElementById('setup_mgr_username').value.trim();
+        var password = document.getElementById('setup_mgr_password').value;
+        var confirm  = document.getElementById('setup_mgr_confirm_password').value;
+        var msg      = document.getElementById('setup_mgr_msg');
+        if (!first || !last) {
+            msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+            msg.textContent = 'Le prénom et le nom de famille sont requis.'; return;
+        }
+        if (setupMgrMode === 'edit' && !username) {
+            msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+            msg.textContent = 'Le nom d\'utilisateur est requis.'; return;
+        }
+        if (setupMgrMode === 'add' && !password) {
+            msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+            msg.textContent = 'Le mot de passe est requis pour un nouveau gestionnaire.'; return;
+        }
+        if (password && password !== confirm) {
+            msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+            msg.textContent = 'Les mots de passe ne correspondent pas.'; return;
+        }
+
+        if (setupMgrMode === 'edit') {
+            // Update the primary manager via PUT /api/manager
+            var data = {
+                first_name:     first, last_name:    last, username:     username,
+                title:          document.getElementById('setup_mgr_title').value.trim(),
+                email:          document.getElementById('setup_mgr_email').value.trim(),
+                personal_email: document.getElementById('setup_mgr_personal_email').value.trim(),
+                phone_number:   document.getElementById('setup_mgr_phone').value.trim()
+            };
+            if (password) { data.password = password; }
+            fetch(SCRIPT_ROOT + '/api/manager', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                .then(function (r) { if (!r.ok) { return r.json().then(function (e) { throw e; }); } return r.json(); })
+                .then(function () {
+                    msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                    msg.textContent = SETUP_STR.managerSaved;
+                })
+                .catch(function (e) {
+                    msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                    msg.textContent = (e && e.error) ? e.error : SETUP_STR.managerError;
+                });
+        } else {
+            // Create a new manager employee via POST /api/employees
+            var newData = {
+                first_name:     first, last_name:    last,
+                username:       username || null,
+                title:          document.getElementById('setup_mgr_title').value.trim(),
+                email:          document.getElementById('setup_mgr_email').value.trim(),
+                personal_email: document.getElementById('setup_mgr_personal_email').value.trim(),
+                phone_number:   document.getElementById('setup_mgr_phone').value.trim(),
+                is_manager:     true,
+                is_active:      true,
+                password:       password
+            };
+            fetch(SCRIPT_ROOT + '/api/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newData) })
+                .then(function (r) { if (!r.ok) { return r.json().then(function (e) { throw e; }); } return r.json(); })
+                .then(function (d) {
+                    var uname = (d && d.username) ? d.username : '(not available)';
+                    msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                    msg.textContent = 'Gestionnaire créé. Nom d\'utilisateur : ' + uname;
+                    // Switch back to edit mode and reload the primary manager form
+                    setupMgrMode = 'edit';
+                    _applyEditMode();
+                    loadPrimaryManager();
+                })
+                .catch(function (e) {
+                    msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                    msg.textContent = (e && e.error) ? e.error : SETUP_STR.managerError;
+                });
+        }
+    }
+
+    function saveSetupFirmInfo() {
+        var data = {
+            firm_name:     document.getElementById('setup_fi_name').value.trim(),
+            address_line1: document.getElementById('setup_fi_addr1').value.trim(),
+            address_line2: document.getElementById('setup_fi_addr2').value.trim(),
+            city:          document.getElementById('setup_fi_city').value.trim(),
+            province:      document.getElementById('setup_fi_prov').value.trim(),
+            postal_code:   document.getElementById('setup_fi_postal').value.trim(),
+            phone:         document.getElementById('setup_fi_phone').value.trim(),
+            email:         document.getElementById('setup_fi_email').value.trim(),
+            tax_number:    document.getElementById('setup_fi_tax').value.trim(),
+            tax1_name:     document.getElementById('setup_fi_tax1_name').value.trim(),
+            tax2_name:     document.getElementById('setup_fi_tax2_name').value.trim(),
+            tax2_compound: document.getElementById('setup_fi_tax2_compound').checked,
+            tax1_rate:     parseFloat(document.getElementById('setup_fi_tax1_rate').value) || 0,
+            tax2_rate:     parseFloat(document.getElementById('setup_fi_tax2_rate').value) || 0
+        };
+        var msg = document.getElementById('setup_fi_msg');
+        fetch(SCRIPT_ROOT + '/api/firm-info', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+            .then(function (r) { return r.json(); })
+            .then(function () {
+                msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                msg.textContent = SETUP_STR.firmInfoSaved;
+                // Show a Done button to close the modal
+                var doneBtn = document.getElementById('setup_fi_done_btn');
+                if (doneBtn) doneBtn.style.display = '';
+                // Update firm name in navbar
+                var navName = data.firm_name || 'LawLedger';
+                var navNameEl = document.getElementById('nav-firm-name');
+                if (navNameEl) { navNameEl.textContent = '⚖ ' + navName; }
+            })
+            .catch(function () {
+                msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                msg.textContent = SETUP_STR.firmInfoError;
+            });
+    }
+
+    // Hide firm info success message and Done button when user starts editing any field
+    (function () {
+        function _clearFirmInfoMsg() {
+            var msgEl = document.getElementById('setup_fi_msg');
+            if (msgEl) { msgEl.style.display = 'none'; }
+            var doneBtn = document.getElementById('setup_fi_done_btn');
+            if (doneBtn) { doneBtn.style.display = 'none'; }
+        }
+        var fiInputs = document.querySelectorAll(
+            '#setup_fi_name, #setup_fi_addr1, #setup_fi_addr2, #setup_fi_city, ' +
+            '#setup_fi_prov, #setup_fi_postal, #setup_fi_phone, #setup_fi_email, ' +
+            '#setup_fi_tax, #setup_fi_tax1_name, #setup_fi_tax1_rate, ' +
+            '#setup_fi_tax2_name, #setup_fi_tax2_rate, #setup_fi_tax2_compound'
+        );
+        fiInputs.forEach(function (el) {
+            el.addEventListener('input', _clearFirmInfoMsg);
+            el.addEventListener('change', _clearFirmInfoMsg);
+        });
+    })();
+
+    document.getElementById('setup_fi_logo_input').addEventListener('change', function () {
+        var file = this.files[0];
+        if (!file) return;
+        var fd = new FormData();
+        fd.append('logo', file);
+        var statusEl = document.getElementById('setup_fi_logo_status');
+        statusEl.textContent = SETUP_STR.logoUploading;
+        fetch(SCRIPT_ROOT + '/api/firm-info/logo', { method: 'POST', body: fd })
+            .then(function (r) {
+                if (!r.ok) { return r.json().then(function (e) { throw e; }); }
+                return r.json();
+            })
+            .then(function (d) {
+                if (d.logo_url) {
+                    var preview = document.getElementById('setup_fi_logo_preview');
+                    preview.innerHTML = '';
+                    var img = document.createElement('img');
+                    img.src = d.logo_url + '?t=' + Date.now();
+                    img.alt = 'Firm Logo';
+                    img.style.cssText = 'max-height:60px;max-width:120px;object-fit:contain;border:1px solid #eee;border-radius:4px;';
+                    preview.appendChild(img);
+                    statusEl.textContent = SETUP_STR.logoUploaded;
+                    statusEl.style.color = '#107c10';
+                    // Refresh the navbar logo
+                    var navLogo = document.getElementById('nav-logo-container');
+                    if (navLogo) {
+                        navLogo.innerHTML = '';
+                        var navImg = document.createElement('img');
+                        navImg.src = d.logo_url + '?t=' + Date.now();
+                        navImg.alt = 'Firm Logo';
+                        navImg.style.cssText = 'max-height:40px;max-width:90px;object-fit:contain;vertical-align:middle;margin-right:8px;';
+                        navLogo.appendChild(navImg);
+                    }
+                }
+            })
+            .catch(function (e) {
+                statusEl.textContent = (e && e.error) ? e.error : SETUP_STR.logoError;
+                statusEl.style.color = '#a4262c';
+            });
+    });
+
+    // Draggable setup dialog
+    (function () {
+        var ds = null;
+        document.addEventListener('mousemove', function (e) {
+            if (!ds) return;
+            var el = document.getElementById('app-setup-dialog');
+            el.style.left      = (ds.origLeft + e.clientX - ds.startX) + 'px';
+            el.style.top       = (ds.origTop  + e.clientY - ds.startY) + 'px';
+            el.style.transform = 'none';
+        });
+        document.addEventListener('mouseup', function () { ds = null; });
+        document.getElementById('app-setup-drag-handle').addEventListener('mousedown', function (e) {
+            if (e.target.tagName === 'SPAN' && e.target.textContent.trim() === '×') return;
+            var el  = document.getElementById('app-setup-dialog');
+            var rc  = el.getBoundingClientRect();
+            ds = { startX: e.clientX, startY: e.clientY, origLeft: rc.left, origTop: rc.top };
+            e.preventDefault();
+        });
+    })();
+    </script>
+    {% endif %}
+
+    <script>
+    /* ── Load firm logo and name in navbar ───────────────────────────────────── */
+    (function () {
+        fetch(SCRIPT_ROOT + '/api/firm-info')
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.logo_filename) {
+                    var img = document.createElement('img');
+                    img.src = SCRIPT_ROOT + '/static/uploads/' + d.logo_filename + '?t=' + Date.now();
+                    img.alt = 'Firm Logo';
+                    img.style.cssText = 'max-height:40px;max-width:90px;object-fit:contain;vertical-align:middle;margin-right:8px;';
+                    var container = document.getElementById('nav-logo-container');
+                    if (container) { container.appendChild(img); }
+                }
+                if (d.firm_name) {
+                    var nameEl = document.getElementById('nav-firm-name');
+                    if (nameEl) { nameEl.textContent = '⚖ ' + d.firm_name; }
+                }
+            })
+            .catch(function () {});
+    })();
+
+    /* ── Language dropdown toggle ─────────────────────────────────────────────── */
+    (function () {
+        var langDrop = document.querySelector('.lang-dropdown');
+        var langBtn  = document.querySelector('.lang-btn');
+        if (!langDrop || !langBtn) return;
+        langBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            langDrop.classList.toggle('lang-open');
+        });
+        document.addEventListener('click', function () {
+            langDrop.classList.remove('lang-open');
+        });
+        langDrop.addEventListener('click', function (e) { e.stopPropagation(); });
+    })();
+
+    /* ── Hamburger navigation menu ───────────────────────────────────────────── */
+    function toggleNavMenu() {
+        var dropdown = document.getElementById('nav-dropdown');
+        var overlay  = document.getElementById('nav-dropdown-overlay');
+        var btn      = document.getElementById('hamburger-btn');
+        if (!dropdown) return;
+        var isOpen = dropdown.classList.contains('nav-dropdown-open');
+        if (isOpen) {
+            dropdown.classList.remove('nav-dropdown-open');
+            if (overlay) overlay.classList.remove('nav-dropdown-overlay-active');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        } else {
+            dropdown.classList.add('nav-dropdown-open');
+            if (overlay) overlay.classList.add('nav-dropdown-overlay-active');
+            if (btn) btn.setAttribute('aria-expanded', 'true');
+        }
+    }
+
+    function closeNavMenu() {
+        var dropdown = document.getElementById('nav-dropdown');
+        var overlay  = document.getElementById('nav-dropdown-overlay');
+        var btn      = document.getElementById('hamburger-btn');
+        if (dropdown) dropdown.classList.remove('nav-dropdown-open');
+        if (overlay)  overlay.classList.remove('nav-dropdown-overlay-active');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    // Close nav menu on Escape key
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') { closeNavMenu(); }
+    });
+
+    /* ── Draggable modals ─────────────────────────────────────────────────────
+       Allows every .modal-content dialog to be repositioned by dragging its h2
+       title bar. Works for all modals on all pages. */
+    (function () {
+        var dragState = null;
+
+        document.addEventListener('mousemove', function (e) {
+            if (!dragState) return;
+            var dx = e.clientX - dragState.startX;
+            var dy = e.clientY - dragState.startY;
+            dragState.el.style.transform =
+                'translate(' + (dragState.origX + dx) + 'px, ' + (dragState.origY + dy) + 'px)';
+        });
+        document.addEventListener('mouseup', function () { dragState = null; });
+
+        function attachDrag(modalEl) {
+            var content = modalEl.querySelector('.modal-content');
+            if (!content || content._draggable) return;
+            content._draggable = true;
+
+            var handle = content.querySelector('h2');
+            if (!handle) return;
+            handle.style.cursor = 'move';
+            handle.style.userSelect = 'none';
+
+            handle.addEventListener('mousedown', function (e) {
+                if (e.target.classList.contains('close')) return;
+                var origX = 0, origY = 0;
+                try {
+                    var m = new DOMMatrix(getComputedStyle(content).transform);
+                    origX = m.m41; origY = m.m42;
+                } catch (_) {}
+                dragState = { el: content, startX: e.clientX, startY: e.clientY,
+                              origX: origX, origY: origY };
+                e.preventDefault();
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.modal').forEach(attachDrag);
+            new MutationObserver(function (mutations) {
+                mutations.forEach(function (m) {
+                    m.addedNodes.forEach(function (n) {
+                        if (n.nodeType !== 1) return;
+                        if (n.classList && n.classList.contains('modal')) attachDrag(n);
+                        if (n.querySelectorAll) n.querySelectorAll('.modal').forEach(attachDrag);
+                    });
+                });
+            }).observe(document.body, { childList: true, subtree: true });
+        });
+    })();
+    </script>
+    <script>
+    // ── Logout guard: warn if any timer is running ────────────────────────────
+    function confirmLogout() {
+        if (typeof window._anyTimerRunning === 'function' && window._anyTimerRunning()) {
+            return confirm(
+                'A timer is still running.\n\n' +
+                'If you log out now the current session will be lost.\n\n' +
+                'Click OK to log out anyway, or Cancel to go back and save your time entry.'
+            );
+        }
+        return true;
+    }
+    </script>
+</body>
+
+</html>

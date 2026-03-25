@@ -1965,6 +1965,7 @@ def _check_session_timeout():
 
 @app.before_request
 def _enforce_single_session():
+    
     """If the user logged in from another device, invalidate the current session.
 
     On login a unique token is stored both in the server-side DB row and in
@@ -2886,7 +2887,7 @@ def reset_password():
 @app.route('/')
 @login_required
 def index():
-    return render_template('index.html')
+   return render_template('index.html')
 
 
 @app.route('/clients')
