@@ -1425,36 +1425,17 @@ def _apply_schema_migrations():
                         logger.info("Schema migration: added %s.%s", table_name, col_name)
 
         # Ensure existing employees can still log in after permission columns were
-        # added with DEFAULT 0.
-        #
-        # When is_user is newly added (first migration for this column), ALL
-        # active, non-deleted employees are backfilled to is_user=1 so that no
-        # one who could log in before the migration is suddenly locked out.
-        # This handles upgrades from very old schemas where is_manager may also
-        # have been newly added (and therefore defaulted to 0), which would cause
-        # the "managers-only" backfill to match no rows.
-        #
-        # When is_user already existed before this migration run, only managers
-        # that somehow have is_user=0 are corrected (idempotent safety net).
+        # added with DEFAULT 0.  Backfill is_user=1 for all active, non-deleted
+        # employees where it is still 0 – whether is_user was just added by this
+        # migration run or was pre-existing (e.g. added manually with DEFAULT 0).
+        # Idempotent: rows already at is_user=1 are not touched.
         if 'employees' in existing_tables:
             with db.engine.begin() as conn:
-                if 'is_user' not in employee_cols_before:
-                    # is_user was just added – restore login access for every
-                    # active, non-deleted employee so the upgrade is non-breaking.
-                    conn.execute(sa_text(
-                        "UPDATE [employees] SET [is_user] = 1 "
-                        "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
-                    ))
-                    logger.info(
-                        "Schema migration: backfilled is_user=1 for all active employees "
-                        "(is_user column was newly added)"
-                    )
-                else:
-                    # is_user already existed; only ensure managers can always log in.
-                    conn.execute(sa_text(
-                        "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
-                    ))
-                    logger.info("Schema migration: backfilled is_user=1 for existing managers")
+                conn.execute(sa_text(
+                    "UPDATE [employees] SET [is_user] = 1 "
+                    "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
+                ))
+                logger.info("Schema migration: backfilled is_user=1 for active employees")
 
         # Backfill is_paid and date_paid for supplier_payments that already have
         # a payment_date – those were paid before the is_paid column was added.
@@ -1831,6 +1812,17 @@ def _post_supplier_payment_journal(payment, supplier):
 
 
 @app.before_request
+def _ensure_schema_migrated():
+    """Run schema migrations once before the first request is handled.
+
+    Registered as the FIRST before_request hook so the database schema is
+    always up-to-date before any other hook or route handler queries the DB.
+    """
+    if not _schema_migrations_applied:
+        _apply_schema_migrations()
+
+
+@app.before_request
 def _enforce_license_restrictions():
     """Role-based license enforcement on every request.
 
@@ -1934,13 +1926,6 @@ def _enforce_license_restrictions():
             flash('A valid license is required to access this module.', 'warning')
             return redirect(url_for('index'))
         return
-
-
-@app.before_request
-def _ensure_schema_migrated():
-    """Run schema migrations once before the first request is handled."""
-    if not _schema_migrations_applied:
-        _apply_schema_migrations()
 
 
 # ── Session timeout & single-session enforcement ─────────────────────────────
@@ -2112,7 +2097,21 @@ def login():
                     )
                     db.session.rollback()
                     new_token = None
-                login_user(user, remember=False)
+                # Preserve the user's language preference across the session reset
+                _lang = session.get('lang', 'fr')
+                # Clear all session data to prevent any stale login_token or
+                # other leftover values from a previous session from interfering
+                # with single-session enforcement (_enforce_single_session).
+                session.clear()
+                session['lang'] = _lang
+                # Log the user in via Flask-Login
+                if not login_user(user, remember=False):
+                    # login_user returns False when user.is_active is falsy.
+                    # We already checked is_active above, but this can happen if
+                    # the DB rollback reloads the user with an unexpected state.
+                    logger.warning("Login: login_user() returned False for '%s'", uname)
+                    flash('Your account is not currently active. Please contact an administrator.', 'danger')
+                    return render_template('login.html')
                 session.permanent = False  # Session cookie expires when browser closes
                 if new_token:
                     session['login_token'] = new_token
@@ -2811,6 +2810,9 @@ def logout():
     except Exception:
         db.session.rollback()
     logout_user()
+    # Remove login_token so it cannot linger in the session cookie and
+    # interfere with single-session enforcement on the next login.
+    session.pop('login_token', None)
     flash('Vous avez été déconnecté.', 'info')
     return redirect(url_for('login'))
 

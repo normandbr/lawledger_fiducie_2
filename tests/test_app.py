@@ -870,3 +870,57 @@ class TestLoginRobustness:
         finally:
             logout(client)
 
+    def test_session_cleared_on_login_no_stale_token(self, client, manager_user, app):
+        """Stale login_token from a previous session does not cause an immediate
+        logout after a new successful login (_enforce_single_session fix)."""
+        try:
+            # First login – establishes a session with login_token
+            resp1 = login(client, "test_manager", "Pass1234!")
+            assert resp1.status_code == 200
+            assert "login" not in resp1.request.path.lower()
+            logout(client)
+
+            # Second login – should succeed even though the previous session had
+            # a login_token cookie.  If the session is not properly cleared on
+            # login, the stale token would cause _enforce_single_session to kick
+            # the user back to /login on the very first GET / request.
+            resp2 = login(client, "test_manager", "Pass1234!")
+            assert resp2.status_code == 200
+            assert "login" not in resp2.request.path.lower(), (
+                "Login succeeded but user was immediately redirected back to "
+                "login (stale session token mismatch)"
+            )
+        finally:
+            logout(client)
+
+    def test_login_lang_preserved_after_session_clear(self, client, manager_user, app):
+        """Language preference is preserved across the session clear that happens
+        during login."""
+        with client.session_transaction() as sess:
+            sess['lang'] = 'en'
+
+        resp = login(client, "test_manager", "Pass1234!")
+        assert resp.status_code == 200
+
+        with client.session_transaction() as sess:
+            assert sess.get('lang') == 'en', "Language preference was lost on login"
+
+        logout(client)
+
+    def test_logout_clears_login_token(self, client, manager_user, app):
+        """After logout, login_token is no longer present in the session."""
+        login(client, "test_manager", "Pass1234!")
+
+        # Confirm login_token was set
+        with client.session_transaction() as sess:
+            assert 'login_token' in sess
+
+        logout(client)
+
+        # login_token must be cleared after logout
+        with client.session_transaction() as sess:
+            assert 'login_token' not in sess, (
+                "login_token should be removed from session on logout"
+            )
+
+
