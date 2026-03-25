@@ -317,6 +317,10 @@ class Client(db.Model):
     accounting_code = db.Column(db.String(20), nullable=True, default='1100')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = db.Column(db.String(80), nullable=True)
+    deleted_by = db.Column(db.String(80), nullable=True)
+    disabled_by = db.Column(db.String(80), nullable=True)
+    reenabled_by = db.Column(db.String(80), nullable=True)
 
     matters = db.relationship('Matter', backref='client', lazy=True, cascade='all, delete-orphan')
 
@@ -335,6 +339,10 @@ class Client(db.Model):
             'email': self.email or '',
             'is_active': self.is_active,
             'accounting_code': self.accounting_code or '1100',
+            'created_by': self.created_by or '',
+            'deleted_by': self.deleted_by or '',
+            'disabled_by': self.disabled_by or '',
+            'reenabled_by': self.reenabled_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -366,6 +374,10 @@ class Matter(db.Model):
     attorney6_start_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_by = db.Column(db.String(80), nullable=True)
+    deleted_by = db.Column(db.String(80), nullable=True)
+    disabled_by = db.Column(db.String(80), nullable=True)
+    reenabled_by = db.Column(db.String(80), nullable=True)
 
     expenses = db.relationship('Expense', backref='matter', lazy=True, cascade='all, delete-orphan')
     invoices = db.relationship('Invoice', backref='matter', lazy=True)
@@ -389,6 +401,10 @@ class Matter(db.Model):
             'attorney5_start_date': self.attorney5_start_date.isoformat() if self.attorney5_start_date else '',
             'attorney6_name': self.attorney6_name or '',
             'attorney6_start_date': self.attorney6_start_date.isoformat() if self.attorney6_start_date else '',
+            'created_by': self.created_by or '',
+            'deleted_by': self.deleted_by or '',
+            'disabled_by': self.disabled_by or '',
+            'reenabled_by': self.reenabled_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -403,6 +419,7 @@ class CostCode(db.Model):
     charge_type = db.Column(db.String(100), nullable=True)
     rate = db.Column(db.Numeric(10, 2), default=0.00)
     is_active = db.Column(db.Boolean, default=True)
+    changed_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -414,6 +431,7 @@ class CostCode(db.Model):
             'charge_type': self.charge_type or '',
             'rate': float(self.rate) if self.rate else 0.00,
             'is_active': self.is_active if self.is_active is not None else True,
+            'changed_by': self.changed_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -504,6 +522,9 @@ class Employee(UserMixin, db.Model):
     last_login = db.Column(db.DateTime, nullable=True)
     login_ip = db.Column(db.String(45), nullable=True)
     must_change_password = db.Column(db.Boolean, default=False)
+    added_by = db.Column(db.String(80), nullable=True)
+    changed_by = db.Column(db.String(80), nullable=True)
+    deleted_by = db.Column(db.String(80), nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -560,6 +581,9 @@ class Employee(UserMixin, db.Model):
             'network_id': self.network_id,
             'office_phone': self.office_phone,
             'supervisor': self.supervisor,
+            'added_by': self.added_by or '',
+            'changed_by': self.changed_by or '',
+            'deleted_by': self.deleted_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
@@ -729,6 +753,7 @@ class HrRecord(db.Model):
     date_last_review = db.Column(db.Date, nullable=True)
     review_comment = db.Column(db.Text, nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    changed_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -741,6 +766,7 @@ class HrRecord(db.Model):
             'balance_pto': float(self.balance_pto) if self.balance_pto is not None else 0.0,
             'date_last_review': self.date_last_review.isoformat() if self.date_last_review else None,
             'review_comment': self.review_comment,
+            'changed_by': self.changed_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -773,6 +799,7 @@ class CreditNote(db.Model):
     applied_amount = db.Column(db.Numeric(12, 2), default=0.00)
     reason = db.Column(db.String(500))
     applied_invoice_id = db.Column(db.Integer, db.ForeignKey('invoices.id'), nullable=True)
+    added_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -794,6 +821,7 @@ class CreditNote(db.Model):
             'reason': self.reason,
             'applied_invoice_id': self.applied_invoice_id,
             'applied_invoice_number': self.applied_invoice.invoice_number if self.applied_invoice else None,
+            'added_by': self.added_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -814,6 +842,7 @@ class Supplier(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
     accounting_code = db.Column(db.String(20), nullable=True)
+    added_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -832,6 +861,7 @@ class Supplier(db.Model):
             'notes': self.notes or '',
             'is_active': bool(self.is_active),
             'accounting_code': self.accounting_code or '',
+            'added_by': self.added_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -855,7 +885,9 @@ class SupplierPayment(db.Model):
     is_deleted = db.Column(db.Boolean, default=False)
     is_paid = db.Column(db.Boolean, default=False)   # explicitly marked paid by a user
     date_paid = db.Column(db.Date, nullable=True)    # date when invoice was marked as paid
+    paid_by = db.Column(db.String(80), nullable=True)   # who marked as paid
     is_posted = db.Column(db.Boolean, default=False)
+    posted_by = db.Column(db.String(80), nullable=True)  # who posted to GL
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -875,7 +907,9 @@ class SupplierPayment(db.Model):
             'created_by': self.created_by or '',
             'is_paid': bool(self.is_paid),
             'date_paid': self.date_paid.isoformat() if self.date_paid else None,
+            'paid_by': self.paid_by or '',
             'is_posted': bool(self.is_posted),
+            'posted_by': self.posted_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -889,17 +923,18 @@ class Account(db.Model):
     Accounts are organised into a hierarchy via parent_id and categorised by
     type: asset, liability, equity, revenue, expense.
     """
-    __tablename__ = 'accounts'
+    __tablename__ = 'GL_accounts'
 
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(20), unique=True, nullable=False)
     name = db.Column(db.String(255), nullable=False)
     # asset | liability | equity | revenue | expense
     account_type = db.Column(db.String(20), nullable=False, default='expense')
-    parent_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    parent_id = db.Column(db.Integer, db.ForeignKey('GL_accounts.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     is_system = db.Column(db.Boolean, default=False)   # protected from deletion
     is_deleted = db.Column(db.Boolean, default=False)  # soft-delete flag
+    changed_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -916,6 +951,7 @@ class Account(db.Model):
             'is_active': self.is_active,
             'is_system': self.is_system,
             'is_deleted': self.is_deleted,
+            'changed_by': self.changed_by or '',
         }
 
 
@@ -959,7 +995,7 @@ class JournalLine(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     entry_id = db.Column(db.Integer, db.ForeignKey('journal_entries.id'), nullable=False)
-    account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=False)
+    account_id = db.Column(db.Integer, db.ForeignKey('GL_accounts.id'), nullable=False)
     debit = db.Column(db.Numeric(12, 2), default=0.00)
     credit = db.Column(db.Numeric(12, 2), default=0.00)
     client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
@@ -1155,6 +1191,7 @@ _COLUMN_MIGRATIONS = {
     'cost_codes': [
         ('charge_type', 'NVARCHAR(100) NULL'),
         ('is_active',   'BIT NOT NULL DEFAULT 1'),
+        ('changed_by',  'NVARCHAR(80) NULL'),
     ],
     'clients': [
         ('is_active',    'BIT NOT NULL DEFAULT 1'),
@@ -1169,6 +1206,10 @@ _COLUMN_MIGRATIONS = {
         ('country',      'NVARCHAR(100) NULL'),
         ('contact_name', 'NVARCHAR(255) NULL'),
         ('accounting_code', 'NVARCHAR(20) NULL DEFAULT \'1100\''),
+        ('created_by',   'NVARCHAR(80) NULL'),
+        ('deleted_by',   'NVARCHAR(80) NULL'),
+        ('disabled_by',  'NVARCHAR(80) NULL'),
+        ('reenabled_by', 'NVARCHAR(80) NULL'),
     ],
     'matters': [
         ('is_active',            'BIT NOT NULL DEFAULT 1'),
@@ -1186,6 +1227,10 @@ _COLUMN_MIGRATIONS = {
         ('attorney6_name',       'NVARCHAR(255) NULL'),
         ('attorney6_start_date', 'DATE NULL'),
         ('client_matter_key',    'NVARCHAR(120) NULL'),
+        ('created_by',           'NVARCHAR(80) NULL'),
+        ('deleted_by',           'NVARCHAR(80) NULL'),
+        ('disabled_by',          'NVARCHAR(80) NULL'),
+        ('reenabled_by',         'NVARCHAR(80) NULL'),
     ],
     'expenses': [
         ('is_deleted',   'BIT NOT NULL DEFAULT 0'),
@@ -1229,6 +1274,9 @@ _COLUMN_MIGRATIONS = {
         ('last_login',              'DATETIME2(7) NULL'),
         ('login_ip',                'NVARCHAR(45) NULL'),
         ('must_change_password',    'BIT NOT NULL DEFAULT 0'),
+        ('added_by',                'NVARCHAR(80) NULL'),
+        ('changed_by',              'NVARCHAR(80) NULL'),
+        ('deleted_by',              'NVARCHAR(80) NULL'),
     ],
     'firm_info': [
         ('address_line1', 'NVARCHAR(255) NULL'),
@@ -1262,6 +1310,10 @@ _COLUMN_MIGRATIONS = {
     ],
     'hr_records': [
         ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
+        ('changed_by', 'NVARCHAR(80) NULL'),
+    ],
+    'credit_notes': [
+        ('added_by', 'NVARCHAR(80) NULL'),
     ],
     'TransactionsFiducie': [
         ('beneficiaire',    'NVARCHAR(255) NULL'),
@@ -1276,6 +1328,7 @@ _COLUMN_MIGRATIONS = {
         ('is_active',         'BIT NOT NULL DEFAULT 1'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
         ('accounting_code',   'NVARCHAR(20) NULL'),
+        ('added_by',          'NVARCHAR(80) NULL'),
     ],
     'supplier_payments': [
         ('description',       'NVARCHAR(500) NULL'),
@@ -1286,10 +1339,13 @@ _COLUMN_MIGRATIONS = {
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
         ('is_paid',           'BIT NOT NULL DEFAULT 0'),
         ('date_paid',         'DATE NULL'),
+        ('paid_by',           'NVARCHAR(80) NULL'),
         ('is_posted',         'BIT NOT NULL DEFAULT 0'),
+        ('posted_by',         'NVARCHAR(80) NULL'),
     ],
-    'accounts': [
+    'GL_accounts': [
         ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
+        ('changed_by', 'NVARCHAR(80) NULL'),
     ],
     'calendar_events': [
         ('event_type',       'NVARCHAR(50) NULL'),
@@ -1330,6 +1386,17 @@ def _apply_schema_migrations():
 
         inspector = sa_inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
+
+        # Rename legacy 'accounts' table to 'GL_accounts' if needed
+        if 'accounts' in existing_tables and 'GL_accounts' not in existing_tables:
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(sa_text("EXEC sp_rename 'dbo.accounts', 'GL_accounts'"))
+                existing_tables.discard('accounts')
+                existing_tables.add('GL_accounts')
+                logger.info("Schema migration: renamed table accounts -> GL_accounts")
+            except Exception as ren_exc:
+                logger.warning("Could not rename accounts to GL_accounts: %s", ren_exc)
 
         for table_name, columns in _COLUMN_MIGRATIONS.items():
             if table_name not in existing_tables:
@@ -2076,7 +2143,7 @@ class TransactionsFiducie(db.Model):
 @login_required
 def fiducie_select():
     """Landing page: show client/matter selector for the fiducie module."""
-    clients = Client.query.filter(Client.is_deleted == False).order_by(Client.client_name).all()
+    clients = Client.query.filter(Client.is_deleted == False, Client.is_active == True).order_by(Client.client_name).all()
     return render_template('fiducie.html',
                            dossier=None,
                            solde=0,
@@ -2127,7 +2194,7 @@ def module_fiducie(id):
             return redirect(url_for('module_fiducie', id=id))
 
     # 4. Affichage final (GET)
-    clients = Client.query.filter(Client.is_deleted == False).order_by(Client.client_name).all()
+    clients = Client.query.filter(Client.is_deleted == False, Client.is_active == True).order_by(Client.client_name).all()
     return render_template('fiducie.html', 
                            solde=solde_final, 
                            transactions=transactions, 
@@ -3182,6 +3249,7 @@ def api_account_detail(account_id):
             account.parent_id = data['parent_id'] or None
         if 'is_active' in data:
             account.is_active = bool(data['is_active'])
+        account.changed_by = current_user.display_name
         account.updated_at = datetime.utcnow()
         db.session.commit()
         return jsonify(account.to_dict())
@@ -4062,7 +4130,8 @@ def api_employees():
         pin=data.get('pin') or None,
         group_name=data.get('group_name') or None,
         network_id=data.get('network_id') or None,
-        supervisor=data.get('supervisor') or None
+        supervisor=data.get('supervisor') or None,
+        added_by=current_user.display_name,
     )
     # Managers must always be able to log in
     if employee.is_manager:
@@ -4242,11 +4311,13 @@ def api_employee_detail(employee_id):
             ).first():
                 return jsonify({'error': 'Username already taken'}), 409
             employee.username = new_username
+        employee.changed_by = current_user.display_name
         db.session.commit()
         return jsonify(employee.to_dict())
     # Soft-delete: mark as deleted and inactive instead of removing the row
     employee.is_deleted = True
     employee.is_active = False
+    employee.deleted_by = current_user.display_name
     db.session.commit()
     return '', 204
 
@@ -4310,6 +4381,7 @@ def api_hr_record_detail(record_id):
             record.date_last_review = _parse_date(data['date_last_review'])
         if 'review_comment' in data:
             record.review_comment = data['review_comment'] or None
+        record.changed_by = current_user.display_name
         record.updated_at = datetime.now(UTC)
         db.session.commit()
         return jsonify(record.to_dict())
@@ -4430,7 +4502,8 @@ def api_clients():
         contact_name=data.get('contact_name') or None,
         phone=data.get('phone') or None,
         email=data.get('email') or None,
-        is_active=data.get('is_active', True)
+        is_active=data.get('is_active', True),
+        created_by=current_user.display_name,
     )
     db.session.add(client)
     db.session.commit()
@@ -4462,12 +4535,18 @@ def api_client_detail(client_id):
             if field in data:
                 setattr(client, field, data[field] or None)
         if 'is_active' in data:
+            was_active = client.is_active
             client.is_active = bool(data['is_active'])
+            if was_active and not client.is_active:
+                client.disabled_by = current_user.display_name
+            elif not was_active and client.is_active:
+                client.reenabled_by = current_user.display_name
         db.session.commit()
         return jsonify(client.to_dict())
     # Soft-delete: mark as deleted and inactive instead of removing the row
     client.is_deleted = True
     client.is_active = False
+    client.deleted_by = current_user.display_name
     db.session.commit()
     return '', 204
 
@@ -4504,6 +4583,7 @@ def api_client_matters(client_id):
         attorney5_start_date=_parse_date(data.get('attorney5_start_date')),
         attorney6_name=data.get('attorney6_name') or None,
         attorney6_start_date=_parse_date(data.get('attorney6_start_date')),
+        created_by=current_user.display_name,
     )
     db.session.add(matter)
     db.session.commit()
@@ -4533,7 +4613,12 @@ def api_matter_detail(matter_id):
         if 'matter_description' in data:
             matter.matter_description = data['matter_description']
         if 'is_active' in data:
+            was_active = matter.is_active
             matter.is_active = bool(data['is_active'])
+            if was_active and not matter.is_active:
+                matter.disabled_by = current_user.display_name
+            elif not was_active and matter.is_active:
+                matter.reenabled_by = current_user.display_name
         for field in ('attorney1_name', 'attorney2_name', 'attorney3_name',
                       'attorney4_name', 'attorney5_name', 'attorney6_name'):
             if field in data:
@@ -4547,6 +4632,7 @@ def api_matter_detail(matter_id):
     # Soft-delete: mark as deleted and inactive instead of removing the row
     matter.is_deleted = True
     matter.is_active = False
+    matter.deleted_by = current_user.display_name
     db.session.commit()
     return '', 204
 
@@ -4676,6 +4762,7 @@ def api_cost_code_detail(code_id):
             cost_code.rate = data['rate'] if data['rate'] is not None else 0
         if 'is_active' in data:
             cost_code.is_active = bool(data['is_active'])
+        cost_code.changed_by = current_user.display_name
         cost_code.updated_at = datetime.utcnow()
         db.session.commit()
         return jsonify(cost_code.to_dict())
@@ -4956,6 +5043,7 @@ def api_credit_notes():
         client_id=int(data['client_id']),
         amount=float(data['amount']),
         reason=data.get('reason', ''),
+        added_by=current_user.display_name,
     )
     db.session.add(note)
     db.session.commit()
@@ -5674,6 +5762,7 @@ def api_suppliers():
         notes=data.get('notes', ''),
         accounting_code=data.get('accounting_code', ''),
         is_active=True,
+        added_by=current_user.display_name,
     )
     db.session.add(supplier)
     db.session.commit()
@@ -5755,15 +5844,17 @@ def api_supplier_payments(supplier_id):
         payment_method=data.get('payment_method', ''),
         cheque_number=data.get('cheque_number', ''),
         bank_transaction=data.get('bank_transaction', ''),
-        created_by=current_user.username,
+        created_by=current_user.display_name,
         is_paid=payment_date is not None,
         date_paid=payment_date,
+        paid_by=current_user.display_name if payment_date is not None else None,
     )
     db.session.add(payment)
     db.session.commit()
     if payment_date:
         _post_supplier_payment_journal(payment, supplier)
         payment.is_posted = True
+        payment.posted_by = current_user.display_name
         db.session.commit()
     return jsonify(payment.to_dict()), 201
 
@@ -5804,6 +5895,7 @@ def api_supplier_payment_detail(payment_id):
                 if new_payment_date:
                     payment.is_paid = True
                     payment.date_paid = new_payment_date
+                    payment.paid_by = current_user.display_name
             except ValueError:
                 pass  # Invalid date format from client; leave field unchanged
         db.session.commit()
@@ -5833,6 +5925,7 @@ def api_supplier_payments_post_to_gl():
         try:
             _post_supplier_payment_journal(payment, supplier)
             payment.is_posted = True
+            payment.posted_by = current_user.display_name
             posted_count += 1
         except Exception as exc:
             logger.warning("Could not post supplier payment %s to GL: %s", payment.id, exc)
