@@ -509,7 +509,12 @@ class Employee(UserMixin, db.Model):
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password) if self.password_hash else False
+        if not self.password_hash:
+            return False
+        try:
+            return check_password_hash(self.password_hash, password)
+        except (ValueError, TypeError):
+            return False
 
     @property
     def display_name(self):
@@ -1331,6 +1336,14 @@ def _apply_schema_migrations():
         inspector = sa_inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
 
+        # Remember which employee columns exist BEFORE migrations run so we can
+        # choose the right backfill strategy afterwards.
+        employee_cols_before: set = set()
+        if 'employees' in existing_tables:
+            employee_cols_before = {
+                col['name'].lower() for col in inspector.get_columns('employees')
+            }
+
         for table_name, columns in _COLUMN_MIGRATIONS.items():
             if table_name not in existing_tables:
                 continue
@@ -1345,15 +1358,37 @@ def _apply_schema_migrations():
                         ))
                         logger.info("Schema migration: added %s.%s", table_name, col_name)
 
-        # Ensure all existing managers can still log in after the is_user column
-        # was added with DEFAULT 0 (which would have left them with is_user=0).
-        # The WHERE clause makes this idempotent across restarts.
+        # Ensure existing employees can still log in after permission columns were
+        # added with DEFAULT 0.
+        #
+        # When is_user is newly added (first migration for this column), ALL
+        # active, non-deleted employees are backfilled to is_user=1 so that no
+        # one who could log in before the migration is suddenly locked out.
+        # This handles upgrades from very old schemas where is_manager may also
+        # have been newly added (and therefore defaulted to 0), which would cause
+        # the "managers-only" backfill to match no rows.
+        #
+        # When is_user already existed before this migration run, only managers
+        # that somehow have is_user=0 are corrected (idempotent safety net).
         if 'employees' in existing_tables:
             with db.engine.begin() as conn:
-                conn.execute(sa_text(
-                    "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
-                ))
-                logger.info("Schema migration: backfilled is_user=1 for existing managers")
+                if 'is_user' not in employee_cols_before:
+                    # is_user was just added – restore login access for every
+                    # active, non-deleted employee so the upgrade is non-breaking.
+                    conn.execute(sa_text(
+                        "UPDATE [employees] SET [is_user] = 1 "
+                        "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
+                    ))
+                    logger.info(
+                        "Schema migration: backfilled is_user=1 for all active employees "
+                        "(is_user column was newly added)"
+                    )
+                else:
+                    # is_user already existed; only ensure managers can always log in.
+                    conn.execute(sa_text(
+                        "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
+                    ))
+                    logger.info("Schema migration: backfilled is_user=1 for existing managers")
 
         # Backfill is_paid and date_paid for supplier_payments that already have
         # a payment_date – those were paid before the is_paid column was added.
@@ -1888,14 +1923,23 @@ def _enforce_single_session():
     On login a unique token is stored both in the server-side DB row and in
     the session cookie.  If the tokens no longer match (because a new login
     replaced the DB token), this device's session is rejected.
+
+    The check is skipped when either token is absent (e.g. the session_token
+    column does not exist yet, or the DB commit failed during login) so that
+    transient infrastructure issues never lock users out permanently.
     """
     if not current_user.is_authenticated:
         return
     path = request.path
     if path.startswith('/static/') or path in _SESSION_EXEMPT_PATHS or path.startswith('/reset-password/'):
         return
-    cookie_token = session.get('login_token')
-    db_token = getattr(current_user, 'session_token', None)
+    try:
+        cookie_token = session.get('login_token')
+        db_token = getattr(current_user, 'session_token', None)
+    except Exception:
+        # If we cannot read the tokens for any reason, skip enforcement rather
+        # than accidentally logging the user out.
+        return
     if cookie_token and db_token and cookie_token != db_token:
         logout_user()
         session.clear()
@@ -1988,16 +2032,24 @@ def login():
                 # Generate a new session token (invalidates any previous session)
                 new_token = str(uuid.uuid4())
                 user.session_token = new_token
-                #user.last_login = datetime.utcnow()
                 user.last_login = datetime.now()
-                #user.login_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-                #user.login_ip = request.headers.get('X-ARR-ClientIP', request.remote_addr)
-                #user.login_ip = get_real_ip()
                 user.login_ip = request.headers.get("X-Real-IP", request.remote_addr)
-                db.session.commit()
+                try:
+                    db.session.commit()
+                except Exception as commit_exc:
+                    # If we cannot persist the session token (e.g. transient DB
+                    # error), roll back and continue the login without token
+                    # enforcement so the user is not silently locked out.
+                    logger.warning(
+                        "Login: failed to persist session token for '%s': %s",
+                        uname, commit_exc,
+                    )
+                    db.session.rollback()
+                    new_token = None
                 login_user(user, remember=False)
                 session.permanent = False  # Session cookie expires when browser closes
-                session['login_token'] = new_token
+                if new_token:
+                    session['login_token'] = new_token
                 session['last_activity'] = datetime.now(timezone.utc).isoformat()
                 # If the admin set must_change_password, redirect to the change-password page
                 if getattr(user, 'must_change_password', False):

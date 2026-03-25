@@ -702,3 +702,171 @@ class TestSupplierPayments:
         logout(client)
 
 
+# ---------------------------------------------------------------------------
+# 8. Login robustness – bug fixes for the "screen flash / back to login" issue
+# ---------------------------------------------------------------------------
+class TestLoginRobustness:
+    """Tests that validate the fixes for the login-flash bug (Gros bug issue).
+
+    The bug manifested as: clicking Sign-In caused an immediate redirect back
+    to the login page (screen flash) with no meaningful error.
+
+    Root causes addressed:
+      1. The migration backfill only granted is_user=1 to managers; existing
+         non-manager employees (and managers when is_manager was ALSO just
+         added) were left with is_user=0 and could not log in.
+      2. check_password raised an unhandled ValueError for unsupported hash
+         formats (very old Werkzeug sha256 hashes), causing a 500 error.
+      3. db.session.commit() in the login path was not wrapped in try/except;
+         a transient DB error would raise a 500 instead of a graceful failure.
+      4. _enforce_single_session could log the user out immediately if the
+         session-token commit silently failed, because the cookie token (new)
+         differed from the stale DB token (old).
+    """
+
+    def test_user_without_is_user_cannot_login(self, client, app):
+        """An employee whose is_user=False and is_manager=False cannot log in."""
+        from app import db, Employee
+        from werkzeug.security import generate_password_hash
+
+        with app.app_context():
+            Employee.query.filter_by(username="no_access_user").delete()
+            db.session.commit()
+            emp = Employee(
+                username="no_access_user",
+                email="noaccess@test.local",
+                password_hash=generate_password_hash("Pass1234!"),
+                is_manager=False,
+                is_user=False,
+                is_active=True,
+            )
+            db.session.add(emp)
+            db.session.commit()
+
+        resp = login(client, "no_access_user", "Pass1234!")
+        # Must stay on the login page (not reach the home page)
+        assert resp.status_code == 200
+        assert b"permission" in resp.data.lower() or b"login" in resp.data.lower()
+
+        with app.app_context():
+            Employee.query.filter_by(username="no_access_user").delete()
+            db.session.commit()
+
+    def test_user_with_is_user_true_can_login(self, client, app):
+        """An employee with is_user=True (non-manager) can log in successfully."""
+        from app import db, Employee
+        from werkzeug.security import generate_password_hash
+
+        with app.app_context():
+            Employee.query.filter_by(username="plain_user").delete()
+            db.session.commit()
+            emp = Employee(
+                username="plain_user",
+                email="plain@test.local",
+                password_hash=generate_password_hash("Pass1234!"),
+                is_manager=False,
+                is_user=True,
+                is_active=True,
+            )
+            db.session.add(emp)
+            db.session.commit()
+
+        try:
+            resp = login(client, "plain_user", "Pass1234!")
+            assert resp.status_code == 200
+            # Should reach the home page, not remain on the login page
+            assert "login" not in resp.request.path.lower()
+        finally:
+            # Always clean up to prevent g._login_user from leaking to next tests
+            logout(client)
+            with app.app_context():
+                Employee.query.filter_by(username="plain_user").delete()
+                db.session.commit()
+
+    def test_check_password_handles_unsupported_hash_gracefully(self, app):
+        """check_password returns False (not exception) for unknown hash formats."""
+        from app import Employee
+
+        with app.app_context():
+            emp = Employee(
+                username="hash_test",
+                email="hashtest@test.local",
+            )
+            # Simulate a hash stored with an old/unsupported format
+            emp.password_hash = "sha256$oldsalt$" + "a" * 64
+            # Must return False, not raise ValueError
+            result = emp.check_password("anypassword")
+            assert result is False
+
+    def test_check_password_returns_false_for_no_hash(self, app):
+        """check_password returns False when password_hash is None."""
+        from app import Employee
+
+        with app.app_context():
+            emp = Employee(username="nohash", email="nohash@test.local")
+            emp.password_hash = None
+            assert emp.check_password("anypassword") is False
+
+    def test_login_succeeds_after_previous_session_token(self, client, manager_user, app):
+        """A user can log in again after a previous session: second login also works."""
+        try:
+            # First login
+            resp = login(client, "test_manager", "Pass1234!")
+            assert resp.status_code == 200
+            logout(client)
+
+            # Second login (should work without being bounced back to login)
+            resp2 = login(client, "test_manager", "Pass1234!")
+            assert resp2.status_code == 200
+            assert "login" not in resp2.request.path.lower()
+        finally:
+            logout(client)
+
+    def test_inactive_user_cannot_login(self, client, app):
+        """An inactive (deactivated) user cannot log in."""
+        from app import db, Employee
+        from werkzeug.security import generate_password_hash
+
+        with app.app_context():
+            Employee.query.filter_by(username="inactive_user").delete()
+            db.session.commit()
+            emp = Employee(
+                username="inactive_user",
+                email="inactive@test.local",
+                password_hash=generate_password_hash("Pass1234!"),
+                is_manager=False,
+                is_user=True,
+                is_active=False,
+            )
+            db.session.add(emp)
+            db.session.commit()
+
+        try:
+            # Ensure no user is currently logged in before this test runs
+            # (previous tests might leave g._login_user set in the module-scoped context).
+            logout(client)
+
+            resp = login(client, "inactive_user", "Pass1234!")
+            assert resp.status_code == 200
+            # Should show the login page (deactivated message), not the home page
+            assert b"accueil" not in resp.data.lower()
+        finally:
+            with app.app_context():
+                Employee.query.filter_by(username="inactive_user").delete()
+                db.session.commit()
+
+    def test_login_sets_session_token_in_db(self, client, manager_user, app):
+        """After a successful login the employee row has session_token set."""
+        import uuid
+        from app import db, Employee
+
+        try:
+            login(client, "test_manager", "Pass1234!")
+            with app.app_context():
+                emp = Employee.query.filter_by(username="test_manager").first()
+                # session_token must be a valid UUID string
+                assert emp.session_token is not None
+                uuid.UUID(emp.session_token)  # raises ValueError if not a valid UUID
+        finally:
+            logout(client)
+
