@@ -888,6 +888,7 @@ class SupplierPayment(db.Model):
     bank_transaction = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
+    deleted_by = db.Column(db.String(80), nullable=True)   # who soft-deleted this payment
     is_paid = db.Column(db.Boolean, default=False)   # explicitly marked paid by a user
     date_paid = db.Column(db.Date, nullable=True)    # date when invoice was marked as paid
     paid_by = db.Column(db.String(80), nullable=True)   # who marked as paid
@@ -915,6 +916,7 @@ class SupplierPayment(db.Model):
             'paid_by': self.paid_by or '',
             'is_posted': bool(self.is_posted),
             'posted_by': self.posted_by or '',
+            'deleted_by': self.deleted_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -1170,6 +1172,7 @@ class SalaryEntry(db.Model):
     created_by = db.Column(db.String(80), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False)
     is_posted = db.Column(db.Boolean, default=False)
+    posted_by = db.Column(db.String(80), nullable=True)   # who posted to GL
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1184,6 +1187,7 @@ class SalaryEntry(db.Model):
             'description': self.description or '',
             'created_by': self.created_by or '',
             'is_posted': bool(self.is_posted),
+            'posted_by': self.posted_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -1342,6 +1346,7 @@ _COLUMN_MIGRATIONS = {
         ('bank_transaction',  'NVARCHAR(255) NULL'),
         ('created_by',        'NVARCHAR(80) NULL'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
+        ('deleted_by',        'NVARCHAR(80) NULL'),
         ('is_paid',           'BIT NOT NULL DEFAULT 0'),
         ('date_paid',         'DATE NULL'),
         ('paid_by',           'NVARCHAR(80) NULL'),
@@ -1366,7 +1371,8 @@ _COLUMN_MIGRATIONS = {
         ('duration_minutes', 'INT NULL'),
     ],
     'salary_entries': [
-        ('is_posted', 'BIT NOT NULL DEFAULT 0'),
+        ('is_posted',  'BIT NOT NULL DEFAULT 0'),
+        ('posted_by',  'NVARCHAR(80) NULL'),
     ],
 }
 
@@ -5942,6 +5948,7 @@ def api_supplier_payment_detail(payment_id):
         return jsonify(payment.to_dict())
     # DELETE – soft delete
     payment.is_deleted = True
+    payment.deleted_by = current_user.display_name if current_user.is_authenticated else 'system'
     db.session.commit()
     return jsonify({'success': True})
 
@@ -6436,6 +6443,7 @@ def api_salary_post_to_gl():
                 created_by=actor,
             )
             entry.is_posted = True
+            entry.posted_by = actor
             posted_count += 1
         except Exception as exc:
             logger.warning("Could not post salary entry %s to GL: %s", entry.id, exc)
