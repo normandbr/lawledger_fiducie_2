@@ -786,7 +786,7 @@ LEXICON = {
         'lbl_total_draft': 'Total brouillons',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Code comptable',
+        'nav_accounts': 'Code comptable',
         'title_accounts': 'Code comptable',
         'card_accounts_desc': 'Gérez les codes comptables utilisés par le grand livre général.',
         'btn_add_account': '+ Ajouter un compte',
@@ -1766,7 +1766,7 @@ LEXICON = {
         'btn_new_journal_entry': '+ New Entry',
         'btn_gl_journal_tab': '📒 Entries (double-entry)',
         'btn_gl_classic_tab': '📋 Classic View',
-        'btn_gl_accounts_tab': '📊 Accounting Codes',
+        'btn_gl_accounts_tab': 'Accounting Codes',
         'btn_gl_summary_tab': '📈 Summary by Code',
         'msg_no_gl_summary': 'No entries found for the selected period.',
         'lbl_journal_source': 'Source',
