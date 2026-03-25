@@ -543,6 +543,9 @@ LEXICON = {
         'btn_add_matter_client': '+ Ajouter un dossier',
         'opt_none': '— Aucun —',
         'lbl_show_billed_expenses': 'Afficher les frais facturés',
+        'lbl_expense_billed': 'Facturé',
+        'lbl_expense_unbilled': 'Non facturé',
+        'title_unbilled_expenses': 'Frais non facturés',
 
         # Cost Codes page
         'title_cost_codes_page': 'Codes de frais',
@@ -787,7 +790,7 @@ LEXICON = {
         'title_accounts': 'Code comptable',
         'card_accounts_desc': 'Gérez les codes comptables utilisés par le grand livre général.',
         'btn_add_account': '+ Ajouter un compte',
-        'lbl_account_code': 'Code',
+        'lbl_account_code': 'Code comptable',
         'lbl_account_name': 'Nom du compte',
         'lbl_account_type': 'Type',
         'lbl_account_parent': 'Compte parent',
@@ -812,6 +815,8 @@ LEXICON = {
         'btn_gl_journal_tab': '📒 Écritures (double entrée)',
         'btn_gl_classic_tab': '📋 Vue classique',
         'btn_gl_accounts_tab': '📊 Codes comptable',
+        'btn_gl_summary_tab': '📈 Sommaire par code',
+        'msg_no_gl_summary': 'Aucune entrée trouvée pour la période sélectionnée.',
         'lbl_journal_source': 'Source',
         'lbl_journal_entry_date': 'Date écriture',
         'lbl_journal_description': 'Description',
@@ -903,7 +908,7 @@ LEXICON = {
         'th_created_by': 'Ajouté par',
 
         # Salary module
-        'nav_salary': '💰 Salaires',
+        'nav_salary': 'Salaires',
         'title_salary': 'Salaires',
         'btn_salary_config': '⚙ Configuration',
         'modal_salary_config': 'Configuration des champs de salaire',
@@ -1490,6 +1495,9 @@ LEXICON = {
         'btn_add_matter_client': '+ Add Matter',
         'opt_none': '— None —',
         'lbl_show_billed_expenses': 'Show billed expenses',
+        'lbl_expense_billed': 'Billed',
+        'lbl_expense_unbilled': 'Unbilled',
+        'title_unbilled_expenses': 'Unbilled Expenses',
 
         # Cost Codes page
         'title_cost_codes_page': 'Cost Codes',
@@ -1730,7 +1738,7 @@ LEXICON = {
         'lbl_total_draft': 'Draft Total',
 
         # Chart of accounts (plan de comptes)
-        'nav_accounts': '📊 Accounting Codes',
+        'nav_accounts': 'Accounting Codes',
         'title_accounts': 'Accounting Codes',
         'card_accounts_desc': 'Manage the accounting codes used by the general ledger.',
         'btn_add_account': '+ Add Account',
@@ -1759,6 +1767,8 @@ LEXICON = {
         'btn_gl_journal_tab': '📒 Entries (double-entry)',
         'btn_gl_classic_tab': '📋 Classic View',
         'btn_gl_accounts_tab': '📊 Accounting Codes',
+        'btn_gl_summary_tab': '📈 Summary by Code',
+        'msg_no_gl_summary': 'No entries found for the selected period.',
         'lbl_journal_source': 'Source',
         'lbl_journal_entry_date': 'Entry Date',
         'lbl_journal_description': 'Description',
@@ -1850,7 +1860,7 @@ LEXICON = {
         'th_created_by': 'Added by',
 
         # Salary module
-        'nav_salary': '💰 Salary',
+        'nav_salary': 'Salary',
         'title_salary': 'Salary',
         'btn_salary_config': '⚙ Configuration',
         'modal_salary_config': 'Salary Field Configuration',
