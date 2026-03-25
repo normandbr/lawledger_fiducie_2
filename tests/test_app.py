@@ -870,3 +870,72 @@ class TestLoginRobustness:
         finally:
             logout(client)
 
+    def test_login_clears_stale_session_token_cookie(self, client, manager_user, app):
+        """Re-login replaces the stale login_token in the session cookie.
+
+        If a user has an existing session cookie with an old login_token and
+        then logs in again, the new cookie must contain the freshly issued
+        token (not the stale one) so that _enforce_single_session never sees
+        a mismatch immediately after login.
+        """
+        from app import db, Employee
+
+        try:
+            # First login – establishes login_token X in the session cookie.
+            login(client, "test_manager", "Pass1234!")
+            with app.app_context():
+                emp = Employee.query.filter_by(username="test_manager").first()
+                first_token = emp.session_token
+
+            # Log out (removes the user from the session but keeps the cookie).
+            logout(client)
+
+            # Second login – must issue a brand-new token and store it in the
+            # cookie; the old token must not survive.
+            login(client, "test_manager", "Pass1234!")
+            with app.app_context():
+                emp = Employee.query.filter_by(username="test_manager").first()
+                second_token = emp.session_token
+
+            # Tokens must differ between the two logins.
+            assert second_token is not None
+            assert first_token != second_token
+
+            # After the second login the index page must be reachable
+            # (no single-session redirect back to login).
+            resp = client.get("/", follow_redirects=True)
+            assert resp.status_code == 200
+            assert "login" not in resp.request.path.lower()
+        finally:
+            logout(client)
+
+    def test_manager_without_is_user_can_still_login(self, client, app):
+        """A manager with is_user=False can still log in via is_manager check."""
+        from app import db, Employee
+        from werkzeug.security import generate_password_hash
+
+        with app.app_context():
+            Employee.query.filter_by(username="mgr_no_is_user").delete()
+            db.session.commit()
+            emp = Employee(
+                username="mgr_no_is_user",
+                email="mgr_no_is_user@test.local",
+                password_hash=generate_password_hash("Pass1234!"),
+                is_manager=True,
+                is_user=False,   # explicitly False – manager check should still pass
+                is_active=True,
+            )
+            db.session.add(emp)
+            db.session.commit()
+
+        try:
+            resp = login(client, "mgr_no_is_user", "Pass1234!")
+            assert resp.status_code == 200
+            # Should reach the home page, not remain on login
+            assert "login" not in resp.request.path.lower()
+        finally:
+            logout(client)
+            with app.app_context():
+                Employee.query.filter_by(username="mgr_no_is_user").delete()
+                db.session.commit()
+

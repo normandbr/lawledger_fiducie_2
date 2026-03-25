@@ -1434,10 +1434,53 @@ def _apply_schema_migrations():
         # have been newly added (and therefore defaulted to 0), which would cause
         # the "managers-only" backfill to match no rows.
         #
-        # When is_user already existed before this migration run, only managers
-        # that somehow have is_user=0 are corrected (idempotent safety net).
+        # When is_user already existed before this migration run, we first check
+        # whether there are any managers (is_manager=1).  If none exist – which
+        # can happen when a GUI tool like SSMS silently recreates the table and
+        # resets every BIT column to its default value of 0 – we treat this the
+        # same as a freshly-added column and restore access for all active
+        # employees.  When managers do exist we apply the narrower "managers-only"
+        # safety net to preserve intentional access-control settings.
+        #
+        # In all branches we first coerce any residual NULL values in the BIT
+        # permission columns to their defined defaults so the subsequent WHERE
+        # clauses work correctly on databases where those columns were created as
+        # nullable (e.g. manually via SQL Server Management Studio).
         if 'employees' in existing_tables:
             with db.engine.begin() as conn:
+                # Step 1 – normalise NULL values that may appear when the columns
+                # were created manually (without NOT NULL) or after a table rebuild.
+                existing_cols_now = {
+                    col['name'].lower()
+                    for col in sa_inspect(db.engine).get_columns('employees')
+                }
+                # Column names come from the _null_fix list below which is
+                # defined entirely in this source file – they are NOT derived
+                # from any external / user-supplied input, so constructing the
+                # column identifiers via f-string is safe here.  The boolean
+                # default VALUE is passed as a proper bind parameter to prevent
+                # any theoretical injection via the value slot.
+                _null_fix = [
+                    ('is_active',            1),
+                    ('is_deleted',           0),
+                    ('is_manager',           0),
+                    ('is_user',              0),
+                    ('timer_user',           0),
+                    ('is_accounting',        0),
+                    ('must_change_password', 0),
+                ]
+                for _col, _default in _null_fix:
+                    if _col in existing_cols_now:
+                        conn.execute(
+                            sa_text(
+                                f"UPDATE [employees] SET [{_col}] = :val "
+                                f"WHERE [{_col}] IS NULL"
+                            ),
+                            {'val': _default},
+                        )
+
+                # Step 2 – backfill is_user=1 so that users who previously had
+                # access are not suddenly locked out.
                 if 'is_user' not in employee_cols_before:
                     # is_user was just added – restore login access for every
                     # active, non-deleted employee so the upgrade is non-breaking.
@@ -1450,11 +1493,30 @@ def _apply_schema_migrations():
                         "(is_user column was newly added)"
                     )
                 else:
-                    # is_user already existed; only ensure managers can always log in.
-                    conn.execute(sa_text(
-                        "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
-                    ))
-                    logger.info("Schema migration: backfilled is_user=1 for existing managers")
+                    # is_user already existed.  Check whether the table still has
+                    # at least one manager; if not (e.g. after an SSMS table
+                    # rebuild that reset every BIT column to 0), restore access
+                    # for all active employees exactly as we do when the column is
+                    # brand-new.
+                    manager_count = conn.execute(sa_text(
+                        "SELECT COUNT(*) FROM [employees] WHERE [is_manager] = 1"
+                    )).scalar() or 0
+                    if manager_count == 0:
+                        conn.execute(sa_text(
+                            "UPDATE [employees] SET [is_user] = 1 "
+                            "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
+                        ))
+                        logger.info(
+                            "Schema migration: backfilled is_user=1 for all active employees "
+                            "(no managers found – possible table recreation)"
+                        )
+                    else:
+                        # Normal case: ensure managers always have is_user=1.
+                        conn.execute(sa_text(
+                            "UPDATE [employees] SET [is_user] = 1 "
+                            "WHERE [is_manager] = 1 AND [is_user] = 0"
+                        ))
+                        logger.info("Schema migration: backfilled is_user=1 for existing managers")
 
         # Backfill is_paid and date_paid for supplier_payments that already have
         # a payment_date – those were paid before the is_paid column was added.
@@ -2114,6 +2176,10 @@ def login():
                     new_token = None
                 login_user(user, remember=False)
                 session.permanent = False  # Session cookie expires when browser closes
+                # Always discard any stale login_token from a previous session
+                # BEFORE writing the new one so that _enforce_single_session
+                # never sees a mismatched pair if the cookie is somehow recycled.
+                session.pop('login_token', None)
                 if new_token:
                     session['login_token'] = new_token
                 session['last_activity'] = datetime.now(timezone.utc).isoformat()
