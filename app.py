@@ -1392,13 +1392,6 @@ def _apply_schema_migrations():
         inspector = sa_inspect(db.engine)
         existing_tables = set(inspector.get_table_names())
 
-        # Remember which employee columns exist BEFORE migrations run so we can
-        # choose the right backfill strategy afterwards.
-        employee_cols_before: set = set()
-        if 'employees' in existing_tables:
-            employee_cols_before = {
-                col['name'].lower() for col in inspector.get_columns('employees')
-            }
         # Rename legacy 'accounts' table to 'GL_accounts' if needed
         if 'accounts' in existing_tables and 'GL_accounts' not in existing_tables:
             try:
@@ -1425,36 +1418,18 @@ def _apply_schema_migrations():
                         logger.info("Schema migration: added %s.%s", table_name, col_name)
 
         # Ensure existing employees can still log in after permission columns were
-        # added with DEFAULT 0.
-        #
-        # When is_user is newly added (first migration for this column), ALL
-        # active, non-deleted employees are backfilled to is_user=1 so that no
-        # one who could log in before the migration is suddenly locked out.
-        # This handles upgrades from very old schemas where is_manager may also
-        # have been newly added (and therefore defaulted to 0), which would cause
-        # the "managers-only" backfill to match no rows.
-        #
-        # When is_user already existed before this migration run, only managers
-        # that somehow have is_user=0 are corrected (idempotent safety net).
+        # added with DEFAULT 0.  Backfill is_user=1 for all active, non-deleted
+        # employees where it is still 0 – whether is_user was just added by this
+        # migration run or was pre-existing (e.g. added manually with DEFAULT 0,
+        # or reset to 0 by a GUI tool like SSMS when recreating the table).
+        # Idempotent: rows already at is_user=1 are not touched.
         if 'employees' in existing_tables:
             with db.engine.begin() as conn:
-                if 'is_user' not in employee_cols_before:
-                    # is_user was just added – restore login access for every
-                    # active, non-deleted employee so the upgrade is non-breaking.
-                    conn.execute(sa_text(
-                        "UPDATE [employees] SET [is_user] = 1 "
-                        "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
-                    ))
-                    logger.info(
-                        "Schema migration: backfilled is_user=1 for all active employees "
-                        "(is_user column was newly added)"
-                    )
-                else:
-                    # is_user already existed; only ensure managers can always log in.
-                    conn.execute(sa_text(
-                        "UPDATE [employees] SET [is_user] = 1 WHERE [is_manager] = 1 AND [is_user] = 0"
-                    ))
-                    logger.info("Schema migration: backfilled is_user=1 for existing managers")
+                conn.execute(sa_text(
+                    "UPDATE [employees] SET [is_user] = 1 "
+                    "WHERE [is_active] = 1 AND [is_deleted] = 0 AND [is_user] = 0"
+                ))
+                logger.info("Schema migration: backfilled is_user=1 for active employees")
 
         # Backfill is_paid and date_paid for supplier_payments that already have
         # a payment_date – those were paid before the is_paid column was added.
@@ -1831,6 +1806,19 @@ def _post_supplier_payment_journal(payment, supplier):
 
 
 @app.before_request
+def _ensure_schema_migrated():
+    """Run schema migrations once before the first request is handled.
+
+    Registered as the FIRST before_request hook so the database schema is
+    always up-to-date before any other hook or route handler queries the DB.
+    This prevents column-not-found errors when Flask-Login's user_loader is
+    triggered by subsequent hooks (e.g. license check) before migrations run.
+    """
+    if not _schema_migrations_applied:
+        _apply_schema_migrations()
+
+
+@app.before_request
 def _enforce_license_restrictions():
     """Role-based license enforcement on every request.
 
@@ -1934,13 +1922,6 @@ def _enforce_license_restrictions():
             flash('A valid license is required to access this module.', 'warning')
             return redirect(url_for('index'))
         return
-
-
-@app.before_request
-def _ensure_schema_migrated():
-    """Run schema migrations once before the first request is handled."""
-    if not _schema_migrations_applied:
-        _apply_schema_migrations()
 
 
 # ── Session timeout & single-session enforcement ─────────────────────────────
@@ -2114,6 +2095,10 @@ def login():
                     new_token = None
                 login_user(user, remember=False)
                 session.permanent = False  # Session cookie expires when browser closes
+                # Discard any stale login_token from a previous session before
+                # writing the new one so _enforce_single_session never sees a
+                # mismatched pair if the cookie is recycled from a previous login.
+                session.pop('login_token', None)
                 if new_token:
                     session['login_token'] = new_token
                 session['last_activity'] = datetime.now(timezone.utc).isoformat()
@@ -2811,6 +2796,9 @@ def logout():
     except Exception:
         db.session.rollback()
     logout_user()
+    # Remove login_token so it cannot linger in the session cookie and
+    # interfere with single-session enforcement on the next login.
+    session.pop('login_token', None)
     flash('Vous avez été déconnecté.', 'info')
     return redirect(url_for('login'))
 
