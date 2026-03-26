@@ -292,6 +292,47 @@ def send_reset_email(user, reset_url, lang='en'):
         mail.send(msg)
 
 
+def send_mfa_email(user, code, lang='en'):
+    """Send an MFA verification code email via Brevo API or Flask-Mail fallback."""
+    t = LEXICON.get(lang, LEXICON.get('en'))
+    html_content = render_template('email_mfa_code.html', user=user, code=code, t=t, lang=lang)
+    subject = t.get('email_mfa_subject', 'LawLedger \u2013 Verification Code')
+    brevo_api_key = os.environ.get('BREVO_API_KEY')
+    if brevo_api_key:
+        sender_email = os.environ.get('BREVO_SENDER_EMAIL', 'noreply@lawledger.com')
+        sender_name = os.environ.get('BREVO_SENDER_NAME', 'Law Ledger')
+        payload = json.dumps({
+            'sender': {'name': sender_name, 'email': sender_email},
+            'to': [{'email': user.email}],
+            'subject': subject,
+            'htmlContent': html_content,
+            'replyTo': {'email': sender_email},
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            'https://api.brevo.com/v3/smtp/email',
+            data=payload,
+            headers={
+                'Content-Type': 'application/json',
+                'api-key': brevo_api_key,
+            },
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                logger.info('Brevo API response (MFA): %s', resp.status)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode('utf-8', errors='replace')
+            logger.error('Brevo API error %s (MFA): %s', exc.code, body)
+            raise
+    else:
+        msg = Message(
+            subject=subject,
+            recipients=[user.email],
+            html=html_content,
+        )
+        mail.send(msg)
+
+
 @login_manager.user_loader
 def load_user(user_id):
     #return Employee.query.get(int(user_id))
@@ -704,6 +745,8 @@ class FirmInfo(db.Model):
     # Tax rates (%) stored here so invoices use consistent firm-wide rates
     tax1_rate = db.Column(db.Numeric(6, 3), default=0.000)
     tax2_rate = db.Column(db.Numeric(6, 3), default=0.000)
+    # Multi-factor authentication: when True, users must verify a 6-digit email code after login
+    mfa_enabled = db.Column(db.Boolean, default=False)
 
     def to_dict(self):
         return {
@@ -723,6 +766,7 @@ class FirmInfo(db.Model):
             'tax2_compound': bool(self.tax2_compound) if self.tax2_compound is not None else False,
             'tax1_rate': float(self.tax1_rate) if self.tax1_rate is not None else 0.0,
             'tax2_rate': float(self.tax2_rate) if self.tax2_rate is not None else 0.0,
+            'mfa_enabled': bool(self.mfa_enabled) if self.mfa_enabled is not None else False,
         }
 
 
@@ -1303,6 +1347,7 @@ _COLUMN_MIGRATIONS = {
         ('tax2_compound', 'BIT NOT NULL DEFAULT 0'),
         ('tax1_rate',     'DECIMAL(6,3) NOT NULL DEFAULT 0'),
         ('tax2_rate',     'DECIMAL(6,3) NOT NULL DEFAULT 0'),
+        ('mfa_enabled',   'BIT NOT NULL DEFAULT 0'),
     ],
     'invoices': [
         ('client_id',      'INT NULL'),
@@ -1854,7 +1899,7 @@ def _enforce_license_restrictions():
     _always_allowed = {
         '/login', '/logout', '/register',
         '/forgot-password', '/reset-password',
-        '/license/acknowledge',
+        '/license/acknowledge', '/mfa-verify',
     }
     if path in _always_allowed or path.startswith('/reset-password/') or path.startswith('/set_lang/'):
         return
@@ -1935,7 +1980,7 @@ def _enforce_license_restrictions():
 _SESSION_TIMEOUT_SECONDS = 2 * 3600  # 2 hours of inactivity
 
 _SESSION_EXEMPT_PATHS = {'/login', '/logout', '/register', '/forgot-password',
-                         '/reset-password', '/license/acknowledge'}
+                         '/reset-password', '/license/acknowledge', '/mfa-verify'}
 
 
 @app.before_request
@@ -2083,6 +2128,33 @@ def login():
         user = Employee.query.filter_by(username=uname).first()
         if user and user.is_active and not getattr(user, 'is_deleted', False) and user.check_password(pwd):
             if user.is_user or user.is_manager or user.timer_user:
+                # Check if MFA is enabled at the firm level
+                firm = FirmInfo.query.first()
+                if firm and getattr(firm, 'mfa_enabled', False):
+                    lang = session.get('lang', 'fr')
+                    # MFA is enabled — send a 6-digit code and redirect to verification
+                    import random
+                    mfa_code = '{:06d}'.format(random.randint(0, 999999))
+                    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=4)).isoformat()
+                    next_page = request.args.get('next', '')
+                    # Store pending MFA state in the session (not yet logged in)
+                    session['mfa_pending_user_id'] = user.id
+                    session['mfa_code'] = mfa_code
+                    session['mfa_expires_at'] = expires_at
+                    session['mfa_next_url'] = next_page
+                    try:
+                        send_mfa_email(user, mfa_code, lang=lang)
+                    except Exception as mail_exc:
+                        logger.error("Failed to send MFA email to '%s': %s", uname, mail_exc)
+                        texts = LEXICON.get(lang, LEXICON.get('fr'))
+                        flash(texts.get('msg_mfa_email_failed', 'Unable to send verification code. Please contact your administrator.'), 'danger')
+                        session.pop('mfa_pending_user_id', None)
+                        session.pop('mfa_code', None)
+                        session.pop('mfa_expires_at', None)
+                        session.pop('mfa_next_url', None)
+                        return render_template('login.html')
+                    return redirect(url_for('mfa_verify'))
+                # No MFA — proceed with normal login
                 # Generate a new session token (invalidates any previous session)
                 new_token = str(uuid.uuid4())
                 user.session_token = new_token
@@ -2127,6 +2199,81 @@ def login():
             return render_template('login.html')
         flash('Invalid username or password.', 'danger')
     return render_template('login.html')
+
+
+@app.route('/mfa-verify', methods=['GET', 'POST'])
+def mfa_verify():
+    """MFA verification page — shown after a successful password check when MFA is enabled."""
+    # If already authenticated, go home
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    # There must be a pending MFA session
+    pending_id = session.get('mfa_pending_user_id')
+    if not pending_id:
+        return redirect(url_for('login'))
+    lang = session.get('lang', 'fr')
+    t = LEXICON.get(lang, LEXICON.get('fr'))
+    if request.method == 'POST':
+        entered_code = request.form.get('mfa_code', '').strip()
+        stored_code = session.get('mfa_code', '')
+        expires_at_str = session.get('mfa_expires_at', '')
+        # Check expiry
+        try:
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        if datetime.now(timezone.utc) > expires_at:
+            session.pop('mfa_pending_user_id', None)
+            session.pop('mfa_code', None)
+            session.pop('mfa_expires_at', None)
+            session.pop('mfa_next_url', None)
+            flash(t.get('msg_mfa_expired', 'The verification code has expired. Please log in again.'), 'warning')
+            return redirect(url_for('login'))
+        if entered_code != stored_code:
+            flash(t.get('msg_mfa_invalid', 'Invalid verification code. Please try again.'), 'danger')
+            return render_template('mfa_verify.html', t=t, lang=lang)
+        # Code is valid — complete the login
+        user = db.session.get(Employee, pending_id)
+        if not user or not user.is_active or getattr(user, 'is_deleted', False):
+            session.pop('mfa_pending_user_id', None)
+            session.pop('mfa_code', None)
+            session.pop('mfa_expires_at', None)
+            session.pop('mfa_next_url', None)
+            flash(t.get('msg_account_deactivated', 'Your account has been deactivated. Please contact your supervisor.'), 'warning')
+            return redirect(url_for('login'))
+        next_page = session.pop('mfa_next_url', '') or ''
+        # Clear MFA session keys
+        session.pop('mfa_pending_user_id', None)
+        session.pop('mfa_code', None)
+        session.pop('mfa_expires_at', None)
+        # Complete the login (same as normal login flow)
+        new_token = str(uuid.uuid4())
+        user.session_token = new_token
+        user.last_login = datetime.now()
+        user.login_ip = request.headers.get("X-Real-IP", request.remote_addr)
+        try:
+            db.session.commit()
+        except Exception as commit_exc:
+            logger.warning(
+                "MFA login: failed to persist session token for user id %s: %s",
+                pending_id, commit_exc,
+            )
+            db.session.rollback()
+            new_token = None
+        login_user(user, remember=False)
+        session.permanent = False
+        session.pop('login_token', None)
+        if new_token:
+            session['login_token'] = new_token
+        session['last_activity'] = datetime.now(timezone.utc).isoformat()
+        if getattr(user, 'must_change_password', False):
+            return redirect(url_for('reset_password'))
+        if user.timer_user and not user.is_user and not user.is_manager:
+            return redirect(next_page or url_for('timer_page'))
+        return redirect(next_page or url_for('index'))
+    return render_template('mfa_verify.html', t=t, lang=lang)
 
    
 
@@ -3946,7 +4093,7 @@ def api_firm_info():
                         'city': '', 'province': '', 'postal_code': '', 'phone': '', 'email': '',
                         'tax_number': '', 'logo_filename': '',
                         'tax1_name': 'GST', 'tax2_name': '', 'tax2_compound': False,
-                        'tax1_rate': 0.0, 'tax2_rate': 0.0})
+                        'tax1_rate': 0.0, 'tax2_rate': 0.0, 'mfa_enabled': False})
     # PUT – create or update
     data = request.get_json()
     if not data:
@@ -3975,6 +4122,8 @@ def api_firm_info():
             firm.tax2_rate = float(data['tax2_rate']) if data['tax2_rate'] is not None else 0.0
         except (ValueError, TypeError):
             firm.tax2_rate = 0.0
+    if 'mfa_enabled' in data:
+        firm.mfa_enabled = bool(data['mfa_enabled'])
     if not firm.firm_name:
         firm.firm_name = 'Your Law Firm'
     db.session.commit()
