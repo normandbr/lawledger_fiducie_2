@@ -20,7 +20,7 @@
         </div>
         <div class="body">
             <p>{{ t.email_mfa_greeting or 'Hello' }} {{ user.username }},</p>
-            <p>{{ t.email_mfa_body or 'Use the following verification code to complete your login. This code is valid for <strong>4 minutes</strong>.' }}</p>
+            <p>{{ t.email_mfa_body or 'Use the following verification code to complete your login. This code is valid for 4 minutes.' }}</p>
             <p style="text-align:center;"><span class="code-box">{{ code }}</span></p>
             <p>{{ t.email_mfa_warning or 'If you did not attempt to log in, please contact your administrator immediately.' }}</p>
         </div>

@@ -63,17 +63,6 @@
                     <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
-            <div class="form-group">
-                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
-                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
-                    </label>
-                </div>
-            </div>
             <!-- Progress bar -->
             <div id="costs-progress-container" style="display:none;margin-bottom:12px;">
                 <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
