@@ -462,3 +462,120 @@ class TestCalendarModule:
         assert b"/calendar" in resp.data
         logout(client)
 
+
+
+# ---------------------------------------------------------------------------
+# MFA – Two-Factor Authentication
+# ---------------------------------------------------------------------------
+class TestMFA:
+    """Tests for MFA login flow and settings."""
+
+    def _enable_mfa(self, app_ctx):
+        """Helper: enable MFA in the FirmInfo table."""
+        from app import db, FirmInfo
+        firm = FirmInfo.query.first()
+        if not firm:
+            firm = FirmInfo(firm_name='Test Firm')
+            db.session.add(firm)
+        firm.mfa_enabled = True
+        db.session.commit()
+
+    def _disable_mfa(self, app_ctx):
+        """Helper: disable MFA in the FirmInfo table."""
+        from app import db, FirmInfo
+        firm = FirmInfo.query.first()
+        if firm:
+            firm.mfa_enabled = False
+            db.session.commit()
+
+    def test_mfa_verify_page_loads(self, client, manager_user, app):
+        """GET /mfa-verify with pending MFA session shows the verify page."""
+        with client.session_transaction() as sess:
+            sess['mfa_pending_user_id'] = manager_user.id
+            sess['mfa_code'] = '123456'
+            from datetime import datetime, timezone, timedelta
+            sess['mfa_expires_at'] = (datetime.now(timezone.utc) + timedelta(minutes=4)).isoformat()
+        resp = client.get('/mfa-verify')
+        assert resp.status_code == 200
+        assert b'mfa_code' in resp.data
+
+    def test_mfa_verify_redirects_without_session(self, client):
+        """GET /mfa-verify without pending session redirects to login."""
+        resp = client.get('/mfa-verify', follow_redirects=False)
+        assert resp.status_code in (302, 301)
+
+    def test_mfa_verify_wrong_code(self, client, manager_user, app):
+        """POST /mfa-verify with wrong code stays on page and shows error."""
+        from datetime import datetime, timezone, timedelta
+        with client.session_transaction() as sess:
+            sess['mfa_pending_user_id'] = manager_user.id
+            sess['mfa_code'] = '999999'
+            sess['mfa_expires_at'] = (datetime.now(timezone.utc) + timedelta(minutes=4)).isoformat()
+        resp = client.post('/mfa-verify', data={'mfa_code': '000000'}, follow_redirects=True)
+        assert resp.status_code == 200
+        # Should not be authenticated — still on MFA page
+        assert b'mfa_code' in resp.data
+
+    def test_mfa_verify_expired_code(self, client, manager_user, app):
+        """POST /mfa-verify with expired code redirects to login."""
+        from datetime import datetime, timezone, timedelta
+        with client.session_transaction() as sess:
+            sess['mfa_pending_user_id'] = manager_user.id
+            sess['mfa_code'] = '123456'
+            sess['mfa_expires_at'] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        resp = client.post('/mfa-verify', data={'mfa_code': '123456'}, follow_redirects=False)
+        assert resp.status_code in (302, 301)
+
+    def test_mfa_verify_valid_code_completes_login(self, client, manager_user, app):
+        """POST /mfa-verify with correct code logs the user in."""
+        from datetime import datetime, timezone, timedelta
+        with client.session_transaction() as sess:
+            sess['mfa_pending_user_id'] = manager_user.id
+            sess['mfa_code'] = '654321'
+            sess['mfa_expires_at'] = (datetime.now(timezone.utc) + timedelta(minutes=4)).isoformat()
+        resp = client.post('/mfa-verify', data={'mfa_code': '654321'}, follow_redirects=True)
+        assert resp.status_code == 200
+        logout(client)
+
+    def test_firm_info_api_returns_mfa_enabled(self, client):
+        """GET /api/firm-info includes mfa_enabled field."""
+        resp = client.get('/api/firm-info')
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert 'mfa_enabled' in data
+
+    def test_firm_info_api_can_set_mfa_enabled(self, client, manager_user, app):
+        """PUT /api/firm-info can update mfa_enabled."""
+        login(client, 'test_manager', 'Pass1234!')
+        resp = client.put(
+            '/api/firm-info',
+            json={'mfa_enabled': True},
+            content_type='application/json',
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data.get('mfa_enabled') is True
+        # Disable it again
+        client.put(
+            '/api/firm-info',
+            json={'mfa_enabled': False},
+            content_type='application/json',
+        )
+        logout(client)
+
+    def test_login_with_mfa_enabled_redirects_to_verify(self, client, manager_user, app):
+        """When MFA is enabled, a valid login redirects to /mfa-verify."""
+        with app.app_context():
+            self._enable_mfa(app)
+        # Mock the email sending to avoid real email calls
+        import unittest.mock as mock
+        with mock.patch('app.send_mfa_email'):
+            resp = client.post(
+                '/login',
+                data={'username': 'test_manager', 'password': 'Pass1234!'},
+                follow_redirects=False,
+            )
+        assert resp.status_code in (302, 301)
+        assert '/mfa-verify' in resp.headers.get('Location', '')
+        with app.app_context():
+            self._disable_mfa(app)

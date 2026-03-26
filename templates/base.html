@@ -248,6 +248,11 @@
                                font-size:13px;font-weight:600;color:#666;border-bottom:none;">
                     {{ t.setup_tab_license or 'License' }}
                 </button>
+                <button id="setup-tab-security-btn" onclick="switchSetupTab('security')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    {{ t.setup_tab_security or 'Security' }}
+                </button>
             </div>
 
             <!-- Manager Tab -->
@@ -492,6 +497,36 @@
                     </p>
                 </div>
             </div>
+            <!-- Security Tab -->
+            <div id="setup-tab-security" style="display:none;">
+                <p style="font-size:13px;color:#555;margin-bottom:18px;">
+                    {{ t.setup_security_desc or 'Configure security options for all application users.' }}
+                </p>
+                <div style="border:1px solid #e0e0e0;border-radius:6px;padding:16px 20px;margin-bottom:16px;">
+                    <label style="font-size:13px;display:flex;align-items:center;gap:10px;cursor:pointer;">
+                        <input type="checkbox" id="setup_sec_mfa_enabled" style="width:16px;height:16px;cursor:pointer;">
+                        <span>
+                            <strong>{{ t.lbl_mfa_enable or 'Enable Two-Factor Authentication (2FA)' }}</strong><br>
+                            <span style="font-size:12px;color:#666;">
+                                {{ t.lbl_mfa_enable_desc or 'When enabled, users will receive a 6-digit verification code by email after entering their password. The code expires after 4 minutes.' }}
+                            </span>
+                        </span>
+                    </label>
+                </div>
+                <div id="setup_sec_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveSetupSecurity()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_save or 'Save' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        {{ t.btn_cancel or 'Cancel' }}
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -506,6 +541,8 @@
         logoUploaded:    {{ (t.msg_logo_uploaded or 'Logo uploaded successfully.') | tojson }},
         logoError:       {{ (t.msg_logo_error or 'Error uploading logo.') | tojson }},
         btnDone:         {{ (t.btn_done or 'Done') | tojson }},
+        securitySaved:   {{ (t.msg_security_saved or 'Security settings saved successfully.') | tojson }},
+        securityError:   {{ (t.msg_security_error or 'Error saving security settings.') | tojson }},
     };
 
     let setupMgrMode = 'edit'; // 'edit' | 'add'
@@ -576,6 +613,7 @@
         document.getElementById('app-setup-overlay').style.display = 'block';
         document.getElementById('setup_mgr_msg').style.display = 'none';
         document.getElementById('setup_fi_msg').style.display  = 'none';
+        document.getElementById('setup_sec_msg').style.display = 'none';
         var doneBtnFi = document.getElementById('setup_fi_done_btn');
         if (doneBtnFi) doneBtnFi.style.display = 'none';
         // Always open in edit mode
@@ -600,6 +638,8 @@
                 document.getElementById('setup_fi_tax2_compound').checked = d.tax2_compound || false;
                 document.getElementById('setup_fi_tax1_rate').value  = d.tax1_rate !== undefined ? d.tax1_rate : 0;
                 document.getElementById('setup_fi_tax2_rate').value  = d.tax2_rate !== undefined ? d.tax2_rate : 0;
+                // Load MFA setting
+                document.getElementById('setup_sec_mfa_enabled').checked = d.mfa_enabled || false;
                 var preview = document.getElementById('setup_fi_logo_preview');
                 preview.innerHTML = '';
                 if (d.logo_filename) {
@@ -624,14 +664,17 @@
         document.getElementById('setup-tab-manager').style.display  = tab === 'manager'  ? '' : 'none';
         document.getElementById('setup-tab-firminfo').style.display = tab === 'firminfo' ? '' : 'none';
         document.getElementById('setup-tab-license').style.display  = tab === 'license'  ? '' : 'none';
+        document.getElementById('setup-tab-security').style.display = tab === 'security' ? '' : 'none';
         var activeColor = '#0078d4', activeBorder = '2px solid #0078d4';
         var inactiveColor = '#666', inactiveBorder = 'none';
         document.getElementById('setup-tab-manager-btn').style.color        = tab === 'manager'  ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-firminfo-btn').style.color       = tab === 'firminfo' ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-license-btn').style.color        = tab === 'license'  ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-security-btn').style.color       = tab === 'security' ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-manager-btn').style.borderBottom = tab === 'manager'  ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-firminfo-btn').style.borderBottom = tab === 'firminfo' ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-license-btn').style.borderBottom  = tab === 'license'  ? activeBorder  : inactiveBorder;
+        document.getElementById('setup-tab-security-btn').style.borderBottom = tab === 'security' ? activeBorder  : inactiveBorder;
         if (tab === 'license') { loadLicenseInfo(); }
     }
 
@@ -856,6 +899,25 @@
             e.preventDefault();
         });
     })();
+
+    function saveSetupSecurity() {
+        var mfaEnabled = document.getElementById('setup_sec_mfa_enabled').checked;
+        var msg = document.getElementById('setup_sec_msg');
+        fetch(SCRIPT_ROOT + '/api/firm-info', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mfa_enabled: mfaEnabled })
+        })
+            .then(function (r) { return r.json(); })
+            .then(function () {
+                msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                msg.textContent = SETUP_STR.securitySaved;
+            })
+            .catch(function () {
+                msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                msg.textContent = SETUP_STR.securityError;
+            });
+    }
     </script>
     {% endif %}
 
