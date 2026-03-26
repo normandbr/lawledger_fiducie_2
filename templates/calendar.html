@@ -201,7 +201,7 @@
 
         <div id="event-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
         <div style="display:flex;gap:8px;">
-            <button class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
+            <button id="btn-save-event" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
             <button class="btn btn-secondary" onclick="closeEventModal()">{{ t.btn_cancel or 'Cancel' }}</button>
         </div>
     </div>
@@ -332,6 +332,7 @@ function onEventTypeChange() {
         locationGroup.style.display = '';
         document.getElementById('ev-room').value = '';
         document.getElementById('ev-room-warning').style.display = 'none';
+        document.getElementById('btn-save-event').disabled = false;
     }
 }
 
@@ -340,15 +341,17 @@ async function checkRoomAvailability() {
     const date   = document.getElementById('ev-date').value;
     const eventId = document.getElementById('event-id').value;
     const warningEl = document.getElementById('ev-room-warning');
-    if (!roomId || !date) { warningEl.style.display = 'none'; return; }
+    const saveBtn   = document.getElementById('btn-save-event');
+    if (!roomId || !date) { warningEl.style.display = 'none'; saveBtn.disabled = false; return; }
     try {
         const resp = await fetch(SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`);
-        if (!resp.ok) { warningEl.style.display = 'none'; return; }
+        if (!resp.ok) { warningEl.style.display = 'none'; saveBtn.disabled = false; return; }
         const reservations = await resp.json();
         // Conflict = another event (not the current one) is already booked in this room on this date
         const conflict = reservations.some(r => String(r.id) !== String(eventId));
         warningEl.style.display = conflict ? '' : 'none';
-    } catch(e) { warningEl.style.display = 'none'; }
+        saveBtn.disabled = conflict;
+    } catch(e) { warningEl.style.display = 'none'; saveBtn.disabled = false; }
 }
 
 function openAddEventModal() {
@@ -368,6 +371,7 @@ function openAddEventModal() {
     document.getElementById('ev-location-group').style.display = '';
     document.getElementById('ev-room-warning').style.display   = 'none';
     document.getElementById('event-modal-error').style.display = 'none';
+    document.getElementById('btn-save-event').disabled = false;
     document.getElementById('event-modal').style.display = 'flex';
 }
 
@@ -389,6 +393,7 @@ async function openEditEventModal(id) {
         document.getElementById('ev-notes').value    = ev.notes || '';
         document.getElementById('ev-room').value     = ev.room_id || '';
         document.getElementById('ev-room-warning').style.display = 'none';
+        document.getElementById('btn-save-event').disabled = false;
         // Show/hide room group and location group based on type
         const roomGroup     = document.getElementById('ev-room-group');
         const locationGroup = document.getElementById('ev-location-group');
@@ -650,6 +655,7 @@ function openAddEventForDate(dateStr) {
     document.getElementById('ev-location-group').style.display = 'none';
     document.getElementById('ev-room-warning').style.display   = 'none';
     document.getElementById('event-modal-error').style.display = 'none';
+    document.getElementById('btn-save-event').disabled = false;
     document.getElementById('event-modal').style.display = 'flex';
     if (selectedRoomId) checkRoomAvailability();
 }
