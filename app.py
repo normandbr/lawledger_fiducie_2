@@ -4927,6 +4927,7 @@ def cost_codes():
         description=data['description'],
         charge_type=data.get('charge_type') or None,
         rate=data.get('rate', 0.00),
+        account_code=data.get('account_code') or None,
         is_active=data.get('is_active', True)
     )
     db.session.add(code)
@@ -4963,6 +4964,8 @@ def api_cost_code_detail(code_id):
             cost_code.rate = data['rate'] if data['rate'] is not None else 0
         if 'is_active' in data:
             cost_code.is_active = bool(data['is_active'])
+        if 'account_code' in data:
+            cost_code.account_code = data['account_code'] or None
         cost_code.changed_by = current_user.display_name
         cost_code.updated_at = datetime.utcnow()
         db.session.commit()
