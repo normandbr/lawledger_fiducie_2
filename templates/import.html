@@ -169,12 +169,11 @@ const FILE_PICKER_TYPES = [{
     }
 }];
 
-function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle, noFileLabel) {
+function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle) {
     const pickBtn = document.getElementById(pickBtnId);
     const fileNameEl = document.getElementById(fileNameId);
     const fileInput = document.getElementById(fileInputId);
     const submitBtn = document.getElementById(submitBtnId);
-    const noFileTxt = noFileLabel || IMPORT_STR.noFileChosen || 'No file chosen';
 
     // Enable submit button when a file is chosen via standard input
     if (fileInput) {

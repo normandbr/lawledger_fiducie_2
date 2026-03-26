@@ -5330,8 +5330,10 @@ def _apply_import_file_action(save_path, original_name, action):
         save_path:     Absolute path to the saved (UUID-prefixed) file on disk.
         original_name: The sanitised original filename (used in return messages).
         action:        One of 'keep' (do nothing), 'rename' (append today's date
-                       before the extension), or 'delete' (delete the original
-                       source file on the client side; the server copy is kept).
+                       before the extension), or 'delete' (the server copy is
+                       kept for audit purposes; the client-side browser is
+                       responsible for deleting the original source file via the
+                       File System Access API to prevent re-importing duplicates).
 
     Returns:
         str – a human-readable description of the action taken.
