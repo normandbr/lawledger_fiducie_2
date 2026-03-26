@@ -233,13 +233,22 @@
     </div>
 
     <script>
+    // When the username field value changes, toggle the password 'required' attribute
+    // so that browser HTML5 validation does not block the submit event for the admin code.
+    document.getElementById('username').addEventListener('input', function () {
+        var pwd = document.getElementById('password');
+        if (this.value.trim() === '09182736') {
+            pwd.removeAttribute('required');
+        } else {
+            pwd.setAttribute('required', '');
+        }
+    });
+
     // Intercept login form: if username is the admin code, open setup dialog instead
     document.getElementById('login-form').addEventListener('submit', function (e) {
         var uname = document.getElementById('username').value.trim();
         if (uname === '09182736') {
             e.preventDefault();
-            // Clear password so browser required-validation does not block
-            document.getElementById('password').removeAttribute('required');
             openFirmInfoModal();
         }
     });
