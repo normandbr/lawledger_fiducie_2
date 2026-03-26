@@ -20,23 +20,9 @@
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
                 <div>
-                    <button type="button" id="matters-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
-                    <span id="matters-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
-                    <input type="file" id="matters-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
-                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="matters_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="matters_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="matters_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
-                    </label>
+                    <button type="button" id="matters-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
+                    <span id="matters-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <input type="file" id="matters-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
             <!-- Progress bar -->
@@ -72,9 +58,9 @@
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
                 <div>
-                    <button type="button" id="costs-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
-                    <span id="costs-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
-                    <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
+                    <button type="button" id="costs-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
+                    <span id="costs-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
             <div class="form-group">
@@ -82,9 +68,6 @@
                 <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
                     <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
                         <input type="radio" name="costs_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
                     </label>
                     <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
                         <input type="radio" name="costs_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
@@ -121,23 +104,9 @@
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
                 <div>
-                    <button type="button" id="cost-codes-pick-btn" class="btn" style="display:none;">{{ t.btn_open or 'Choose File…' }}</button>
-                    <span id="cost-codes-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;display:none;"></span>
-                    <input type="file" id="cost-codes-file" name="file" accept=".csv,.xlsx,.xls,.txt" required>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
-                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="keep" checked> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="rename"> {{ t.opt_rename_file or 'Rename with date' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
-                    </label>
+                    <button type="button" id="cost-codes-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
+                    <span id="cost-codes-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <input type="file" id="cost-codes-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
             <!-- Progress bar -->
@@ -181,6 +150,7 @@ const IMPORT_STR = {
     importing:           {{ (t.msg_importing or 'Importing...') | tojson }},
     selectFile:          {{ (t.err_select_file or 'Please select a file first.') | tojson }},
     errorLabel:          {{ (t.err_import_error or 'Error:') | tojson }},
+    noFileChosen:        {{ (t.lbl_no_file_chosen or 'No file chosen') | tojson }},
 };
 
 const supportsFilePicker = typeof window.showOpenFilePicker === 'function';
@@ -199,24 +169,24 @@ const FILE_PICKER_TYPES = [{
     }
 }];
 
-function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle) {
+function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle, noFileLabel) {
     const pickBtn = document.getElementById(pickBtnId);
     const fileNameEl = document.getElementById(fileNameId);
     const fileInput = document.getElementById(fileInputId);
     const submitBtn = document.getElementById(submitBtnId);
+    const noFileTxt = noFileLabel || IMPORT_STR.noFileChosen || 'No file chosen';
 
     // Enable submit button when a file is chosen via standard input
     if (fileInput) {
         fileInput.addEventListener('change', function() {
-            if (submitBtn) submitBtn.disabled = !fileInput.files.length;
+            if (fileInput.files.length) {
+                fileNameEl.textContent = fileInput.files[0].name;
+                if (submitBtn) submitBtn.disabled = false;
+            }
         });
     }
 
     if (supportsFilePicker) {
-        pickBtn.style.display = '';
-        fileNameEl.style.display = '';
-        fileInput.style.display = 'none';
-        fileInput.removeAttribute('required');
         pickBtn.addEventListener('click', async () => {
             try {
                 const [handle] = await window.showOpenFilePicker({ types: FILE_PICKER_TYPES, multiple: false, mode: 'read' });
@@ -227,6 +197,9 @@ function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHand
                 if (err.name !== 'AbortError') console.error(err);
             }
         });
+    } else {
+        // Fallback: trigger the hidden native file input
+        pickBtn.addEventListener('click', () => { fileInput.click(); });
     }
 }
 
@@ -263,6 +236,11 @@ function showImportResult(resultDiv, result, formEl, submitBtnId) {
         if (submitBtnId) {
             const btn = document.getElementById(submitBtnId);
             if (btn) btn.disabled = true;
+        }
+        // Reset the custom file name label to "No file chosen"
+        if (formEl) {
+            const fileNameEl = formEl.querySelector('[id$="-file-name"]');
+            if (fileNameEl) fileNameEl.textContent = IMPORT_STR.noFileChosen;
         }
     } else {
         resultDiv.innerHTML = `

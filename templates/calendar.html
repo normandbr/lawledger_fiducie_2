@@ -282,7 +282,7 @@ function renderEvents(events) {
     const today = new Date().toISOString().split('T')[0];
     tbody.innerHTML = events.map(ev => {
         const isPast = ev.event_date < today && !ev.is_done;
-        const rowStyle = ev.is_done ? 'opacity:0.55;' : (isPast ? 'background:#fff3cd;' : '');
+        const rowStyle = ev.is_done ? 'opacity:0.55;' : '';
         const timeStr  = ev.event_time ? ' ' + ev.event_time : '';
         const matterStr = ev.client_number && ev.matter_number
             ? `${ev.client_number} / ${ev.matter_number}` : '—';
@@ -599,7 +599,7 @@ function renderRoomCalendar(events, firstDay, lastDay) {
         const cellBg   = isToday ? '#e3f2fd' : (hasEvs ? '#fff8e1' : '#fff');
         const numStyle = `font-size:12px;font-weight:${isToday ? '700' : '500'};color:${isToday ? '#1565c0' : 'inherit'};`;
 
-        html += `<td style="padding:4px;border:1px solid #e0e0e0;height:70px;vertical-align:top;background:${cellBg};">`;
+        html += `<td style="padding:4px;border:1px solid #e0e0e0;height:70px;vertical-align:top;background:${cellBg};cursor:pointer;" onclick="openAddEventForDate('${dateStr}')">`;
         html += `<div style="${numStyle}">${day}</div>`;
 
         for (const ev of dayEvs.slice(0, 2)) {
@@ -627,6 +627,31 @@ function renderRoomCalendar(events, firstDay, lastDay) {
     }
 
     document.getElementById('avail-reservations-container').innerHTML = html;
+}
+
+function openAddEventForDate(dateStr) {
+    // Close room availability modal and open the Add Event modal pre-filled with the date
+    closeRoomAvailabilityModal();
+    document.getElementById('event-id').value = '';
+    document.getElementById('event-modal-title').querySelector('span').textContent = I18N.modal_add_event || 'Add Event';
+    document.getElementById('ev-title').value    = '';
+    document.getElementById('ev-type').value     = 'meeting';
+    document.getElementById('ev-date').value     = dateStr;
+    document.getElementById('ev-time').value     = '';
+    document.getElementById('ev-duration').value = '';
+    document.getElementById('ev-matter').value   = '';
+    document.getElementById('ev-location').value = '';
+    document.getElementById('ev-assigned').value = '';
+    document.getElementById('ev-notes').value    = '';
+    // Pre-select the room that was selected in the availability view
+    const selectedRoomId = document.getElementById('avail-room-select').value;
+    document.getElementById('ev-room').value = selectedRoomId || '';
+    document.getElementById('ev-room-group').style.display     = '';
+    document.getElementById('ev-location-group').style.display = 'none';
+    document.getElementById('ev-room-warning').style.display   = 'none';
+    document.getElementById('event-modal-error').style.display = 'none';
+    document.getElementById('event-modal').style.display = 'flex';
+    if (selectedRoomId) checkRoomAvailability();
 }
 
 function populateEventRoomDropdown(rooms) {

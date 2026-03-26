@@ -5330,19 +5330,16 @@ def _apply_import_file_action(save_path, original_name, action):
         save_path:     Absolute path to the saved (UUID-prefixed) file on disk.
         original_name: The sanitised original filename (used in return messages).
         action:        One of 'keep' (do nothing), 'rename' (append today's date
-                       before the extension), or 'delete' (remove the file).
-                       The server backup is never forcibly kept on 'delete'.
+                       before the extension), or 'delete' (delete the original
+                       source file on the client side; the server copy is kept).
 
     Returns:
         str – a human-readable description of the action taken.
     """
     if action == 'delete':
-        try:
-            if os.path.exists(save_path):
-                os.remove(save_path)
-            return f'File "{original_name}" deleted from server.'
-        except OSError as exc:
-            return f'Could not delete "{original_name}": {exc}'
+        # The server copy is kept for audit purposes.
+        # The client-side browser will delete the original source file.
+        return f'File "{original_name}" kept on server.'
 
     if action == 'rename':
         try:
