@@ -166,19 +166,21 @@ TRAVEL-003,Travel Expenses,Disbursements,0.00,1</pre>
 {% block scripts %}
 <script>
 const IMPORT_STR = {
-    successful:   {{ (t.msg_import_successful or 'Import Successful!') | tojson }},
-    failed:       {{ (t.msg_import_failed_status or 'Import Failed!') | tojson }},
-    warnings:     {{ (t.msg_import_warnings or 'Import Completed with Warnings!') | tojson }},
-    importedOf:   {{ (t.msg_import_imported_of or 'Imported:') | tojson }},
-    outOf:        {{ (t.msg_import_out_of or 'out of') | tojson }},
-    lines:        {{ (t.msg_import_lines or 'lines') | tojson }},
-    failedCount:  {{ (t.msg_import_failed_count or 'Failed:') | tojson }},
-    records:      {{ (t.msg_import_records or 'records') | tojson }},
-    errorsLabel:  {{ (t.msg_import_errors_label or 'Errors:') | tojson }},
-    fileReminder: {{ (t.msg_import_file_reminder or '📁 Reminder: You may now delete the original file from your computer.') | tojson }},
-    importing:    {{ (t.msg_importing or 'Importing...') | tojson }},
-    selectFile:   {{ (t.err_select_file or 'Please select a file first.') | tojson }},
-    errorLabel:   {{ (t.err_import_error or 'Error:') | tojson }},
+    successful:          {{ (t.msg_import_successful or 'Import Successful!') | tojson }},
+    failed:              {{ (t.msg_import_failed_status or 'Import Failed!') | tojson }},
+    warnings:            {{ (t.msg_import_warnings or 'Import Completed with Warnings!') | tojson }},
+    importedOf:          {{ (t.msg_import_imported_of or 'Imported:') | tojson }},
+    outOf:               {{ (t.msg_import_out_of or 'out of') | tojson }},
+    lines:               {{ (t.msg_import_lines or 'lines') | tojson }},
+    failedCount:         {{ (t.msg_import_failed_count or 'Failed:') | tojson }},
+    records:             {{ (t.msg_import_records or 'records') | tojson }},
+    errorsLabel:         {{ (t.msg_import_errors_label or 'Errors:') | tojson }},
+    fileReminder:        {{ (t.msg_import_file_reminder or '📁 Reminder: You may now delete the original file from your computer.') | tojson }},
+    fileDeletedOriginal: {{ (t.msg_import_file_deleted_original or '🗑️ Original file deleted.') | tojson }},
+    fileRenamedOriginal: {{ (t.msg_import_file_renamed_original or '✏️ Original file renamed.') | tojson }},
+    importing:           {{ (t.msg_importing or 'Importing...') | tojson }},
+    selectFile:          {{ (t.err_select_file or 'Please select a file first.') | tojson }},
+    errorLabel:          {{ (t.err_import_error or 'Error:') | tojson }},
 };
 
 const supportsFilePicker = typeof window.showOpenFilePicker === 'function';
@@ -272,9 +274,51 @@ function showImportResult(resultDiv, result, formEl, submitBtnId) {
     }
 }
 
-async function tryDeleteOriginalFile(resultDiv) {
+async function applyOriginalFileAction(handle, fileAction, resultDiv) {
     const alertEl = resultDiv.querySelector('.alert');
-    if (alertEl) alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+    if (!alertEl) return;
+
+    if (!handle || !supportsFilePicker) {
+        // No file system access – show reminder for delete/rename actions
+        if (fileAction === 'delete' || fileAction === 'rename') {
+            alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        }
+        return;
+    }
+
+    if (fileAction === 'delete') {
+        try {
+            if (typeof handle.requestPermission === 'function') {
+                const perm = await handle.requestPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') throw new Error('permission denied');
+            }
+            await handle.remove();
+            alertEl.innerHTML += '<br><em>' + IMPORT_STR.fileDeletedOriginal + '</em>';
+        } catch (err) {
+            alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        }
+        return;
+    }
+
+    if (fileAction === 'rename') {
+        try {
+            if (typeof handle.requestPermission === 'function') {
+                const perm = await handle.requestPermission({ mode: 'readwrite' });
+                if (perm !== 'granted') throw new Error('permission denied');
+            }
+            const today = new Date();
+            const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+            const name = handle.name;
+            const dotIdx = name.lastIndexOf('.');
+            const base = dotIdx >= 0 ? name.slice(0, dotIdx) : name;
+            const ext  = dotIdx >= 0 ? name.slice(dotIdx) : '';
+            await handle.move(`${base}_${dateStr}${ext}`);
+            alertEl.innerHTML += '<br><em>' + IMPORT_STR.fileRenamedOriginal + '</em>';
+        } catch (err) {
+            alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        }
+        return;
+    }
 }
 
 // Progress bar animation helper: simulates progress while waiting for server
@@ -341,7 +385,7 @@ document.getElementById('import-matters-form').addEventListener('submit', async 
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'matters-submit-btn');
         if (result.imported > 0) {
-            await tryDeleteOriginalFile(resultDiv);
+            await applyOriginalFileAction(mattersFileHandle, fileAction, resultDiv);
             if (supportsFilePicker) mattersFileHandle = null;
         } else {
             if (submitBtn) submitBtn.disabled = false;
@@ -395,7 +439,7 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'costs-submit-btn');
         if (result.imported > 0) {
-            await tryDeleteOriginalFile(resultDiv);
+            await applyOriginalFileAction(costsFileHandle, fileAction, resultDiv);
             if (supportsFilePicker) costsFileHandle = null;
         } else {
             if (submitBtn) submitBtn.disabled = false;
@@ -449,7 +493,7 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'cost-codes-submit-btn');
         if (result.imported > 0) {
-            await tryDeleteOriginalFile(resultDiv);
+            await applyOriginalFileAction(costCodesFileHandle, fileAction, resultDiv);
             if (supportsFilePicker) costCodesFileHandle = null;
         } else {
             if (submitBtn) submitBtn.disabled = false;

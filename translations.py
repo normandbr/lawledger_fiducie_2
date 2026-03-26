@@ -434,6 +434,8 @@ LEXICON = {
         'msg_import_records': 'enregistrements',
         'msg_import_errors_label': 'Erreurs :',
         'msg_import_file_reminder': '📁 Rappel : Vous pouvez maintenant supprimer le fichier original de votre ordinateur.',
+        'msg_import_file_deleted_original': '🗑️ Fichier original supprimé.',
+        'msg_import_file_renamed_original': '✏️ Fichier original renommé.',
         'msg_importing': 'Importation en cours...',
         'err_select_file': 'Veuillez sélectionner un fichier d\'abord.',
         'err_import_error': 'Erreur :',
@@ -676,6 +678,10 @@ LEXICON = {
         'msg_credit_applied': 'Note de crédit appliquée à la facture.',
 
         # AR / Unbilled
+        'nav_ar_invoices': 'Comptes à recevoir',
+        'card_ar_invoices_desc': 'Consultez les factures envoyées aux clients qui n\'ont pas encore été payées.',
+        'lbl_total_outstanding': 'Total impayé',
+        'lbl_invoice_count': 'Nombre de factures',
         'btn_ar_invoices': '📋 Factures envoyées non payées',
         'btn_unbilled_expenses': '📄 Frais non facturés',
         'lbl_total_ar': 'Total à recevoir',
@@ -1409,6 +1415,8 @@ LEXICON = {
         'msg_import_records': 'records',
         'msg_import_errors_label': 'Errors:',
         'msg_import_file_reminder': '📁 Reminder: You may now delete the original file from your computer.',
+        'msg_import_file_deleted_original': '🗑️ Original file deleted.',
+        'msg_import_file_renamed_original': '✏️ Original file renamed.',
         'msg_importing': 'Importing...',
         'err_select_file': 'Please select a file first.',
         'err_import_error': 'Error:',
@@ -1650,6 +1658,10 @@ LEXICON = {
         'msg_credit_applied': 'Credit note applied to invoice.',
 
         # AR / Unbilled
+        'nav_ar_invoices': 'Accounts Receivable',
+        'card_ar_invoices_desc': 'View outstanding invoices sent to clients that have not yet been paid.',
+        'lbl_total_outstanding': 'Total Outstanding',
+        'lbl_invoice_count': 'Invoice Count',
         'btn_ar_invoices': '📋 Sent / Unpaid Invoices',
         'btn_unbilled_expenses': '📄 Unbilled Expenses',
         'lbl_total_ar': 'Total Receivable',
