@@ -983,9 +983,11 @@ async function loadAuthorizations() {
             } else {
                 statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;white-space:nowrap;">{{ t.badge_expired or "Expirée" }}</span>';
             }
-            // Document cell: show view link when document exists; no upload button in saved list.
+            // Document cell: view button when document exists; no upload button in saved list.
+            const docLabel = a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir PDF" }}';
             const docCell = a.doc_filename
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;white-space:nowrap;">📄 {{ t.btn_view_document or "Voir" }}</a>`
+                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" class="btn btn-sm btn-outline-primary" title="${docLabel}">📄 {{ t.btn_view_document or "Voir PDF" }}</a>`
                 : `<span style="color:#999;font-size:12px;">—</span>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
             html += `<tr>
@@ -997,6 +999,9 @@ async function loadAuthorizations() {
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
                     ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
+                    ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" class="btn btn-sm btn-danger" title="{{ t.btn_delete or 'Supprimer' }}">🗑️ {{ t.btn_delete or 'Supprimer' }}</button>` : ''}
                 </td>
             </tr>`;
         });
