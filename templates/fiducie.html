@@ -917,22 +917,23 @@ async function loadAuthorizations() {
         }
         const auths = await res.json();
 
-        // Display warning message when an active authorization already exists,
-        // but only if no transient save/error message is currently shown.
         // Use is_valid (not soft-deleted AND dates still valid) for this check.
         const hasActive = auths.some(function(a) { return a.is_valid; });
         const newAuthSection = document.getElementById('auth-new-section');
         const resultDiv = document.getElementById('auth-result');
         if (newAuthSection) {
+            const saveBtn = newAuthSection.querySelector('button.btn-primary');
             if (hasActive) {
-                // Only overwrite if there is no recent save/error message pending.
-                if (resultDiv.style.display === 'none' || resultDiv.dataset.msgType === 'active-auth') {
-                    resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà. Supprimez-la avant d\'en créer une nouvelle." }}';
-                    resultDiv.style.color = '#856404';
-                    resultDiv.style.display = 'block';
-                    resultDiv.dataset.msgType = 'active-auth';
-                }
+                // Disable the save button so a new auth cannot be added while one is active.
+                if (saveBtn) saveBtn.disabled = true;
+                // Always display the active-auth warning.
+                resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante." }}';
+                resultDiv.style.color = '#dc3545';
+                resultDiv.style.display = 'block';
+                resultDiv.dataset.msgType = 'active-auth';
             } else {
+                // Re-enable the save button when no active auth remains.
+                if (saveBtn) saveBtn.disabled = false;
                 // Clear only the active-auth warning (not save/error messages).
                 if (resultDiv.dataset.msgType === 'active-auth') {
                     resultDiv.style.display = 'none';
@@ -1007,7 +1008,10 @@ async function saveAuthorization() {
     if (dateTo) body.date_to = dateTo;
     if (maxAmount) body.max_amount = maxAmount;
 
-    resultDiv.style.display = 'none';
+    // Only clear transient save messages; the active-auth warning is managed by loadAuthorizations().
+    if (resultDiv.dataset.msgType !== 'active-auth') {
+        resultDiv.style.display = 'none';
+    }
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID + '/authorizations', {
             method: 'POST',
@@ -1016,6 +1020,8 @@ async function saveAuthorization() {
         });
         const data = await res.json();
         if (!res.ok) {
+            // On conflict (409), reload the list so the user sees the active auth.
+            if (res.status === 409) { loadAuthorizations(); return; }
             resultDiv.textContent = data.error || '{{ t.msg_error or "Erreur" }}';
             resultDiv.style.color = '#dc3545';
             resultDiv.style.display = 'block';
