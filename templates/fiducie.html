@@ -279,7 +279,7 @@
 <div id="auth-modal" style="display:none;position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);">
     <div style="background:#fff;border-radius:8px;width:95%;max-width:700px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
-            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🔐 {{ t.title_trust_authorizations or 'Autorisations client – Fiducie' }}</h2>
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🔐 {{ t.title_trust_authorizations or 'Autorisations client – Fiducie' }}{% if dossier %} — {{ dossier.client.client_number if dossier.client else '' }} / {{ dossier.matter_number }}{% endif %}</h2>
             <span onclick="closeAuthModal()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
         </div>
         <!-- New authorization form -->
@@ -312,7 +312,7 @@
                             onchange="updateAuthFileLabel(this)">
                     </label>
                 </div>
-                <button class="btn btn-primary btn-sm" onclick="saveAuthorization()">{{ t.btn_save or 'Enregistrer' }}</button>
+                <button class="btn btn-primary btn-sm" id="auth-save-btn" disabled onclick="saveAuthorization()">{{ t.btn_save or 'Enregistrer' }}</button>
             </div>
             <div id="auth-result" style="margin-top:10px;font-size:13px;display:none;"></div>
         </div>
@@ -425,6 +425,9 @@ function fidGoToMatter() {
 const MATTER_ID = {{ dossier.id }};
 let currentBalance = {{ solde | float }};
 const LOW_BALANCE_THRESHOLD = 500;
+
+// Track whether a valid active authorization already exists for this matter.
+let _authHasActive = false;
 
 const FID_STR = {
     lowBalance:    {{ (t.msg_low_balance_warning or 'Avertissement : Le solde en fiducie est maintenant inférieur à 500 $.') | tojson }},
@@ -892,6 +895,14 @@ document.getElementById('reconciliation-modal').addEventListener('click', functi
 
 function openAuthModal() {
     document.getElementById('auth-modal').style.display = 'block';
+    // Reset save button and file input for a fresh session
+    _authHasActive = false;
+    const saveBtn = document.getElementById('auth-save-btn');
+    if (saveBtn) saveBtn.disabled = true;
+    const fileInput = document.getElementById('auth-file-input');
+    if (fileInput) fileInput.value = '';
+    const fileLabel = document.getElementById('auth-file-label');
+    if (fileLabel) fileLabel.textContent = '{{ t.btn_attach or "Joindre..." }}';
     // Clear any stale message from a previous session
     const resultDiv = document.getElementById('auth-result');
     if (resultDiv) { resultDiv.style.display = 'none'; resultDiv.dataset.msgType = ''; }
@@ -917,34 +928,32 @@ async function loadAuthorizations() {
         }
         const auths = await res.json();
 
-        // Use is_valid (not soft-deleted AND dates still valid) for this check.
+        // Use is_valid (not soft-deleted AND dates still valid) for the active-auth warning.
         const hasActive = auths.some(function(a) { return a.is_valid; });
-        const newAuthSection = document.getElementById('auth-new-section');
+        const saveBtn = document.getElementById('auth-save-btn');
         const resultDiv = document.getElementById('auth-result');
-        if (newAuthSection) {
-            const saveBtn = newAuthSection.querySelector('button.btn-primary');
-            if (hasActive) {
-                // Disable the save button so a new auth cannot be added while one is active.
-                if (saveBtn) saveBtn.disabled = true;
-                // Always display the active-auth warning.
-                resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante." }}';
-                resultDiv.style.color = '#dc3545';
-                resultDiv.style.display = 'block';
-                resultDiv.dataset.msgType = 'active-auth';
-            } else {
-                // Re-enable the save button when no active auth remains.
-                if (saveBtn) saveBtn.disabled = false;
-                // Clear the active-auth warning (not save-success / save-error messages).
-                if (resultDiv.dataset.msgType === 'active-auth') {
-                    resultDiv.style.display = 'none';
-                    resultDiv.dataset.msgType = '';
-                }
+        _authHasActive = hasActive;
+        if (hasActive) {
+            // Disable the save button so a new auth cannot be added while one is active.
+            if (saveBtn) saveBtn.disabled = true;
+            // Always display the active-auth warning.
+            resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante." }}';
+            resultDiv.style.color = '#dc3545';
+            resultDiv.style.display = 'block';
+            resultDiv.dataset.msgType = 'active-auth';
+        } else {
+            // No active auth – save button state is controlled by file selection.
+            // Clear the active-auth warning (not save-success / save-error messages).
+            if (resultDiv.dataset.msgType === 'active-auth') {
+                resultDiv.style.display = 'none';
+                resultDiv.dataset.msgType = '';
             }
         }
 
-        // Filter: hide expired / soft-deleted unless the checkbox is checked.
+        // Filter: by default show all non-deleted (is_active) authorizations; the
+        // checkbox "Afficher les expirées / supprimées" reveals soft-deleted ones too.
         const showInactive = document.getElementById('auth-show-inactive') && document.getElementById('auth-show-inactive').checked;
-        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_valid; });
+        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_active; });
 
         if (!visibleAuths.length) {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
@@ -962,21 +971,22 @@ async function loadAuthorizations() {
         html += '</tr></thead><tbody>';
         visibleAuths.forEach(function(a) {
             // is_valid: not deleted AND dates still valid (truly active)
-            // is_active: False means soft-deleted (set via is_active flag OR deleted_at timestamp)
-            const isDeleted = !a.is_active || !!a.deleted_at;
+            // is_deleted: explicitly soft-deleted (is_deleted flag or deleted_at set)
+            const isDeleted = a.is_deleted || !!a.deleted_at;
             let statusBadge;
             if (a.is_valid) {
                 statusBadge = '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>';
             } else if (isDeleted) {
                 const delDate = a.deleted_at ? ' (' + a.deleted_at.substring(0, 10) + ')' : '';
-                statusBadge = `<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}${delDate}</span>`;
+                const delBy = a.deleted_by ? ' – ' + a.deleted_by : '';
+                statusBadge = `<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}${delDate}${delBy}</span>`;
             } else {
                 statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
             }
-            // Document cell: show view link when document exists; show upload button (not link) when no doc.
+            // Document cell: show view link when document exists; no upload button in saved list.
             const docCell = a.doc_filename
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>`
-                : `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #adb5bd;border-radius:4px;background:#f8f9fa;color:#495057;font-size:12px;cursor:pointer;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
+                : `<span style="color:#999;font-size:12px;">—</span>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
             html += `<tr>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_from || '{{ t.lbl_not_set or "Non défini" }}'}</td>
@@ -1041,6 +1051,9 @@ async function saveAuthorization() {
         document.getElementById('auth-notes').value = '';
         if (fileInput) { fileInput.value = ''; }
         document.getElementById('auth-file-label').textContent = '{{ t.btn_attach or "Joindre..." }}';
+        // Disable save button (file was cleared; loadAuthorizations will keep it disabled while active auth exists)
+        const saveBtnEl = document.getElementById('auth-save-btn');
+        if (saveBtnEl) saveBtnEl.disabled = true;
         resultDiv.textContent = '{{ t.msg_authorization_saved or "Autorisation enregistrée." }}';
         resultDiv.style.color = '#155724';
         resultDiv.style.display = 'block';
@@ -1056,8 +1069,14 @@ async function saveAuthorization() {
 
 function updateAuthFileLabel(input) {
     const label = document.getElementById('auth-file-label');
+    const saveBtn = document.getElementById('auth-save-btn');
     if (label && input.files && input.files[0]) {
         label.textContent = input.files[0].name;
+        // Enable save button only when a file is chosen AND no active auth blocks it.
+        if (saveBtn && !_authHasActive) saveBtn.disabled = false;
+    } else {
+        if (label) label.textContent = '{{ t.btn_attach or "Joindre..." }}';
+        if (saveBtn) saveBtn.disabled = true;
     }
 }
 

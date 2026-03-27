@@ -700,6 +700,58 @@ class TestTrustAuthorizationAPI:
         assert r2.status_code == 201
         logout(client)
 
+    def test_soft_delete_sets_is_deleted_and_deleted_by(self, client, manager_user, app):
+        """Soft-deleting an authorization must set is_deleted=True, is_active=False, and deleted_by."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        r1 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r1.status_code == 201
+        auth_id = r1.get_json()["id"]
+
+        # Soft-delete
+        rd = client.delete(f"/api/fiducie/authorizations/{auth_id}")
+        assert rd.status_code == 200
+
+        # The deleted authorization must reflect the soft-delete in the API response
+        auths = client.get(f"/api/fiducie/{matter_id}/authorizations").get_json()
+        deleted_auth = next((a for a in auths if a["id"] == auth_id), None)
+        assert deleted_auth is not None
+        assert deleted_auth["is_deleted"] is True
+        assert deleted_auth["is_active"] is False
+        assert deleted_auth["is_valid"] is False
+        assert deleted_auth["deleted_at"] is not None
+        # deleted_by should be populated with the manager's display name
+        assert deleted_auth["deleted_by"] != ''
+        logout(client)
+
+    def test_create_authorization_has_is_deleted_false(self, client, manager_user, app):
+        """A newly created authorization must have is_deleted=False in the API response."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        r1 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r1.status_code == 201
+        data = r1.get_json()
+        assert data.get("is_deleted") is False
+        assert data.get("deleted_by") == ''
+        assert data.get("deleted_at") is None
+        logout(client)
+
     def test_expired_authorization_allows_new(self, client, manager_user, app):
         """An expired (date_to in the past) authorization must not block a new one."""
         from datetime import date, timedelta
