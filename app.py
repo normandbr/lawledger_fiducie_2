@@ -1140,6 +1140,7 @@ class TrustAuthorization(db.Model):
     doc_filename = db.Column(db.String(500), nullable=True)
     doc_original_name = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)   # NULL = not deleted (soft-delete timestamp)
     created_by = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -1147,8 +1148,15 @@ class TrustAuthorization(db.Model):
     matter = db.relationship('Matter', backref='trust_authorizations', lazy=True)
 
     def is_active_on(self, check_date=None):
-        """Return True if this authorization is valid on *check_date* (today by default)."""
-        if not self.is_active:
+        """Return True if this authorization is valid on *check_date* (today by default).
+
+        An authorization is valid only when:
+        - It has not been soft-deleted (``deleted_at`` is NULL *and* ``is_active`` is True)
+        - Today falls within the configured date range (``date_from`` / ``date_to``)
+        """
+        # Treat deleted_at IS NOT NULL (explicit deletion timestamp) as soft-deleted.
+        # Also honour the legacy is_active flag in case deleted_at was not yet set.
+        if self.deleted_at is not None or not self.is_active:
             return False
         if check_date is None:
             check_date = datetime.now(UTC).date()
@@ -1172,7 +1180,8 @@ class TrustAuthorization(db.Model):
             'doc_original_name': self.doc_original_name or '',
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'is_active': bool(self.is_active),
+            'is_active': bool(self.is_active) and self.deleted_at is None,
+            'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
             'is_valid': self.is_active_on(),
         }
 
@@ -1509,6 +1518,7 @@ _COLUMN_MIGRATIONS = {
         ('doc_filename',      'NVARCHAR(500) NULL'),
         ('doc_original_name', 'NVARCHAR(255) NULL'),
         ('is_active',         'BIT NOT NULL DEFAULT 1'),
+        ('deleted_at',        'DATETIME NULL'),
         ('created_by',        'NVARCHAR(255) NULL'),
     ],
 }
@@ -1584,6 +1594,21 @@ def _apply_schema_migrations():
                     "WHERE [payment_date] IS NOT NULL AND [is_paid] = 0"
                 ))
                 logger.info("Schema migration: backfilled is_paid/date_paid for paid supplier_payments")
+
+        # Backfill deleted_at for trust_authorizations that were soft-deleted via
+        # is_active = 0 before the deleted_at column existed.  Use updated_at as the
+        # approximate deletion timestamp (falls back to created_at, then GETDATE()).
+        if 'trust_authorizations' in existing_tables:
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(sa_text(
+                        "UPDATE [trust_authorizations] "
+                        "SET [deleted_at] = COALESCE([updated_at], [created_at], GETDATE()) "
+                        "WHERE [is_active] = 0 AND [deleted_at] IS NULL"
+                    ))
+                    logger.info("Schema migration: backfilled deleted_at for soft-deleted trust_authorizations")
+            except Exception as ta_exc:
+                logger.warning("Could not backfill trust_authorizations.deleted_at: %s", ta_exc)
 
         # Add CHECK constraint for timer_user / hourly_rate requirement
         if 'employees' in existing_tables:
@@ -2643,12 +2668,14 @@ def api_trust_auth_create(matter_id):
     data = request.get_json() or {}
 
     # Reject if there is already an active authorization for this matter.
-    # Pre-filter in the DB: exclude soft-deleted records and those whose date range
-    # does not overlap with today, then apply is_active_on() to cover all edge cases.
+    # Pre-filter in the DB: exclude soft-deleted records (is_active=False OR deleted_at IS NOT NULL)
+    # and those whose date range does not overlap with today, then apply is_active_on() for all
+    # edge cases.
     today = datetime.now(UTC).date()
     candidate_auths = TrustAuthorization.query.filter(
         TrustAuthorization.matter_id == matter_id,
-        TrustAuthorization.is_active == True,  # noqa: E712 - exclude soft-deleted
+        TrustAuthorization.is_active == True,  # noqa: E712 - exclude soft-deleted (legacy flag)
+        TrustAuthorization.deleted_at == None,  # noqa: E711 - exclude soft-deleted (explicit timestamp)
         db.or_(
             TrustAuthorization.date_from == None,   # noqa: E711
             TrustAuthorization.date_from <= today,
@@ -2734,14 +2761,16 @@ def api_trust_auth_update(auth_id):
 def api_trust_auth_delete(auth_id):
     """Soft-delete a trust authorization (manager only).
 
-    The record and any associated document file are preserved on disk; only
-    the ``is_active`` flag is set to ``False``.
+    The record and any associated document file are preserved on disk.
+    Both ``is_active`` and ``deleted_at`` are set so that the deletion is
+    visible regardless of which column exists in an older database schema.
     """
     if not current_user.is_manager:
         return jsonify({'error': 'Manager access required'}), 403
     auth = TrustAuthorization.query.get_or_404(auth_id)
     try:
         auth.is_active = False
+        auth.deleted_at = datetime.utcnow()
         db.session.commit()
         return jsonify({'success': True})
     except Exception as exc:

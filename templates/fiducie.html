@@ -962,12 +962,14 @@ async function loadAuthorizations() {
         html += '</tr></thead><tbody>';
         visibleAuths.forEach(function(a) {
             // is_valid: not deleted AND dates still valid (truly active)
-            // is_active: raw flag, False means soft-deleted
+            // is_active: False means soft-deleted (set via is_active flag OR deleted_at timestamp)
+            const isDeleted = !a.is_active || !!a.deleted_at;
             let statusBadge;
             if (a.is_valid) {
                 statusBadge = '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>';
-            } else if (!a.is_active) {
-                statusBadge = '<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}</span>';
+            } else if (isDeleted) {
+                const delDate = a.deleted_at ? ' (' + a.deleted_at.substring(0, 10) + ')' : '';
+                statusBadge = `<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}${delDate}</span>`;
             } else {
                 statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
             }
@@ -984,7 +986,7 @@ async function loadAuthorizations() {
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">
-                    ${a.is_active ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
+                    ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
                 </td>
             </tr>`;
         });
