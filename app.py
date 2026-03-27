@@ -1172,7 +1172,8 @@ class TrustAuthorization(db.Model):
             'doc_original_name': self.doc_original_name or '',
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'is_active': self.is_active_on(),
+            'is_active': bool(self.is_active),
+            'is_valid': self.is_active_on(),
         }
 
 
@@ -2643,6 +2644,7 @@ def api_trust_auth_create(matter_id):
     today = datetime.now(UTC).date()
     candidate_auths = TrustAuthorization.query.filter(
         TrustAuthorization.matter_id == matter_id,
+        TrustAuthorization.is_active == True,  # noqa: E712 - exclude soft-deleted
         db.or_(
             TrustAuthorization.date_to == None,   # noqa: E711 (SQLAlchemy requires ==)
             TrustAuthorization.date_to >= today,
@@ -5771,10 +5773,10 @@ def api_import_costs():
     if existing:
         if os.path.exists(save_path):
             os.remove(save_path)
-        import_date_str = existing.import_date.strftime('%Y-%m-%d %H:%M') if existing.import_date else 'unknown date'
+        import_date_str = existing.import_date.strftime('%Y-%m-%d %H:%M') if existing.import_date else 'date inconnue'
         return jsonify({
             'success': False,
-            'error': f'File already imported on {import_date_str} (Import ID: {existing.import_id})'
+            'error': f'Fichier déjà importé le {import_date_str} (ID d\'importation : {existing.import_id})'
         }), 400
 
     try:

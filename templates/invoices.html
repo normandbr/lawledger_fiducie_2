@@ -53,7 +53,7 @@
     <table id="invoices-table" style="min-width:760px;">
         <thead>
             <tr>
-                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
+                <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;white-space:nowrap;min-width:160px;">{{ t.inv_th_invoice or 'Invoice #' }}</th>
                 <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_client or 'Client' }}</th>
                 <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_date or 'Date' }}</th>
                 <th style="position:sticky;top:0;z-index:10;background-color:#f3f3f3;">{{ t.inv_th_total or 'Total' }}</th>
@@ -281,7 +281,7 @@ function renderInvoices(invoices) {
         const cancelBtn   = `<button class="btn btn-sm btn-danger"    style="${INV_BTN_STYLE}" onclick="cancelInvoice(${inv.id})"${cancelDisabled   ? ' disabled title="' + escHtml(INV_STR.statusCancelled) + '"' : ''}>${INV_STR.cancel}</button>`;
 
         return `<tr>
-            <td><strong>${escHtml(inv.invoice_number)}</strong></td>
+            <td style="white-space:nowrap;"><strong>${escHtml(inv.invoice_number)}</strong></td>
             <td>${escHtml(inv.client_name || '—')}</td>
             <td>${inv.invoice_date ? new Date(inv.invoice_date + 'T00:00:00').toLocaleDateString() : '—'}</td>
             <td>$${parseFloat(inv.total_amount || 0).toFixed(2)}</td>
