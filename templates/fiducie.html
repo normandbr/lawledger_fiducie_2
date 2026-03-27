@@ -318,7 +318,13 @@
         </div>
         <!-- Authorization list -->
         <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
-            <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_auth_history or 'Autorisations enregistrées' }}</h3>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <h3 style="margin:0;font-size:0.9rem;font-weight:600;">{{ t.lbl_auth_history or 'Autorisations enregistrées' }}</h3>
+                <label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                    <input type="checkbox" id="auth-show-inactive" onchange="loadAuthorizations()">
+                    {{ t.lbl_show_expired or 'Afficher les expirées / supprimées' }}
+                </label>
+            </div>
             <div id="auth-list-content">
                 <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
             </div>
@@ -475,7 +481,18 @@ document.getElementById('fiducie-form').addEventListener('submit', async functio
         });
         const result = await resp.json();
         if (!resp.ok) {
-            errorDiv.textContent = '🚫 ' + (result.error || FID_STR.errGeneric);
+            if (result.error === 'no_authorization') {
+                const msg = result.message || '{{ t.msg_no_authorization or "Aucune autorisation client active. Veuillez ajouter une autorisation signée." }}';
+                errorDiv.textContent = '🔐 ' + msg;
+                const link = document.createElement('a');
+                link.href = '#';
+                link.textContent = ' {{ t.lbl_add_authorization or "Ajouter une autorisation" }}';
+                link.style.color = '#0078d4';
+                link.addEventListener('click', function(ev) { ev.preventDefault(); openAuthModal(); });
+                errorDiv.appendChild(link);
+            } else {
+                errorDiv.textContent = '🚫 ' + (result.error || FID_STR.errGeneric);
+            }
             errorDiv.style.display = 'block';
             return;
         }
@@ -897,25 +914,25 @@ async function loadAuthorizations() {
         }
         const auths = await res.json();
 
-        // Enable/disable the new authorization form based on active auth presence
+        // Display warning message when an active authorization already exists.
         const hasActive = auths.some(function(a) { return a.is_active; });
         const newAuthSection = document.getElementById('auth-new-section');
         const resultDiv = document.getElementById('auth-result');
         if (newAuthSection) {
             if (hasActive) {
-                newAuthSection.style.opacity = '0.5';
-                newAuthSection.style.pointerEvents = 'none';
                 resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà. Supprimez-la avant d\'en créer une nouvelle." }}';
                 resultDiv.style.color = '#856404';
                 resultDiv.style.display = 'block';
             } else {
-                newAuthSection.style.opacity = '';
-                newAuthSection.style.pointerEvents = '';
                 resultDiv.style.display = 'none';
             }
         }
 
-        if (!auths.length) {
+        // Filter: hide expired / soft-deleted unless the checkbox is checked.
+        const showInactive = document.getElementById('auth-show-inactive') && document.getElementById('auth-show-inactive').checked;
+        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_active; });
+
+        if (!visibleAuths.length) {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
             return;
         }
@@ -929,14 +946,14 @@ async function loadAuthorizations() {
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_document or "Document" }}</th>';
         html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
         html += '</tr></thead><tbody>';
-        auths.forEach(function(a) {
+        visibleAuths.forEach(function(a) {
             const active = a.is_active;
             const statusBadge = active
                 ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>'
                 : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
+            // Document cell: show link only (no replace button); attach allowed when no doc yet.
             const docCell = a.doc_filename
-                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>
-                   &nbsp;<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_replace_document or 'Remplacer le document' }}">📎 <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`
+                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>`
                 : `<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
             html += `<tr>
