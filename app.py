@@ -636,6 +636,7 @@ class ImportLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     import_id = db.Column(db.String(32), nullable=True)
     filename = db.Column(db.String(255), nullable=False)
+    file_hash = db.Column(db.String(64), nullable=True)
     import_date = db.Column(db.DateTime, default=datetime.utcnow)
     records_imported = db.Column(db.Integer, default=0)
     records_failed = db.Column(db.Integer, default=0)
@@ -648,6 +649,7 @@ class ImportLog(db.Model):
             'id': self.id,
             'import_id': self.import_id,
             'filename': self.filename,
+            'file_hash': self.file_hash,
             'import_date': self.import_date.isoformat() if self.import_date else None,
             'records_imported': self.records_imported,
             'records_failed': self.records_failed,
@@ -1357,6 +1359,7 @@ _COLUMN_MIGRATIONS = {
     ],
     'import_logs': [
         ('import_id', 'NVARCHAR(32) NULL'),
+        ('file_hash', 'NVARCHAR(64) NULL'),
     ],
     'hr_records': [
         ('is_deleted', 'BIT NOT NULL DEFAULT 0'),
@@ -5297,6 +5300,22 @@ def _parse_uploaded_file(file_obj):
         return [dict(row) for row in reader]
 
 
+def calculate_file_hash(filepath):
+    """Return the SHA-256 hex digest of a file's contents.
+
+    Args:
+        filepath: Path to the file to hash.
+
+    Returns:
+        str: The SHA-256 hash as a hexadecimal string.
+    """
+    hasher = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def _save_import_file(file_obj):
     """Save an uploaded import file to IMPORT_UPLOAD_FOLDER and return its saved path.
 
@@ -5425,6 +5444,18 @@ def api_import_costs():
         save_path, original_name, import_id = _save_import_file(file_obj)
     except Exception as exc:
         return jsonify({'success': False, 'error': f'Could not save uploaded file: {exc}'}), 400
+
+    # Anti-duplicate: reject if the same file content was already imported.
+    file_hash = calculate_file_hash(save_path)
+    existing = ImportLog.query.filter_by(file_hash=file_hash).first()
+    if existing:
+        if os.path.exists(save_path):
+            os.remove(save_path)
+        import_date_str = existing.import_date.strftime('%Y-%m-%d %H:%M') if existing.import_date else 'unknown date'
+        return jsonify({
+            'success': False,
+            'error': f'File already imported on {import_date_str} (Import ID: {existing.import_id})'
+        }), 400
 
     try:
         rows = _parse_uploaded_file(file_obj)
@@ -5569,6 +5600,7 @@ def api_import_costs():
         log_entry = ImportLog(
             import_id=import_id,
             filename=original_name,
+            file_hash=file_hash,
             records_imported=imported,
             records_failed=failed,
             status='success' if failed == 0 else ('partial' if imported > 0 else 'failed'),
@@ -5577,12 +5609,20 @@ def api_import_costs():
         db.session.add(log_entry)
         db.session.commit()
 
+        # Delete the uploaded file after a successful import.
+        if os.path.exists(save_path):
+            os.remove(save_path)
+
     except Exception as exc:
         db.session.rollback()
         logger.exception('Import costs failed: %s', exc)
         return jsonify({'success': False, 'error': f'Import failed: {exc}'}), 500
 
-    file_result = _apply_import_file_action(save_path, original_name, file_action)
+    # The file was already deleted above; skip the file-action step.
+    if os.path.exists(save_path):
+        file_result = _apply_import_file_action(save_path, original_name, file_action)
+    else:
+        file_result = f'File "{original_name}" deleted after import.'
 
     _write_import_log('costs', original_name, total, imported, failed,
                       errors[:_IMPORT_MAX_ERRORS], file_result)
