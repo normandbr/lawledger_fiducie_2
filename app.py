@@ -1148,7 +1148,7 @@ class TrustAuthorization(db.Model):
 
     def is_active_on(self, check_date=None):
         """Return True if this authorization is valid on *check_date* (today by default)."""
-        if self.is_active is False:
+        if not self.is_active:
             return False
         if check_date is None:
             check_date = datetime.now(UTC).date()

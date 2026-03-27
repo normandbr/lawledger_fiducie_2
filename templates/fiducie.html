@@ -892,6 +892,9 @@ document.getElementById('reconciliation-modal').addEventListener('click', functi
 
 function openAuthModal() {
     document.getElementById('auth-modal').style.display = 'block';
+    // Clear any stale message from a previous session
+    const resultDiv = document.getElementById('auth-result');
+    if (resultDiv) { resultDiv.style.display = 'none'; resultDiv.dataset.msgType = ''; }
     loadAuthorizations();
 }
 
@@ -914,17 +917,26 @@ async function loadAuthorizations() {
         }
         const auths = await res.json();
 
-        // Display warning message when an active authorization already exists.
+        // Display warning message when an active authorization already exists,
+        // but only if no transient save/error message is currently shown.
         const hasActive = auths.some(function(a) { return a.is_active; });
         const newAuthSection = document.getElementById('auth-new-section');
         const resultDiv = document.getElementById('auth-result');
         if (newAuthSection) {
             if (hasActive) {
-                resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà. Supprimez-la avant d\'en créer une nouvelle." }}';
-                resultDiv.style.color = '#856404';
-                resultDiv.style.display = 'block';
+                // Only overwrite if there is no recent save/error message pending.
+                if (resultDiv.style.display === 'none' || resultDiv.dataset.msgType === 'active-auth') {
+                    resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà. Supprimez-la avant d\'en créer une nouvelle." }}';
+                    resultDiv.style.color = '#856404';
+                    resultDiv.style.display = 'block';
+                    resultDiv.dataset.msgType = 'active-auth';
+                }
             } else {
-                resultDiv.style.display = 'none';
+                // Clear only the active-auth warning (not save/error messages).
+                if (resultDiv.dataset.msgType === 'active-auth') {
+                    resultDiv.style.display = 'none';
+                    resultDiv.dataset.msgType = '';
+                }
             }
         }
 
@@ -951,10 +963,10 @@ async function loadAuthorizations() {
             const statusBadge = active
                 ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>'
                 : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
-            // Document cell: show link only (no replace button); attach allowed when no doc yet.
+            // Document cell: show view link when document exists; show upload button (not link) when no doc.
             const docCell = a.doc_filename
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>`
-                : `<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
+                : `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #adb5bd;border-radius:4px;background:#f8f9fa;color:#495057;font-size:12px;cursor:pointer;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
             html += `<tr>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_from || '{{ t.lbl_not_set or "Non défini" }}'}</td>
@@ -1000,6 +1012,7 @@ async function saveAuthorization() {
             resultDiv.textContent = data.error || '{{ t.msg_error or "Erreur" }}';
             resultDiv.style.color = '#dc3545';
             resultDiv.style.display = 'block';
+            resultDiv.dataset.msgType = 'save-error';
             return;
         }
         // Upload document if one was selected
@@ -1016,11 +1029,13 @@ async function saveAuthorization() {
         resultDiv.textContent = '{{ t.msg_authorization_saved or "Autorisation enregistrée." }}';
         resultDiv.style.color = '#155724';
         resultDiv.style.display = 'block';
+        resultDiv.dataset.msgType = 'save-success';
         loadAuthorizations();
     } catch(e) {
         resultDiv.textContent = '{{ t.msg_error or "Erreur" }}';
         resultDiv.style.color = '#dc3545';
         resultDiv.style.display = 'block';
+        resultDiv.dataset.msgType = 'save-error';
     }
 }
 
