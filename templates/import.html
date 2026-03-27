@@ -112,20 +112,6 @@
                     <input type="file" id="cost-codes-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
-            <div class="form-group">
-                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
-                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="keep"> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="rename" checked> {{ t.opt_rename_file or 'Rename file (add date)' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="cost_codes_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
-                    </label>
-                </div>
-            </div>
             <!-- Progress bar -->
             <div id="cost-codes-progress-container" style="display:none;margin-bottom:12px;">
                 <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
@@ -451,7 +437,6 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
 
 document.getElementById('import-cost-codes-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const fileAction = e.target.querySelector('input[name="cost_codes_file_action"]:checked')?.value || 'keep';
     const resultDiv = document.getElementById('cost-codes-result');
     resultDiv.innerHTML = '<p>' + IMPORT_STR.importing + '</p>';
 
@@ -479,7 +464,7 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         }
         formData.append('file', fileInput.files[0]);
     }
-    formData.append('file_action', fileAction);
+    formData.append('file_action', 'keep');
 
     try {
         const response = await fetch(SCRIPT_ROOT + '/api/import/cost-codes', { method: 'POST', body: formData });
@@ -487,7 +472,6 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'cost-codes-submit-btn');
         if (result.imported > 0) {
-            await applyOriginalFileAction(costCodesFileHandle, fileAction, resultDiv);
             if (supportsFilePicker) costCodesFileHandle = null;
         } else {
             if (submitBtn) submitBtn.disabled = false;

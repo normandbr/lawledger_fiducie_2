@@ -106,7 +106,7 @@
             </div>
             <div id="edit-code-error" class="alert alert-error" style="display:none;"></div>
             <div style="display:flex;gap:8px;">
-                <button type="submit" class="btn btn-primary">{{ t.btn_update_cost_code or 'Mettre à jour le code' }}</button>
+                <button type="button" class="btn btn-primary" onclick="submitEditCode()">{{ t.btn_update_cost_code or 'Mettre à jour le code' }}</button>
                 <button type="button" class="btn btn-secondary" onclick="hideEditCodeForm()">{{ t.btn_cancel or 'Annuler' }}</button>
             </div>
         </form>
@@ -262,6 +262,10 @@ document.getElementById('code-form').addEventListener('submit', async (e) => {
 
 document.getElementById('edit-code-inner-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    await submitEditCode();
+});
+
+async function submitEditCode() {
     const id = document.getElementById('edit_code_id').value;
     const data = {
         code: document.getElementById('edit_code_code').value,
@@ -287,7 +291,7 @@ document.getElementById('edit-code-inner-form').addEventListener('submit', async
         errDiv.textContent = err.error || '{{ t.msg_error or "Une erreur est survenue" }}';
         errDiv.style.display = 'block';
     }
-});
+}
 
 loadCostCodes();
 loadAccountOptions();
