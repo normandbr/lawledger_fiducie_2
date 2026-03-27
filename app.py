@@ -6,7 +6,6 @@ import warnings
 warnings.filterwarnings("ignore", message=".*Unrecognized server version info.*")
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session
-from flask_login import logout_user
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect as sa_inspect, text as sa_text
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -32,7 +31,7 @@ import pandas as pd
 import uuid
 import licensing as _licensing
 import sys
-import io
+import hashlib
 logger = logging.getLogger(__name__)
 
 APP_VERSION = "2026.03.5"
@@ -237,9 +236,6 @@ app.config['IMPORT_LOG_FOLDER'] = IMPORT_LOG_FOLDER
 # Initialize extensions
 db = SQLAlchemy(app)
 mail = Mail(app)
-class Transaction(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    matter_id = db.Column(db.Integer, nullable=False) 
 
 # Initialize Flask-Login
 login_manager = LoginManager(app)
