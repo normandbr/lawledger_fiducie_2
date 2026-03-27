@@ -2722,19 +2722,15 @@ def api_trust_auth_update(auth_id):
 @app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['DELETE'])
 @login_required
 def api_trust_auth_delete(auth_id):
-    """Delete a trust authorization (manager only)."""
+    """Soft-delete a trust authorization (manager only).
+
+    The record and any associated document file are preserved on disk; only
+    the ``is_active`` flag is set to ``False``.
+    """
     if not current_user.is_manager:
         return jsonify({'error': 'Manager access required'}), 403
     auth = TrustAuthorization.query.get_or_404(auth_id)
-    # Remove associated document file if present
-    if auth.doc_filename:
-        doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.doc_filename)
-        if os.path.exists(doc_path):
-            try:
-                os.remove(doc_path)
-            except OSError:
-                pass
-    db.session.delete(auth)
+    auth.is_active = False
     db.session.commit()
     return jsonify({'success': True})
 
