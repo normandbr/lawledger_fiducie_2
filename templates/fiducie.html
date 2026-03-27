@@ -132,6 +132,7 @@
                 <button class="btn btn-sm btn-secondary" onclick="window.location.href=SCRIPT_ROOT + '/fiducie/{{ dossier.id }}/print'">{{ t.btn_print_statement or '🖨️ Imprimer l\'état de compte' }}</button>
                 <button class="btn btn-sm btn-secondary" onclick="openPrintRangeModal()">{{ t.btn_print_range or '🖨️ Imprimer par date' }}</button>
                 <button class="btn btn-sm btn-secondary" onclick="exportFiducie()">{{ t.btn_export_fiducie or '📥 Exporter (CSV)' }}</button>
+                <button class="btn btn-sm btn-warning" onclick="openAuthModal()" style="background:#ff9800;border-color:#ff9800;color:#fff;" id="auth-btn">{{ t.btn_trust_authorizations or '🔐 Autorisations' }}</button>
             </div>
         </div>
         <div class="table-container" style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 340px);padding-top:0;border:none;border-radius:0;box-shadow:none;">
@@ -271,6 +272,43 @@
         <div style="display:flex;gap:8px;margin-top:16px;">
             <button class="btn btn-primary" onclick="printWithDateRange()">{{ t.btn_print_confirm or 'Imprimer' }}</button>
             <button class="btn btn-secondary" onclick="closePrintRangeModal()">{{ t.btn_cancel or 'Annuler' }}</button>
+        </div>
+    </div>
+</div>
+<!-- Trust Authorization Modal -->
+<div id="auth-modal" style="display:none;position:fixed;inset:0;z-index:1300;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);">
+    <div style="background:#fff;border-radius:8px;width:95%;max-width:700px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 4px 24px rgba(0,0,0,.2);max-height:90vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px 12px;border-bottom:1px solid #e0e0e0;flex-shrink:0;">
+            <h2 style="margin:0;font-size:1.1rem;font-weight:600;">🔐 {{ t.title_trust_authorizations or 'Autorisations client – Fiducie' }}</h2>
+            <span onclick="closeAuthModal()" style="cursor:pointer;color:#888;font-size:22px;font-weight:bold;line-height:1;">&times;</span>
+        </div>
+        <!-- New authorization form -->
+        <div style="padding:16px 24px;border-bottom:1px solid #e0e0e0;flex-shrink:0;background:#f8f9fa;">
+            <h3 style="margin:0 0 12px;font-size:0.95rem;font-weight:600;">{{ t.btn_new_authorization or '+ Nouvelle autorisation' }}</h3>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_date_from or 'Valide du' }}</label>
+                    <input type="date" id="auth-date-from" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </div>
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_date_to or 'Valide au (vide = indéfini)' }}</label>
+                    <input type="date" id="auth-date-to" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                </div>
+                <div style="flex:1;min-width:180px;">
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_notes or 'Notes' }}</label>
+                    <input type="text" id="auth-notes" placeholder="..."
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="saveAuthorization()">{{ t.btn_save or 'Enregistrer' }}</button>
+            </div>
+            <div id="auth-result" style="margin-top:10px;font-size:13px;display:none;"></div>
+        </div>
+        <!-- Authorization list -->
+        <div style="overflow-y:auto;overflow-x:auto;padding:16px 24px;flex:1 1 auto;">
+            <h3 style="margin:0 0 10px;font-size:0.9rem;font-weight:600;">{{ t.lbl_auth_history or 'Autorisations enregistrées' }}</h3>
+            <div id="auth-list-content">
+                <p style="color:#888;">{{ t.msg_loading or 'Chargement...' }}</p>
+            </div>
         </div>
     </div>
 </div>
@@ -818,5 +856,139 @@ async function deleteReconciliation(id) {
 document.getElementById('reconciliation-modal').addEventListener('click', function(e) {
     if (e.target === this) closeReconciliationModal();
 });
+
+{% if dossier %}
+// ── Trust Authorization modal ─────────────────────────────────────────────────
+
+function openAuthModal() {
+    document.getElementById('auth-modal').style.display = 'block';
+    loadAuthorizations();
+}
+
+function closeAuthModal() {
+    document.getElementById('auth-modal').style.display = 'none';
+}
+
+document.getElementById('auth-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeAuthModal();
+});
+
+async function loadAuthorizations() {
+    const container = document.getElementById('auth-list-content');
+    container.innerHTML = '<p style="color:#888;">{{ t.msg_loading or "Chargement..." }}</p>';
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID + '/authorizations');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const auths = await res.json();
+        if (!auths.length) {
+            container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
+            return;
+        }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+        html += '<thead><tr style="background:#f3f3f3;">';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_from or "Du" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_to or "Au" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_status or "Statut" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_notes or "Notes" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_document or "Document" }}</th>';
+        html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
+        html += '</tr></thead><tbody>';
+        auths.forEach(function(a) {
+            const active = a.is_active;
+            const statusBadge = active
+                ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>'
+                : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
+            const docCell = a.document_filename
+                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 {{ t.btn_view_document or "Voir" }}</a>
+                   &nbsp;<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_replace_document or 'Remplacer le document' }}">📎 <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`
+                : `<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
+            html += `<tr>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_from || '{{ t.lbl_not_set or "—" }}'}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_to || '{{ t.lbl_indefinite or "Indéfini" }}'}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${statusBadge}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">
+                    <button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch(e) {
+        container.innerHTML = '<p style="color:#dc3545;">{{ t.msg_error or "Erreur lors du chargement." }}</p>';
+    }
+}
+
+async function saveAuthorization() {
+    const resultDiv = document.getElementById('auth-result');
+    const dateFrom = document.getElementById('auth-date-from').value;
+    const dateTo = document.getElementById('auth-date-to').value;
+    const notes = document.getElementById('auth-notes').value;
+
+    const body = { notes: notes };
+    if (dateFrom) body.date_from = dateFrom;
+    if (dateTo) body.date_to = dateTo;
+
+    resultDiv.style.display = 'none';
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID + '/authorizations', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            resultDiv.textContent = data.error || '{{ t.msg_error or "Erreur" }}';
+            resultDiv.style.color = '#dc3545';
+            resultDiv.style.display = 'block';
+            return;
+        }
+        // Reset form
+        document.getElementById('auth-date-from').value = '';
+        document.getElementById('auth-date-to').value = '';
+        document.getElementById('auth-notes').value = '';
+        resultDiv.textContent = '{{ t.msg_authorization_saved or "Autorisation enregistrée." }}';
+        resultDiv.style.color = '#155724';
+        resultDiv.style.display = 'block';
+        loadAuthorizations();
+    } catch(e) {
+        resultDiv.textContent = '{{ t.msg_error or "Erreur" }}';
+        resultDiv.style.color = '#dc3545';
+        resultDiv.style.display = 'block';
+    }
+}
+
+async function deleteAuthorization(authId) {
+    if (!confirm('{{ t.confirm_delete_authorization or "Supprimer cette autorisation ?" }}')) return;
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/fiducie/authorizations/' + authId, { method: 'DELETE' });
+        if (res.ok) loadAuthorizations();
+        else alert('{{ t.msg_error or "Erreur" }}');
+    } catch(e) {
+        alert('{{ t.msg_error or "Erreur" }}');
+    }
+}
+
+async function uploadAuthDoc(authId, input) {
+    if (!input.files || !input.files[0]) return;
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/fiducie/authorizations/' + authId + '/document', {
+            method: 'POST',
+            body: formData
+        });
+        if (res.ok) {
+            loadAuthorizations();
+        } else {
+            const data = await res.json();
+            alert(data.error || '{{ t.msg_error or "Erreur lors du téléversement." }}');
+        }
+    } catch(e) {
+        alert('{{ t.msg_error or "Erreur lors du téléversement." }}');
+    }
+}
+{% endif %}
 </script>
 {% endblock %}

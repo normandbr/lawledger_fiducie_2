@@ -199,22 +199,22 @@ app.config.setdefault(
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'}
+ALLOWED_TRUST_AUTH_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.tiff', '.tif', '.bmp'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Folder for holding imported CSV/Excel files (server backup).
-# Windows: %PROGRAMDATA%\lawledger\import  (i.e. C:\ProgramData\lawledger\import)
-# Linux/macOS: ~/.local/share/lawledger/import
+# Configured via IMPORT_FILES_DIR in .env; falls back to the OS data directory.
 _programdata_base = (
     os.environ.get('PROGRAMDATA', r'C:\ProgramData')
     if os.name == 'nt'
     else os.path.join(os.path.expanduser('~'), '.local', 'share')
 )
-IMPORT_UPLOAD_FOLDER = os.path.join(_programdata_base, 'lawledger', 'import')
+_default_import_files = os.path.join(_programdata_base, 'lawledger', 'import')
+IMPORT_UPLOAD_FOLDER = os.environ.get('IMPORT_FILES_DIR', '').strip() or _default_import_files
 try:
     os.makedirs(IMPORT_UPLOAD_FOLDER, exist_ok=True)
 except OSError:
-    # If the system path is unusable (e.g. running in a container without write
-    # access to the OS data directory), fall back to a directory next to the app.
+    # If the configured / system path is unusable, fall back to a directory next to the app.
     IMPORT_UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'import_uploads')
     try:
         os.makedirs(IMPORT_UPLOAD_FOLDER, exist_ok=True)
@@ -222,15 +222,34 @@ except OSError:
         logging.warning('Could not create import upload folder %s: %s', IMPORT_UPLOAD_FOLDER, exc)
 app.config['IMPORT_UPLOAD_FOLDER'] = IMPORT_UPLOAD_FOLDER
 
-# Dossier de logs forcé sur C:\appdataprograpdata\lawledger\logs
-IMPORT_LOG_FOLDER = r'C:\programdata\lawledger\logs'
+# Folder for import log files.
+# Configured via IMPORT_LOG_DIR in .env; falls back to the OS data directory.
+_default_import_logs = (
+    r'C:\programdata\lawledger\logs'
+    if os.name == 'nt'
+    else os.path.join(os.path.expanduser('~'), '.local', 'share', 'lawledger', 'logs')
+)
+IMPORT_LOG_FOLDER = os.environ.get('IMPORT_LOG_DIR', '').strip() or _default_import_logs
 try:
     os.makedirs(IMPORT_LOG_FOLDER, exist_ok=True)
 except OSError:
-    # En cas de dossier protégé ou inaccessible, on utilise le dossier local de l'app
     IMPORT_LOG_FOLDER = os.path.join(os.path.dirname(__file__), 'logs')
     os.makedirs(IMPORT_LOG_FOLDER, exist_ok=True)
 app.config['IMPORT_LOG_FOLDER'] = IMPORT_LOG_FOLDER
+
+# Folder for trust authorization documents.
+# Configured via TRUST_AUTH_DOCS_DIR in .env.
+_default_trust_auth_docs = (
+    r'C:\programdata\lawledger\trust_auth'
+    if os.name == 'nt'
+    else os.path.join(os.path.expanduser('~'), '.local', 'share', 'lawledger', 'trust_auth')
+)
+TRUST_AUTH_DOCS_FOLDER = os.environ.get('TRUST_AUTH_DOCS_DIR', '').strip() or _default_trust_auth_docs
+try:
+    os.makedirs(TRUST_AUTH_DOCS_FOLDER, exist_ok=True)
+except OSError as exc:
+    logging.warning('Could not create trust auth docs folder %s: %s', TRUST_AUTH_DOCS_FOLDER, exc)
+app.config['TRUST_AUTH_DOCS_FOLDER'] = TRUST_AUTH_DOCS_FOLDER
 
 
 # Initialize extensions
@@ -1099,6 +1118,53 @@ class TrustReconciliation(db.Model):
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class TrustAuthorization(db.Model):
+    """Signed client authorization allowing the firm to take funds from trust.
+
+    Authorization is per-matter and can cover a specific date range (date_from /
+    date_to) or be indefinite (date_to = NULL).  A PDF/image of the signed
+    document is stored on disk under TRUST_AUTH_DOCS_FOLDER.
+    """
+    __tablename__ = 'trust_authorizations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    date_from = db.Column(db.Date, nullable=True)
+    date_to = db.Column(db.Date, nullable=True)   # NULL = indefinite
+    document_filename = db.Column(db.String(500), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    matter = db.relationship('Matter', backref='trust_authorizations', lazy=True)
+
+    def is_active_on(self, check_date=None):
+        """Return True if this authorization is valid on *check_date* (today by default)."""
+        if check_date is None:
+            check_date = datetime.now(UTC).date()
+        if self.date_from and check_date < self.date_from:
+            return False
+        if self.date_to and check_date > self.date_to:
+            return False
+        return True
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'matter_id': self.matter_id,
+            'date_from': self.date_from.isoformat() if self.date_from else None,
+            'date_to': self.date_to.isoformat() if self.date_to else None,
+            'document_filename': self.document_filename or '',
+            'notes': self.notes or '',
+            'created_by': self.created_by or '',
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'is_active': self.is_active_on(),
+        }
+
+
 class CalendarEvent(db.Model):
     """Calendar event (hearing, deadline, meeting…) optionally linked to a matter."""
     __tablename__ = 'calendar_events'
@@ -2459,6 +2525,17 @@ def api_fiducie_create(matter_id):
         if montant > solde:
             return jsonify({'error': f'Insufficient funds. Balance: {solde:,.2f}$'}), 400
 
+        # Require an active client authorization to withdraw/reimburse funds from trust
+        today = datetime.now(UTC).date()
+        auths = TrustAuthorization.query.filter_by(matter_id=matter_id).all()
+        has_active_auth = any(a.is_active_on(today) for a in auths)
+        if not has_active_auth:
+            return jsonify({
+                'error': 'no_authorization',
+                'message': 'Aucune autorisation client active pour ce dossier. '
+                           'Veuillez ajouter une autorisation signée avant de procéder à un retrait ou remboursement.'
+            }), 403
+
     nouvelle_t = TransactionsFiducie(
         matter_id=matter_id,
         type_trans=type_trans,
@@ -2513,6 +2590,170 @@ def api_fiducie_balance(matter_id):
         for t in transactions if not t.est_annulee
     )
     return jsonify({'matter_id': matter_id, 'balance': round(solde, 2)})
+
+
+# ── Trust Authorization routes ────────────────────────────────────────────────
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations', methods=['GET'])
+@login_required
+def api_trust_auth_list(matter_id):
+    """List all trust authorizations for a matter."""
+    Matter.query.get_or_404(matter_id)
+    auths = TrustAuthorization.query.filter_by(matter_id=matter_id).order_by(
+        TrustAuthorization.created_at.desc()
+    ).all()
+    return jsonify([a.to_dict() for a in auths])
+
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations', methods=['POST'])
+@login_required
+def api_trust_auth_create(matter_id):
+    """Create a new trust authorization for a matter."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    Matter.query.get_or_404(matter_id)
+    data = request.get_json() or {}
+
+    date_from = None
+    date_to = None
+    if data.get('date_from'):
+        try:
+            date_from = datetime.strptime(data['date_from'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date_from format, expected YYYY-MM-DD'}), 400
+    if data.get('date_to'):
+        try:
+            date_to = datetime.strptime(data['date_to'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date_to format, expected YYYY-MM-DD'}), 400
+
+    auth = TrustAuthorization(
+        matter_id=matter_id,
+        date_from=date_from,
+        date_to=date_to,
+        notes=(data.get('notes') or '').strip() or None,
+        created_by=current_user.display_name,
+    )
+    db.session.add(auth)
+    db.session.commit()
+    return jsonify(auth.to_dict()), 201
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['PUT'])
+@login_required
+def api_trust_auth_update(auth_id):
+    """Update a trust authorization (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    data = request.get_json() or {}
+
+    if 'date_from' in data:
+        if data['date_from']:
+            try:
+                auth.date_from = datetime.strptime(data['date_from'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date_from format'}), 400
+        else:
+            auth.date_from = None
+    if 'date_to' in data:
+        if data['date_to']:
+            try:
+                auth.date_to = datetime.strptime(data['date_to'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date_to format'}), 400
+        else:
+            auth.date_to = None
+    if 'notes' in data:
+        auth.notes = (data['notes'] or '').strip() or None
+
+    db.session.commit()
+    return jsonify(auth.to_dict())
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['DELETE'])
+@login_required
+def api_trust_auth_delete(auth_id):
+    """Delete a trust authorization (manager only)."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    # Remove associated document file if present
+    if auth.document_filename:
+        doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+        if os.path.exists(doc_path):
+            try:
+                os.remove(doc_path)
+            except OSError:
+                pass
+    db.session.delete(auth)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>/document', methods=['POST'])
+@login_required
+def api_trust_auth_upload(auth_id):
+    """Upload a signed authorization document (PDF/image) for an authorization record."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'Manager access required'}), 403
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    if 'file' not in request.files or not request.files['file'].filename:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file_obj = request.files['file']
+    original_name = secure_filename(file_obj.filename)
+    ext = os.path.splitext(original_name)[1].lower()
+    allowed_exts = ALLOWED_TRUST_AUTH_EXTENSIONS
+    if ext not in allowed_exts:
+        return jsonify({'error': f'File type not allowed: {ext}'}), 400
+
+    # Remove old document if it exists
+    if auth.document_filename:
+        old_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    import uuid as _uuid
+    unique_name = f'{_uuid.uuid4().hex}_{original_name}'
+    save_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], unique_name)
+    try:
+        os.makedirs(app.config['TRUST_AUTH_DOCS_FOLDER'], exist_ok=True)
+        file_obj.save(save_path)
+    except OSError as exc:
+        return jsonify({'error': f'Could not save document: {exc}'}), 500
+
+    auth.document_filename = unique_name
+    db.session.commit()
+    return jsonify(auth.to_dict()), 200
+
+
+@app.route('/api/fiducie/authorizations/<int:auth_id>/document', methods=['GET'])
+@login_required
+def api_trust_auth_document(auth_id):
+    """Serve the authorization document file for viewing."""
+    auth = TrustAuthorization.query.get_or_404(auth_id)
+    if not auth.document_filename:
+        return jsonify({'error': 'No document on file'}), 404
+    doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+    if not os.path.exists(doc_path):
+        return jsonify({'error': 'Document file not found on server'}), 404
+    from flask import send_file
+    return send_file(doc_path, as_attachment=False)
+
+
+@app.route('/api/fiducie/<int:matter_id>/authorizations/active', methods=['GET'])
+@login_required
+def api_trust_auth_active(matter_id):
+    """Return the active authorization for a matter on today's date, if any."""
+    Matter.query.get_or_404(matter_id)
+    today = datetime.now(UTC).date()
+    auths = TrustAuthorization.query.filter_by(matter_id=matter_id).all()
+    active = [a for a in auths if a.is_active_on(today)]
+    return jsonify([a.to_dict() for a in active])
 
 
 @app.route('/api/clients/<int:client_id>/trust-balance', methods=['GET'])
@@ -5432,8 +5673,9 @@ def api_import_costs():
     Required columns: client_number, matter_number, expense_code, amount
     Optional columns: username, expense_date
     Legacy columns also accepted: client_matter_number, expenses_type, date
-    Optional form field: file_action (keep|rename|delete) – what to do with the
-    uploaded file after a successful import.
+
+    The uploaded file is always kept as an archive in IMPORT_FILES_DIR
+    (configured via the IMPORT_FILES_DIR environment variable).
     """
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
@@ -5441,7 +5683,6 @@ def api_import_costs():
         return jsonify({'success': False, 'error': 'No file uploaded'}), 400
 
     file_obj = request.files['file']
-    file_action = (request.form.get('file_action') or 'keep').strip().lower()
 
     # Save the file to the import upload folder so it can be renamed/deleted later.
     try:
@@ -5613,20 +5854,13 @@ def api_import_costs():
         db.session.add(log_entry)
         db.session.commit()
 
-        # Delete the uploaded file after a successful import.
-        if os.path.exists(save_path):
-            os.remove(save_path)
-
     except Exception as exc:
         db.session.rollback()
         logger.exception('Import costs failed: %s', exc)
         return jsonify({'success': False, 'error': f'Import failed: {exc}'}), 500
 
-    # The file was already deleted above; skip the file-action step.
-    if os.path.exists(save_path):
-        file_result = _apply_import_file_action(save_path, original_name, file_action)
-    else:
-        file_result = f'File "{original_name}" deleted after import.'
+    # Always keep the server copy in IMPORT_FILES_DIR (configured via .env).
+    file_result = f'File "{original_name}" archived on server.'
 
     _write_import_log('costs', original_name, total, imported, failed,
                       errors[:_IMPORT_MAX_ERRORS], file_result)

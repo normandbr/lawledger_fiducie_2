@@ -57,6 +57,16 @@ URL_PREFIX=/lawledger
 
 # ── Licence ──
 LICENSE_FILE=C:\Apps\LawLedger\config\license.json
+
+# ── Dossiers d'import et logs ──
+# Chemin où les fichiers importés sont conservés en archive (copie permanente)
+IMPORT_FILES_DIR=C:\ProgramData\lawledger\import
+# Chemin où les journaux d'import sont sauvegardés
+IMPORT_LOG_DIR=C:\ProgramData\lawledger\logs
+
+# ── Autorisations fiducie ──
+# Chemin où sont conservées les autorisations signées des clients (PDF/images)
+TRUST_AUTH_DOCS_DIR=C:\ProgramData\lawledger\trust_auth
 ```
 
 > **Note :** `URL_PREFIX=/lawledger` indique à Flask de générer toutes les URLs
