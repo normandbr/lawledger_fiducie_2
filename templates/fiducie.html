@@ -891,7 +891,10 @@ async function loadAuthorizations() {
     container.innerHTML = '<p style="color:#888;">{{ t.msg_loading or "Chargement..." }}</p>';
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/fiducie/' + MATTER_ID + '/authorizations');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({error: 'HTTP ' + res.status}));
+            throw new Error(errData.error || 'HTTP ' + res.status);
+        }
         const auths = await res.json();
         if (!auths.length) {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
