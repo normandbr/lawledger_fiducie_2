@@ -152,11 +152,11 @@
             </div>
             <div style="flex:1;">
                 <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_event_time or 'Time (optional)' }}</label>
-                <input type="time" id="ev-time" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                <input type="time" id="ev-time" oninput="checkRoomAvailability()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
             </div>
             <div style="flex:1;">
                 <label style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_cal_duration or 'Duration (min)' }}</label>
-                <input type="number" id="ev-duration" min="15" step="15" placeholder="60" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                <input type="number" id="ev-duration" min="15" step="15" placeholder="60" oninput="checkRoomAvailability()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
             </div>
         </div>
 
@@ -340,6 +340,16 @@ function onEventTypeChange() {
     }
 }
 
+function timeToMinutes(t) {
+    if (!t) return null;
+    const parts = t.split(':');
+    if (parts.length < 2) return null;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(m)) return null;
+    return h * 60 + m;
+}
+
 async function checkRoomAvailability() {
     const roomId = document.getElementById('ev-room').value;
     const date   = document.getElementById('ev-date').value;
@@ -362,8 +372,23 @@ async function checkRoomAvailability() {
         const resp = await fetch(SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`);
         if (!resp.ok) { warningEl.style.display = 'none'; setSaveDisabled(false); return; }
         const reservations = await resp.json();
-        // Conflict = another event (not the current one) is already booked in this room on this date
-        const conflict = reservations.some(r => String(r.id) !== String(eventId));
+
+        const newTimeStr  = document.getElementById('ev-time').value;
+        const newDuration = parseInt(document.getElementById('ev-duration').value) || 60;
+        const newStart    = timeToMinutes(newTimeStr);
+        const newEnd      = newStart !== null ? newStart + newDuration : null;
+
+        // Conflict = another event (not the current one) whose time range overlaps with the new event.
+        // If either event has no time specified, treat it as a full-day conflict (conservative).
+        const conflict = reservations.some(r => {
+            if (String(r.id) === String(eventId)) return false;
+            const existingStart = timeToMinutes(r.event_time);
+            // If either side has no time, fall back to full-day conflict
+            if (newStart === null || existingStart === null) return true;
+            const existingEnd = existingStart + (r.duration_minutes || 60);
+            // Two intervals overlap when: start_A < end_B AND start_B < end_A
+            return newStart < existingEnd && existingStart < newEnd;
+        });
         warningEl.style.display = conflict ? '' : 'none';
         if (saveBtn) saveBtn.disabled = conflict;
     } catch(e) { warningEl.style.display = 'none'; if (saveBtn) saveBtn.disabled = false; }
