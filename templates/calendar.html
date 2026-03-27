@@ -202,6 +202,7 @@
         <div id="event-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
         <div style="display:flex;gap:8px;">
             <button id="btn-save-event" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
+            <button id="ev-save-btn" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
             <button class="btn btn-secondary" onclick="closeEventModal()">{{ t.btn_cancel or 'Cancel' }}</button>
         </div>
     </div>
@@ -346,12 +347,20 @@ async function checkRoomAvailability() {
     try {
         const resp = await fetch(SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`);
         if (!resp.ok) { warningEl.style.display = 'none'; saveBtn.disabled = false; return; }
+    const saveBtn = document.getElementById('ev-save-btn');
+    const setSaveDisabled = (state) => { if (saveBtn) saveBtn.disabled = state; };
+    if (!roomId || !date) { warningEl.style.display = 'none'; setSaveDisabled(false); return; }
+    try {
+        const resp = await fetch(SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`);
+        if (!resp.ok) { warningEl.style.display = 'none'; setSaveDisabled(false); return; }
         const reservations = await resp.json();
         // Conflict = another event (not the current one) is already booked in this room on this date
         const conflict = reservations.some(r => String(r.id) !== String(eventId));
         warningEl.style.display = conflict ? '' : 'none';
         saveBtn.disabled = conflict;
     } catch(e) { warningEl.style.display = 'none'; saveBtn.disabled = false; }
+        setSaveDisabled(conflict);
+    } catch(e) { warningEl.style.display = 'none'; setSaveDisabled(false); }
 }
 
 function openAddEventModal() {
@@ -372,6 +381,8 @@ function openAddEventModal() {
     document.getElementById('ev-room-warning').style.display   = 'none';
     document.getElementById('event-modal-error').style.display = 'none';
     document.getElementById('btn-save-event').disabled = false;
+    const evSaveBtn = document.getElementById('ev-save-btn');
+    if (evSaveBtn) evSaveBtn.disabled = false;
     document.getElementById('event-modal').style.display = 'flex';
 }
 
