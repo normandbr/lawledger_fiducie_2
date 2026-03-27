@@ -462,3 +462,195 @@ class TestCalendarModule:
         assert b"/calendar" in resp.data
         logout(client)
 
+
+# ---------------------------------------------------------------------------
+# 10. Import duplicate-check fix (issue: failed imports blocked re-upload)
+# ---------------------------------------------------------------------------
+class TestImportDuplicateCheck:
+    """Verify that the ImportLog duplicate query only blocks 'success'/'partial'
+    imports, not 'failed' ones.  We test the DB filtering logic directly since
+    the /api/import/costs endpoint is license-restricted in the test environment."""
+
+    def test_failed_status_not_blocked(self, app):
+        """A previous import with status='failed' must NOT block a re-upload.
+        The duplicate query must only match 'success' or 'partial' records."""
+        from app import db, ImportLog
+        import hashlib
+
+        fake_hash = hashlib.sha256(b"dummy csv content for test").hexdigest()
+
+        with app.app_context():
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+            prev = ImportLog(
+                import_id="aabbccdd" * 4,
+                filename="expenses.csv",
+                file_hash=fake_hash,
+                records_imported=0,
+                records_failed=5,
+                status="failed",
+            )
+            db.session.add(prev)
+            db.session.commit()
+
+            # The fixed query must NOT find this record
+            existing = ImportLog.query.filter(
+                ImportLog.file_hash == fake_hash,
+                ImportLog.status.in_(['success', 'partial'])
+            ).first()
+            assert existing is None, "Failed import must not block re-upload"
+
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+    def test_success_status_is_blocked(self, app):
+        """A previous import with status='success' MUST be detected as duplicate."""
+        from app import db, ImportLog
+        import hashlib
+
+        fake_hash = hashlib.sha256(b"csv content that succeeded").hexdigest()
+
+        with app.app_context():
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+            prev = ImportLog(
+                import_id="11223344" * 4,
+                filename="expenses_ok.csv",
+                file_hash=fake_hash,
+                records_imported=3,
+                records_failed=0,
+                status="success",
+            )
+            db.session.add(prev)
+            db.session.commit()
+
+            existing = ImportLog.query.filter(
+                ImportLog.file_hash == fake_hash,
+                ImportLog.status.in_(['success', 'partial'])
+            ).first()
+            assert existing is not None, "Successful import must block re-upload"
+            assert existing.status == "success"
+
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+    def test_partial_status_is_blocked(self, app):
+        """A previous import with status='partial' MUST be detected as duplicate."""
+        from app import db, ImportLog
+        import hashlib
+
+        fake_hash = hashlib.sha256(b"csv content partially imported").hexdigest()
+
+        with app.app_context():
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+            prev = ImportLog(
+                import_id="99887766" * 4,
+                filename="expenses_partial.csv",
+                file_hash=fake_hash,
+                records_imported=2,
+                records_failed=1,
+                status="partial",
+            )
+            db.session.add(prev)
+            db.session.commit()
+
+            existing = ImportLog.query.filter(
+                ImportLog.file_hash == fake_hash,
+                ImportLog.status.in_(['success', 'partial'])
+            ).first()
+            assert existing is not None, "Partial import must block re-upload"
+            assert existing.status == "partial"
+
+            ImportLog.query.filter_by(file_hash=fake_hash).delete()
+            db.session.commit()
+
+
+# ---------------------------------------------------------------------------
+# 11. Trust Authorization API (fiducie)
+# ---------------------------------------------------------------------------
+class TestTrustAuthorizationAPI:
+    """Verify that the trust authorization GET/POST routes work correctly."""
+
+    def _create_matter(self, app):
+        from app import db, Client as ClientModel, Matter
+        c = ClientModel.query.filter_by(client_number="AUTH-C001").first()
+        if not c:
+            c = ClientModel(client_number="AUTH-C001", client_name="Auth Test Client", is_active=True)
+            db.session.add(c)
+            db.session.flush()
+        m = Matter.query.filter_by(matter_number="AUTH-M001").first()
+        if not m:
+            m = Matter(client_id=c.id, matter_number="AUTH-M001")
+            db.session.add(m)
+        db.session.commit()
+        return m
+
+    def test_list_authorizations_empty(self, client, manager_user, app):
+        """GET /api/fiducie/<id>/authorizations returns [] for a new matter."""
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+        resp = client.get(f"/api/fiducie/{matter_id}/authorizations")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+        logout(client)
+
+    def test_create_authorization(self, client, manager_user, app):
+        """POST /api/fiducie/<id>/authorizations creates a new authorization."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": date.today().isoformat(), "notes": "Test auth"},
+        )
+        assert resp.status_code == 201
+        data = resp.get_json()
+        assert data.get("matter_id") == matter_id
+        assert data.get("notes") == "Test auth"
+        assert data.get("is_active") is True
+        logout(client)
+
+    def test_list_after_create(self, client, manager_user, app):
+        """GET returns the authorization created by POST."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": date.today().isoformat(), "notes": "Listed auth"},
+        )
+        resp = client.get(f"/api/fiducie/{matter_id}/authorizations")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert isinstance(data, list)
+        assert any(a.get("notes") == "Listed auth" for a in data)
+        logout(client)
+
+    def test_create_authorization_requires_manager(self, client, staff_user, app):
+        """Non-manager must receive 403 when creating an authorization."""
+        login(client, "test_staff", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+        resp = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"notes": "Should fail"},
+        )
+        assert resp.status_code == 403
+        logout(client)
+

@@ -2598,11 +2598,15 @@ def api_fiducie_balance(matter_id):
 @login_required
 def api_trust_auth_list(matter_id):
     """List all trust authorizations for a matter."""
-    Matter.query.get_or_404(matter_id)
-    auths = TrustAuthorization.query.filter_by(matter_id=matter_id).order_by(
-        TrustAuthorization.created_at.desc()
-    ).all()
-    return jsonify([a.to_dict() for a in auths])
+    try:
+        Matter.query.get_or_404(matter_id)
+        auths = TrustAuthorization.query.filter_by(matter_id=matter_id).order_by(
+            TrustAuthorization.created_at.desc()
+        ).all()
+        return jsonify([a.to_dict() for a in auths])
+    except Exception as exc:
+        logger.exception('Error listing trust authorizations for matter %s: %s', matter_id, exc)
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/api/fiducie/<int:matter_id>/authorizations', methods=['POST'])
@@ -2627,16 +2631,21 @@ def api_trust_auth_create(matter_id):
         except ValueError:
             return jsonify({'error': 'Invalid date_to format, expected YYYY-MM-DD'}), 400
 
-    auth = TrustAuthorization(
-        matter_id=matter_id,
-        date_from=date_from,
-        date_to=date_to,
-        notes=(data.get('notes') or '').strip() or None,
-        created_by=current_user.display_name,
-    )
-    db.session.add(auth)
-    db.session.commit()
-    return jsonify(auth.to_dict()), 201
+    try:
+        auth = TrustAuthorization(
+            matter_id=matter_id,
+            date_from=date_from,
+            date_to=date_to,
+            notes=(data.get('notes') or '').strip() or None,
+            created_by=current_user.display_name,
+        )
+        db.session.add(auth)
+        db.session.commit()
+        return jsonify(auth.to_dict()), 201
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception('Error creating trust authorization for matter %s: %s', matter_id, exc)
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/api/fiducie/authorizations/<int:auth_id>', methods=['PUT'])
@@ -5690,9 +5699,14 @@ def api_import_costs():
     except Exception as exc:
         return jsonify({'success': False, 'error': f'Could not save uploaded file: {exc}'}), 400
 
-    # Anti-duplicate: reject if the same file content was already imported.
+    # Anti-duplicate: reject if the same file content was already successfully imported.
+    # A previous import with status='failed' (all rows rejected) does NOT block re-importing
+    # so that users can fix their data and try again with the same file.
     file_hash = calculate_file_hash(save_path)
-    existing = ImportLog.query.filter_by(file_hash=file_hash).first()
+    existing = ImportLog.query.filter(
+        ImportLog.file_hash == file_hash,
+        ImportLog.status.in_(['success', 'partial'])
+    ).first()
     if existing:
         if os.path.exists(save_path):
             os.remove(save_path)
