@@ -934,7 +934,7 @@ async function loadAuthorizations() {
             } else {
                 // Re-enable the save button when no active auth remains.
                 if (saveBtn) saveBtn.disabled = false;
-                // Clear only the active-auth warning (not save/error messages).
+                // Clear the active-auth warning (not save-success / save-error messages).
                 if (resultDiv.dataset.msgType === 'active-auth') {
                     resultDiv.style.display = 'none';
                     resultDiv.dataset.msgType = '';

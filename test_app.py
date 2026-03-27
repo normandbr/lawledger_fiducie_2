@@ -760,3 +760,129 @@ class TestTrustAuthorizationAPI:
         assert len(invalid) == 1
         logout(client)
 
+
+# ---------------------------------------------------------------------------
+# 12. Invoice creation with trust funds – authorization enforcement
+# ---------------------------------------------------------------------------
+class TestInvoiceTrustAuthorizationEnforcement:
+    """Verify that apply_trust=True requires a valid trust authorization."""
+
+    def _setup_matter_with_client(self, app):
+        """Create (or reuse) a test client and matter, return (client_id, matter_id)."""
+        from app import db, Client as ClientModel, Matter
+        c = ClientModel.query.filter_by(client_number="INVAUTH-C001").first()
+        if not c:
+            c = ClientModel(client_number="INVAUTH-C001", client_name="InvAuth Test Client", is_active=True)
+            db.session.add(c)
+            db.session.flush()
+        m = Matter.query.filter_by(matter_number="INVAUTH-M001").first()
+        if not m:
+            m = Matter(client_id=c.id, matter_number="INVAUTH-M001")
+            db.session.add(m)
+        db.session.commit()
+        return c.id, m.id
+
+    @staticmethod
+    def _mock_valid_license():
+        """Return a context manager that makes the license appear valid."""
+        from unittest.mock import patch, MagicMock
+        mock_result = MagicMock()
+        mock_result.is_valid = True
+        return patch('licensing.get_cached_license_result', return_value=mock_result)
+
+    def test_apply_trust_blocked_without_authorization(self, client, manager_user, app):
+        """Creating an invoice with apply_trust=True must return 403 when there is
+        no active authorization for the matter."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            client_id, matter_id = self._setup_matter_with_client(app)
+            # Ensure no authorizations exist
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        with self._mock_valid_license():
+            resp = client.post(
+                "/api/invoices",
+                json={
+                    "matter_id": matter_id,
+                    "invoice_date": date.today().isoformat(),
+                    "apply_trust": True,
+                },
+            )
+        assert resp.status_code == 403
+        data = resp.get_json()
+        assert data.get("error") == "no_authorization"
+        logout(client)
+
+    def test_apply_trust_blocked_after_auth_soft_deleted(self, client, manager_user, app):
+        """Soft-deleting the only authorization must block apply_trust on invoice creation."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            client_id, matter_id = self._setup_matter_with_client(app)
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        # Create an authorization and immediately soft-delete it
+        with self._mock_valid_license():
+            r_auth = client.post(
+                f"/api/fiducie/{matter_id}/authorizations",
+                json={"date_from": today},
+            )
+        assert r_auth.status_code == 201
+        auth_id = r_auth.get_json()["id"]
+        client.delete(f"/api/fiducie/authorizations/{auth_id}")
+
+        # Now apply_trust should be rejected
+        with self._mock_valid_license():
+            resp = client.post(
+                "/api/invoices",
+                json={
+                    "matter_id": matter_id,
+                    "invoice_date": today,
+                    "apply_trust": True,
+                },
+            )
+        assert resp.status_code == 403
+        assert resp.get_json().get("error") == "no_authorization"
+        logout(client)
+
+    def test_apply_trust_allowed_with_valid_authorization(self, client, manager_user, app):
+        """Creating an invoice with apply_trust=True is not blocked by missing-auth when
+        a valid active authorization exists for the matter."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            client_id, matter_id = self._setup_matter_with_client(app)
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        # Create a valid authorization
+        with self._mock_valid_license():
+            r_auth = client.post(
+                f"/api/fiducie/{matter_id}/authorizations",
+                json={"date_from": today},
+            )
+        assert r_auth.status_code == 201
+
+        # Invoice creation with apply_trust must now pass the auth check
+        with self._mock_valid_license():
+            resp = client.post(
+                "/api/invoices",
+                json={
+                    "matter_id": matter_id,
+                    "invoice_date": today,
+                    "apply_trust": True,
+                },
+            )
+        # Should NOT be blocked by missing authorization
+        data = resp.get_json()
+        assert not (resp.status_code == 403 and data.get("error") == "no_authorization")
+        logout(client)
+

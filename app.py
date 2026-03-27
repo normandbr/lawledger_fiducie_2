@@ -5327,6 +5327,20 @@ def api_invoices():
     else:
         return jsonify({'error': 'matter_id or client_id is required'}), 400
 
+    # Validate trust authorization before accepting an apply_trust request.
+    # A RETRAIT is created in the name of the invoice; the same rule that applies
+    # to direct trust withdrawals must also apply here.
+    if data.get('apply_trust', False) and matter_id:
+        today_auth = datetime.now(UTC).date()
+        trust_auths_check = TrustAuthorization.query.filter_by(matter_id=matter_id).all()
+        if not any(a.is_active_on(today_auth) for a in trust_auths_check):
+            return jsonify({
+                'error': 'no_authorization',
+                'message': 'Aucune autorisation client active pour ce dossier. '
+                           'Veuillez ajouter une autorisation signée avant '
+                           'd\'appliquer des fonds en fiducie sur une facture.'
+            }), 403
+
     # Generate invoice number if not provided
     invoice_number = data.get('invoice_number')
     if not invoice_number:
