@@ -294,10 +294,23 @@
                     <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_date_to or 'Valide au (vide = indéfini)' }}</label>
                     <input type="date" id="auth-date-to" style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
                 </div>
-                <div style="flex:1;min-width:180px;">
+                <div style="min-width:130px;">
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_max_amount or 'Montant max ($)' }}</label>
+                    <input type="number" id="auth-max-amount" min="0" step="0.01" placeholder="{{ t.lbl_optional or 'Optionnel' }}"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
+                </div>
+                <div style="flex:1;min-width:150px;">
                     <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_notes or 'Notes' }}</label>
                     <input type="text" id="auth-notes" placeholder="..."
                         style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;">
+                </div>
+                <div>
+                    <label style="font-size:12px;display:block;margin-bottom:2px;">{{ t.lbl_auth_document or 'Document signé' }}</label>
+                    <label style="display:flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;cursor:pointer;background:#fff;">
+                        📎 <span id="auth-file-label">{{ t.btn_attach or 'Joindre...' }}</span>
+                        <input type="file" id="auth-file-input" style="display:none;" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"
+                            onchange="updateAuthFileLabel(this)">
+                    </label>
                 </div>
                 <button class="btn btn-primary btn-sm" onclick="saveAuthorization()">{{ t.btn_save or 'Enregistrer' }}</button>
             </div>
@@ -892,6 +905,7 @@ async function loadAuthorizations() {
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_from or "Du" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_to or "Au" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_status or "Statut" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_max_amount or "Max ($)" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_notes or "Notes" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_document or "Document" }}</th>';
         html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
@@ -901,14 +915,16 @@ async function loadAuthorizations() {
             const statusBadge = active
                 ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>'
                 : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
-            const docCell = a.document_filename
-                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 {{ t.btn_view_document or "Voir" }}</a>
+            const docCell = a.doc_filename
+                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>
                    &nbsp;<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_replace_document or 'Remplacer le document' }}">📎 <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`
                 : `<label style="cursor:pointer;color:#0078d4;font-size:13px;" title="{{ t.btn_upload_document or 'Joindre un document signé' }}">📎 {{ t.btn_attach or "Joindre" }} <input type="file" style="display:none;" onchange="uploadAuthDoc(${a.id}, this)" accept=".pdf,.png,.jpg,.jpeg,.gif,.tiff,.tif,.bmp"></label>`;
+            const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "—" }}';
             html += `<tr>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_from || '{{ t.lbl_not_set or "—" }}'}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_to || '{{ t.lbl_indefinite or "Indéfini" }}'}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${statusBadge}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${maxAmt}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">
@@ -928,10 +944,13 @@ async function saveAuthorization() {
     const dateFrom = document.getElementById('auth-date-from').value;
     const dateTo = document.getElementById('auth-date-to').value;
     const notes = document.getElementById('auth-notes').value;
+    const maxAmount = document.getElementById('auth-max-amount').value;
+    const fileInput = document.getElementById('auth-file-input');
 
     const body = { notes: notes };
     if (dateFrom) body.date_from = dateFrom;
     if (dateTo) body.date_to = dateTo;
+    if (maxAmount) body.max_amount = maxAmount;
 
     resultDiv.style.display = 'none';
     try {
@@ -947,10 +966,17 @@ async function saveAuthorization() {
             resultDiv.style.display = 'block';
             return;
         }
+        // Upload document if one was selected
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            await uploadAuthDoc(data.id, fileInput);
+        }
         // Reset form
         document.getElementById('auth-date-from').value = '';
         document.getElementById('auth-date-to').value = '';
+        document.getElementById('auth-max-amount').value = '';
         document.getElementById('auth-notes').value = '';
+        if (fileInput) { fileInput.value = ''; }
+        document.getElementById('auth-file-label').textContent = '{{ t.btn_attach or "Joindre..." }}';
         resultDiv.textContent = '{{ t.msg_authorization_saved or "Autorisation enregistrée." }}';
         resultDiv.style.color = '#155724';
         resultDiv.style.display = 'block';
@@ -959,6 +985,13 @@ async function saveAuthorization() {
         resultDiv.textContent = '{{ t.msg_error or "Erreur" }}';
         resultDiv.style.color = '#dc3545';
         resultDiv.style.display = 'block';
+    }
+}
+
+function updateAuthFileLabel(input) {
+    const label = document.getElementById('auth-file-label');
+    if (label && input.files && input.files[0]) {
+        label.textContent = input.files[0].name;
     }
 }
 

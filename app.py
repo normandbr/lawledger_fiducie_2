@@ -1124,17 +1124,22 @@ class TrustAuthorization(db.Model):
     """Signed client authorization allowing the firm to take funds from trust.
 
     Authorization is per-matter and can cover a specific date range (date_from /
-    date_to) or be indefinite (date_to = NULL).  A PDF/image of the signed
-    document is stored on disk under TRUST_AUTH_DOCS_FOLDER.
+    date_to) or be indefinite (is_indefinite = True / date_to = NULL).  A PDF/image
+    of the signed document is stored on disk under TRUST_AUTH_DOCS_FOLDER.
     """
     __tablename__ = 'trust_authorizations'
 
     id = db.Column(db.Integer, primary_key=True)
     matter_id = db.Column(db.Integer, db.ForeignKey('matters.id'), nullable=False)
+    client_id = db.Column(db.Integer, db.ForeignKey('clients.id'), nullable=True)
     date_from = db.Column(db.Date, nullable=True)
     date_to = db.Column(db.Date, nullable=True)   # NULL = indefinite
-    document_filename = db.Column(db.String(500), nullable=True)
+    is_indefinite = db.Column(db.Boolean, default=False)
+    max_amount = db.Column(db.Numeric(12, 2), nullable=True)
     notes = db.Column(db.Text, nullable=True)
+    doc_filename = db.Column(db.String(500), nullable=True)
+    doc_original_name = db.Column(db.String(255), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
     created_by = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -1143,6 +1148,8 @@ class TrustAuthorization(db.Model):
 
     def is_active_on(self, check_date=None):
         """Return True if this authorization is valid on *check_date* (today by default)."""
+        if self.is_active is False:
+            return False
         if check_date is None:
             check_date = datetime.now(UTC).date()
         if self.date_from and check_date < self.date_from:
@@ -1155,10 +1162,14 @@ class TrustAuthorization(db.Model):
         return {
             'id': self.id,
             'matter_id': self.matter_id,
+            'client_id': self.client_id,
             'date_from': self.date_from.isoformat() if self.date_from else None,
             'date_to': self.date_to.isoformat() if self.date_to else None,
-            'document_filename': self.document_filename or '',
+            'is_indefinite': bool(self.is_indefinite) if self.is_indefinite is not None else False,
+            'max_amount': float(self.max_amount) if self.max_amount is not None else None,
             'notes': self.notes or '',
+            'doc_filename': self.doc_filename or '',
+            'doc_original_name': self.doc_original_name or '',
             'created_by': self.created_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'is_active': self.is_active_on(),
@@ -1486,6 +1497,14 @@ _COLUMN_MIGRATIONS = {
     'salary_entries': [
         ('is_posted',  'BIT NOT NULL DEFAULT 0'),
         ('posted_by',  'NVARCHAR(80) NULL'),
+    ],
+    'trust_authorizations': [
+        ('client_id',         'INT NULL'),
+        ('is_indefinite',     'BIT NOT NULL DEFAULT 0'),
+        ('max_amount',        'DECIMAL(12,2) NULL'),
+        ('doc_filename',      'NVARCHAR(500) NULL'),
+        ('doc_original_name', 'NVARCHAR(255) NULL'),
+        ('is_active',         'BIT NOT NULL DEFAULT 1'),
     ],
 }
 
@@ -2615,7 +2634,7 @@ def api_trust_auth_create(matter_id):
     """Create a new trust authorization for a matter."""
     if not current_user.is_manager:
         return jsonify({'error': 'Manager access required'}), 403
-    Matter.query.get_or_404(matter_id)
+    matter = Matter.query.get_or_404(matter_id)
     data = request.get_json() or {}
 
     date_from = None
@@ -2631,6 +2650,19 @@ def api_trust_auth_create(matter_id):
         except ValueError:
             return jsonify({'error': 'Invalid date_to format, expected YYYY-MM-DD'}), 400
 
+    auth = TrustAuthorization(
+        matter_id=matter_id,
+        client_id=matter.client_id,
+        date_from=date_from,
+        date_to=date_to,
+        is_indefinite=not bool(date_to),
+        max_amount=float(data['max_amount']) if data.get('max_amount') not in (None, '') else None,
+        notes=(data.get('notes') or '').strip() or None,
+        created_by=current_user.display_name,
+    )
+    db.session.add(auth)
+    db.session.commit()
+    return jsonify(auth.to_dict()), 201
     try:
         auth = TrustAuthorization(
             matter_id=matter_id,
@@ -2673,6 +2705,9 @@ def api_trust_auth_update(auth_id):
                 return jsonify({'error': 'Invalid date_to format'}), 400
         else:
             auth.date_to = None
+        auth.is_indefinite = not bool(auth.date_to)
+    if 'max_amount' in data:
+        auth.max_amount = float(data['max_amount']) if data['max_amount'] not in (None, '') else None
     if 'notes' in data:
         auth.notes = (data['notes'] or '').strip() or None
 
@@ -2688,8 +2723,8 @@ def api_trust_auth_delete(auth_id):
         return jsonify({'error': 'Manager access required'}), 403
     auth = TrustAuthorization.query.get_or_404(auth_id)
     # Remove associated document file if present
-    if auth.document_filename:
-        doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+    if auth.doc_filename:
+        doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.doc_filename)
         if os.path.exists(doc_path):
             try:
                 os.remove(doc_path)
@@ -2718,8 +2753,8 @@ def api_trust_auth_upload(auth_id):
         return jsonify({'error': f'File type not allowed: {ext}'}), 400
 
     # Remove old document if it exists
-    if auth.document_filename:
-        old_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+    if auth.doc_filename:
+        old_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.doc_filename)
         if os.path.exists(old_path):
             try:
                 os.remove(old_path)
@@ -2735,7 +2770,8 @@ def api_trust_auth_upload(auth_id):
     except OSError as exc:
         return jsonify({'error': f'Could not save document: {exc}'}), 500
 
-    auth.document_filename = unique_name
+    auth.doc_filename = unique_name
+    auth.doc_original_name = original_name
     db.session.commit()
     return jsonify(auth.to_dict()), 200
 
@@ -2745,9 +2781,9 @@ def api_trust_auth_upload(auth_id):
 def api_trust_auth_document(auth_id):
     """Serve the authorization document file for viewing."""
     auth = TrustAuthorization.query.get_or_404(auth_id)
-    if not auth.document_filename:
+    if not auth.doc_filename:
         return jsonify({'error': 'No document on file'}), 404
-    doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.document_filename)
+    doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.doc_filename)
     if not os.path.exists(doc_path):
         return jsonify({'error': 'Document file not found on server'}), 404
     from flask import send_file
