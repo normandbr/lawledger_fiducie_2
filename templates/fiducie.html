@@ -995,7 +995,7 @@ async function loadAuthorizations() {
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${statusBadge}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${maxAmt}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${docCell}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
                     ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" class="btn btn-sm btn-danger" title="{{ t.btn_delete or 'Supprimer' }}">🗑️ {{ t.btn_delete or 'Supprimer' }}</button>` : ''}
                 </td>
