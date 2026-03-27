@@ -950,23 +950,23 @@ async function loadAuthorizations() {
             }
         }
 
-        // Filter: by default show all non-deleted (is_active) authorizations; the
-        // checkbox "Afficher les expirées / supprimées" reveals soft-deleted ones too.
+        // Filter: by default show only currently valid authorizations (is_valid = not deleted AND dates OK).
+        // The checkbox "Afficher les expirées / supprimées" reveals expired and soft-deleted ones too.
         const showInactive = document.getElementById('auth-show-inactive') && document.getElementById('auth-show-inactive').checked;
-        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_active; });
+        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_valid; });
 
         if (!visibleAuths.length) {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
             return;
         }
-        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+        let html = '<table style="width:100%;min-width:560px;border-collapse:collapse;font-size:13px;">';
         html += '<thead><tr style="background:#f3f3f3;">';
-        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_from or "Du" }}</th>';
-        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_date_to or "Au" }}</th>';
-        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_status or "Statut" }}</th>';
-        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_max_amount or "Max ($)" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_date_from or "Du" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_date_to or "Au" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;min-width:120px;">{{ t.th_status or "Statut" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_max_amount or "Max ($)" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_notes or "Notes" }}</th>';
-        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.th_document or "Document" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.th_document or "Document" }}</th>';
         html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
         html += '</tr></thead><tbody>';
         visibleAuths.forEach(function(a) {
@@ -975,26 +975,30 @@ async function loadAuthorizations() {
             const isDeleted = a.is_deleted || !!a.deleted_at;
             let statusBadge;
             if (a.is_valid) {
-                statusBadge = '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>';
+                statusBadge = '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;white-space:nowrap;">{{ t.badge_active or "Active" }}</span>';
             } else if (isDeleted) {
                 const delDate = a.deleted_at ? ' (' + a.deleted_at.substring(0, 10) + ')' : '';
-                const delBy = a.deleted_by ? ' – ' + a.deleted_by : '';
-                statusBadge = `<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}${delDate}${delBy}</span>`;
+                const delBy = a.deleted_by ? '<br><small style="font-size:10px;">' + a.deleted_by + '</small>' : '';
+                statusBadge = `<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;display:inline-block;word-break:break-word;">{{ t.badge_deleted or "Supprimée" }}${delDate}${delBy}</span>`;
             } else {
-                statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
+                statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;white-space:nowrap;">{{ t.badge_expired or "Expirée" }}</span>';
             }
             // Document cell: view button when document exists; no upload button in saved list.
             const docLabel = a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir PDF" }}';
             const docCell = a.doc_filename
+                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;white-space:nowrap;">📄 {{ t.btn_view_document or "Voir" }}</a>`
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" class="btn btn-sm btn-outline-primary" title="${docLabel}">📄 {{ t.btn_view_document or "Voir PDF" }}</a>`
                 : `<span style="color:#999;font-size:12px;">—</span>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
             html += `<tr>
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_from || '{{ t.lbl_not_set or "Non défini" }}'}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.date_to || '{{ t.lbl_indefinite or "Indéfini" }}'}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${a.date_from || '{{ t.lbl_not_set or "Non défini" }}'}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${a.date_to || '{{ t.lbl_indefinite or "Indéfini" }}'}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${statusBadge}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${maxAmt}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${maxAmt}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${docCell}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
+                    ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
                     ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" class="btn btn-sm btn-danger" title="{{ t.btn_delete or 'Supprimer' }}">🗑️ {{ t.btn_delete or 'Supprimer' }}</button>` : ''}
