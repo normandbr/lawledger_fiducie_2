@@ -452,7 +452,9 @@ document.getElementById('invoice-form').addEventListener('submit', async (e) => 
         window.location.href = `${SCRIPT_ROOT}/invoices/${inv.id}/print`;
     } else {
         const err = await res.json().catch(() => ({}));
-        alert(INV_STR.errCreateInv + ' ' + (err.error || res.statusText));
+        // Use the human-readable message when available (e.g. no_authorization errors)
+        const errText = err.message || err.error || res.statusText;
+        alert(INV_STR.errCreateInv + ' ' + errText);
         btn.disabled = false;
         btn.textContent = INV_STR.createBtn;
     }
