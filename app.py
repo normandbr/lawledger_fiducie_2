@@ -460,6 +460,7 @@ class CostCode(db.Model):
     charge_type = db.Column(db.String(100), nullable=True)
     rate = db.Column(db.Numeric(10, 2), default=0.00)
     is_active = db.Column(db.Boolean, default=True)
+    account_code = db.Column(db.String(20), nullable=True)
     changed_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -472,6 +473,7 @@ class CostCode(db.Model):
             'charge_type': self.charge_type or '',
             'rate': float(self.rate) if self.rate else 0.00,
             'is_active': self.is_active if self.is_active is not None else True,
+            'account_code': self.account_code or '',
             'changed_by': self.changed_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -1245,6 +1247,7 @@ _COLUMN_MIGRATIONS = {
         ('charge_type', 'NVARCHAR(100) NULL'),
         ('is_active',   'BIT NOT NULL DEFAULT 1'),
         ('changed_by',  'NVARCHAR(80) NULL'),
+        ('account_code', 'NVARCHAR(20) NULL'),
     ],
     'clients': [
         ('is_active',    'BIT NOT NULL DEFAULT 1'),
@@ -4927,6 +4930,9 @@ def cost_codes():
         description=data['description'],
         charge_type=data.get('charge_type') or None,
         rate=data.get('rate', 0.00),
+        is_active=data.get('is_active', True),
+        account_code=data.get('account_code') or None,
+        account_code=data.get('account_code') or None,
         is_active=data.get('is_active', True)
     )
     db.session.add(code)
@@ -4950,6 +4956,8 @@ def api_cost_code_detail(code_id):
         for field in ('description', 'charge_type'):
             if field in data:
                 setattr(cost_code, field, data[field] or None)
+        if 'account_code' in data:
+            cost_code.account_code = data['account_code'] or None
         if 'code' in data and data['code']:
             # Ensure uniqueness if code is being changed
             existing = CostCode.query.filter(
@@ -4963,6 +4971,8 @@ def api_cost_code_detail(code_id):
             cost_code.rate = data['rate'] if data['rate'] is not None else 0
         if 'is_active' in data:
             cost_code.is_active = bool(data['is_active'])
+        if 'account_code' in data:
+            cost_code.account_code = data['account_code'] or None
         cost_code.changed_by = current_user.display_name
         cost_code.updated_at = datetime.utcnow()
         db.session.commit()
