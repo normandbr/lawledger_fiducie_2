@@ -919,7 +919,8 @@ async function loadAuthorizations() {
 
         // Display warning message when an active authorization already exists,
         // but only if no transient save/error message is currently shown.
-        const hasActive = auths.some(function(a) { return a.is_active; });
+        // Use is_valid (not soft-deleted AND dates still valid) for this check.
+        const hasActive = auths.some(function(a) { return a.is_valid; });
         const newAuthSection = document.getElementById('auth-new-section');
         const resultDiv = document.getElementById('auth-result');
         if (newAuthSection) {
@@ -942,7 +943,7 @@ async function loadAuthorizations() {
 
         // Filter: hide expired / soft-deleted unless the checkbox is checked.
         const showInactive = document.getElementById('auth-show-inactive') && document.getElementById('auth-show-inactive').checked;
-        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_active; });
+        const visibleAuths = showInactive ? auths : auths.filter(function(a) { return a.is_valid; });
 
         if (!visibleAuths.length) {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
@@ -959,10 +960,16 @@ async function loadAuthorizations() {
         html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
         html += '</tr></thead><tbody>';
         visibleAuths.forEach(function(a) {
-            const active = a.is_active;
-            const statusBadge = active
-                ? '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>'
-                : '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
+            // is_valid: not deleted AND dates still valid (truly active)
+            // is_active: raw flag, False means soft-deleted
+            let statusBadge;
+            if (a.is_valid) {
+                statusBadge = '<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_active or "Active" }}</span>';
+            } else if (!a.is_active) {
+                statusBadge = '<span style="background:#e2e3e5;color:#383d41;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_deleted or "Supprimée" }}</span>';
+            } else {
+                statusBadge = '<span style="background:#f8d7da;color:#721c24;padding:2px 8px;border-radius:10px;font-size:11px;">{{ t.badge_expired or "Expirée" }}</span>';
+            }
             // Document cell: show view link when document exists; show upload button (not link) when no doc.
             const docCell = a.doc_filename
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;">📄 ${a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir" }}'}</a>`
@@ -976,7 +983,7 @@ async function loadAuthorizations() {
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">
-                    ${active ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
+                    ${a.is_active ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
                 </td>
             </tr>`;
         });
