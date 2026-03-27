@@ -937,7 +937,7 @@ async function loadAuthorizations() {
             // Disable the save button so a new auth cannot be added while one is active.
             if (saveBtn) saveBtn.disabled = true;
             // Always display the active-auth warning.
-            resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante." }}';
+            resultDiv.textContent = {{ (t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d'abord supprimer l'autorisation existante.") | tojson }};
             resultDiv.style.color = '#dc3545';
             resultDiv.style.display = 'block';
             resultDiv.dataset.msgType = 'active-auth';
@@ -986,7 +986,6 @@ async function loadAuthorizations() {
             // Document cell: view button when document exists; no upload button in saved list.
             const docLabel = a.doc_original_name || a.doc_filename || '{{ t.btn_view_document or "Voir PDF" }}';
             const docCell = a.doc_filename
-                ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" style="color:#0078d4;white-space:nowrap;">📄 {{ t.btn_view_document or "Voir" }}</a>`
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" class="btn btn-sm btn-outline-primary" title="${docLabel}">📄 {{ t.btn_view_document or "Voir PDF" }}</a>`
                 : `<span style="color:#999;font-size:12px;">—</span>`;
             const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
@@ -997,9 +996,6 @@ async function loadAuthorizations() {
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${maxAmt}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${docCell}</td>
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
-                    ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" style="background:none;border:none;color:#dc3545;cursor:pointer;font-size:16px;" title="{{ t.btn_delete or 'Supprimer' }}">🗑️</button>` : ''}
-                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
                     ${!isDeleted ? `<button onclick="deleteAuthorization(${a.id})" class="btn btn-sm btn-danger" title="{{ t.btn_delete or 'Supprimer' }}">🗑️ {{ t.btn_delete or 'Supprimer' }}</button>` : ''}
                 </td>
