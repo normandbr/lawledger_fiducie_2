@@ -638,3 +638,51 @@ class TestTrustAuthorization:
         finally:
             self._cleanup_matter(app, c_id, m_id)
             logout(client)
+
+    def test_is_active_on_treats_falsy_is_active_as_inactive(self, app):
+        """is_active_on() must return False for is_active=None and is_active=False."""
+        from app import TrustAuthorization
+        from datetime import date
+
+        with app.app_context():
+            today = date.today()
+            # Test with is_active=False (normal soft-delete case)
+            auth_false = TrustAuthorization(date_from=None, date_to=None)
+            auth_false.is_active = False
+            assert auth_false.is_active_on(today) is False, \
+                "is_active_on() should be False when is_active=False"
+
+            # Test with is_active=None (e.g. old data before column default was applied)
+            auth_none = TrustAuthorization(date_from=None, date_to=None)
+            auth_none.is_active = None
+            assert auth_none.is_active_on(today) is False, \
+                "is_active_on() should be False when is_active=None"
+
+    def test_soft_deleted_authorization_allows_new_creation(self, client, manager_user, app):
+        """After soft-deleting an authorization, a new one can be created for the same matter."""
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            # Create first authorization
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "first auth"},
+            )
+            assert resp.status_code == 201
+            auth_id = resp.get_json()["id"]
+
+            # Soft-delete it
+            resp_del = client.delete(f"/api/fiducie/authorizations/{auth_id}")
+            assert resp_del.status_code == 200
+
+            # Should now be able to create a new one
+            resp2 = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "second auth after delete"},
+            )
+            assert resp2.status_code == 201, (
+                f"Expected 201 after deleting first auth, got {resp2.status_code}: {resp2.get_json()}"
+            )
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)
