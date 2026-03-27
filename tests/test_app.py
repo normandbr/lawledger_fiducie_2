@@ -462,3 +462,179 @@ class TestCalendarModule:
         assert b"/calendar" in resp.data
         logout(client)
 
+
+# ---------------------------------------------------------------------------
+# 10. Trust Authorization – one active auth per matter + document serving
+# ---------------------------------------------------------------------------
+class TestTrustAuthorization:
+    """Tests for the three issues fixed in the Fiducie authorization feature."""
+
+    @staticmethod
+    def _create_matter(app):
+        """Create a minimal client + matter for trust auth tests and return (client, matter)."""
+        from datetime import date
+        from app import db, Client as ClientModel, Matter
+
+        with app.app_context():
+            c = ClientModel(
+                client_number="TAUTH-CLI-001",
+                client_name="Trust Auth Test Client",
+                is_active=True,
+            )
+            db.session.add(c)
+            db.session.flush()
+            m = Matter(
+                matter_number="TAUTH-MTR-001",
+                matter_description="Trust Auth Test Matter",
+                client_id=c.id,
+                is_active=True,
+            )
+            db.session.add(m)
+            db.session.commit()
+            return c.id, m.id
+
+    @staticmethod
+    def _cleanup_matter(app, client_id, matter_id):
+        from app import db, TrustAuthorization, Matter, Client as ClientModel
+        with app.app_context():
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            Matter.query.filter_by(id=matter_id).delete()
+            ClientModel.query.filter_by(id=client_id).delete()
+            db.session.commit()
+
+    def test_create_authorization_success(self, client, manager_user, app):
+        """POST /api/fiducie/<id>/authorizations must create an authorization and return 201."""
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "Premier test"},
+            )
+            assert resp.status_code == 201
+            data = resp.get_json()
+            assert data.get("matter_id") == m_id
+            assert data.get("is_active") is True
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)
+
+    def test_duplicate_active_authorization_rejected(self, client, manager_user, app):
+        """POST a second active authorization for the same matter must return 409."""
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            # First authorization
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "First auth"},
+            )
+            assert resp.status_code == 201
+
+            # Second authorization for the same matter while the first is still active
+            resp2 = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "Duplicate auth"},
+            )
+            assert resp2.status_code == 409
+            error_msg = resp2.get_json().get("error", "")
+            assert "active" in error_msg.lower() or "autorisation" in error_msg.lower()
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)
+
+    def test_expired_authorization_allows_new_one(self, client, manager_user, app):
+        """A new authorization can be created when the existing one has expired."""
+        from datetime import date, timedelta
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            past = (date.today() - timedelta(days=10)).isoformat()
+            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            # Create an expired authorization
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"date_from": past, "date_to": yesterday},
+            )
+            assert resp.status_code == 201
+
+            # A new active authorization must be accepted
+            resp2 = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "New active auth"},
+            )
+            assert resp2.status_code == 201
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)
+
+    def test_document_view_returns_404_when_no_document(self, client, manager_user, app):
+        """GET document endpoint returns 404 when no document has been attached."""
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "no doc"},
+            )
+            assert resp.status_code == 201
+            auth_id = resp.get_json()["id"]
+
+            resp_doc = client.get(f"/api/fiducie/authorizations/{auth_id}/document")
+            assert resp_doc.status_code == 404
+            assert b"No document" in resp_doc.data
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)
+
+    def test_document_upload_uses_client_matter_subfolder(self, client, manager_user, app):
+        """Uploaded documents are stored under client_number/matter_number subfolders."""
+        import os, io
+        from app import TrustAuthorization, TRUST_AUTH_DOCS_FOLDER
+        c_id, m_id = self._create_matter(app)
+        login(client, "test_manager", "Pass1234!")
+        try:
+            # Create authorization
+            resp = client.post(
+                f"/api/fiducie/{m_id}/authorizations",
+                json={"notes": "subfolder test"},
+            )
+            assert resp.status_code == 201
+            auth_id = resp.get_json()["id"]
+
+            # Upload a small PDF-like file
+            pdf_bytes = b"%PDF-1.4 test content"
+            data = {"file": (io.BytesIO(pdf_bytes), "test_auth.pdf", "application/pdf")}
+            resp_upload = client.post(
+                f"/api/fiducie/authorizations/{auth_id}/document",
+                data=data,
+                content_type="multipart/form-data",
+            )
+            assert resp_upload.status_code == 200
+            doc_filename = resp_upload.get_json().get("doc_filename", "")
+
+            # The stored path must use forward-slash or OS separator as subfolders:
+            # expected format: TAUTH-CLI-001/TAUTH-MTR-001/<uuid>_test_auth.pdf
+            path_parts = doc_filename.replace("\\", "/").split("/")
+            assert len(path_parts) == 3, (
+                f"Expected client_number/matter_number/filename format, got: {doc_filename!r}"
+            )
+            assert path_parts[0] == "TAUTH-CLI-001", (
+                f"First path segment should be client_number 'TAUTH-CLI-001', got: {path_parts[0]!r}"
+            )
+            assert path_parts[1] == "TAUTH-MTR-001", (
+                f"Second path segment should be matter_number 'TAUTH-MTR-001', got: {path_parts[1]!r}"
+            )
+
+            # The file must actually exist on disk
+            full_path = os.path.join(TRUST_AUTH_DOCS_FOLDER, doc_filename)
+            assert os.path.exists(full_path), f"Uploaded file not found at {full_path}"
+
+            # Clean up the file
+            try:
+                os.remove(full_path)
+            except OSError:
+                pass
+        finally:
+            self._cleanup_matter(app, c_id, m_id)
+            logout(client)

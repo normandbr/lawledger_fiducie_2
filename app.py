@@ -2637,6 +2637,20 @@ def api_trust_auth_create(matter_id):
     matter = Matter.query.get_or_404(matter_id)
     data = request.get_json() or {}
 
+    # Reject if there is already an active authorization for this matter.
+    # Pre-filter in the DB: exclude records whose date_to is in the past, then
+    # apply the full is_active_on() check in Python to handle all edge cases.
+    today = datetime.now(UTC).date()
+    candidate_auths = TrustAuthorization.query.filter(
+        TrustAuthorization.matter_id == matter_id,
+        db.or_(
+            TrustAuthorization.date_to == None,   # noqa: E711 (SQLAlchemy requires ==)
+            TrustAuthorization.date_to >= today,
+        ),
+    ).all()
+    if any(a.is_active_on(today) for a in candidate_auths):
+        return jsonify({'error': 'Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante.'}), 409
+
     date_from = None
     date_to = None
     if data.get('date_from'):
@@ -2650,24 +2664,14 @@ def api_trust_auth_create(matter_id):
         except ValueError:
             return jsonify({'error': 'Invalid date_to format, expected YYYY-MM-DD'}), 400
 
-    auth = TrustAuthorization(
-        matter_id=matter_id,
-        client_id=matter.client_id,
-        date_from=date_from,
-        date_to=date_to,
-        is_indefinite=not bool(date_to),
-        max_amount=float(data['max_amount']) if data.get('max_amount') not in (None, '') else None,
-        notes=(data.get('notes') or '').strip() or None,
-        created_by=current_user.display_name,
-    )
-    db.session.add(auth)
-    db.session.commit()
-    return jsonify(auth.to_dict()), 201
     try:
         auth = TrustAuthorization(
             matter_id=matter_id,
+            client_id=matter.client_id,
             date_from=date_from,
             date_to=date_to,
+            is_indefinite=not bool(date_to),
+            max_amount=float(data['max_amount']) if data.get('max_amount') not in (None, '') else None,
             notes=(data.get('notes') or '').strip() or None,
             created_by=current_user.display_name,
         )
@@ -2761,16 +2765,26 @@ def api_trust_auth_upload(auth_id):
             except OSError:
                 pass
 
+    # Build client_number/matter_number subfolder path
     import uuid as _uuid
-    unique_name = f'{_uuid.uuid4().hex}_{original_name}'
-    save_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], unique_name)
+    client_number = ''
+    matter_number = ''
+    if auth.matter:
+        matter_number = secure_filename(auth.matter.matter_number or '')
+        if auth.matter.client:
+            client_number = secure_filename(auth.matter.client.client_number or '')
+    subfolder = os.path.join(client_number, matter_number) if client_number and matter_number else ''
+    unique_filename = f'{_uuid.uuid4().hex}_{original_name}'
+    relative_path = os.path.join(subfolder, unique_filename) if subfolder else unique_filename
+    save_dir = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], subfolder) if subfolder else app.config['TRUST_AUTH_DOCS_FOLDER']
+    save_path = os.path.join(save_dir, unique_filename)
     try:
-        os.makedirs(app.config['TRUST_AUTH_DOCS_FOLDER'], exist_ok=True)
+        os.makedirs(save_dir, exist_ok=True)
         file_obj.save(save_path)
     except OSError as exc:
         return jsonify({'error': f'Could not save document: {exc}'}), 500
 
-    auth.doc_filename = unique_name
+    auth.doc_filename = relative_path
     auth.doc_original_name = original_name
     db.session.commit()
     return jsonify(auth.to_dict()), 200
@@ -2780,14 +2794,29 @@ def api_trust_auth_upload(auth_id):
 @login_required
 def api_trust_auth_document(auth_id):
     """Serve the authorization document file for viewing."""
+    import mimetypes
+    from flask import send_from_directory
     auth = TrustAuthorization.query.get_or_404(auth_id)
     if not auth.doc_filename:
         return jsonify({'error': 'No document on file'}), 404
-    doc_path = os.path.join(app.config['TRUST_AUTH_DOCS_FOLDER'], auth.doc_filename)
+    base_dir = os.path.abspath(app.config['TRUST_AUTH_DOCS_FOLDER'])
+    doc_path = os.path.join(base_dir, auth.doc_filename)
     if not os.path.exists(doc_path):
         return jsonify({'error': 'Document file not found on server'}), 404
-    from flask import send_file
-    return send_file(doc_path, as_attachment=False)
+    mime_type = mimetypes.guess_type(auth.doc_filename)[0] or 'application/octet-stream'
+    # Validate that the MIME type is in the set of allowed document types
+    _allowed_mimes = {
+        'application/pdf',
+        'image/png', 'image/jpeg', 'image/gif',
+        'image/tiff', 'image/bmp',
+    }
+    if mime_type not in _allowed_mimes:
+        mime_type = 'application/octet-stream'
+    # doc_filename may contain subdirectory components (client_number/matter_number/file)
+    sub_dir = os.path.dirname(auth.doc_filename)
+    filename_only = os.path.basename(auth.doc_filename)
+    serve_dir = os.path.join(base_dir, sub_dir) if sub_dir else base_dir
+    return send_from_directory(serve_dir, filename_only, mimetype=mime_type, as_attachment=False)
 
 
 @app.route('/api/fiducie/<int:matter_id>/authorizations/active', methods=['GET'])
