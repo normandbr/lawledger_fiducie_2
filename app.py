@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 LawLedger - Legal Invoice Management System
 """
@@ -117,6 +118,7 @@ if _url_prefix:
 
 # Configure Flask app
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key')
+app.config['JSON_AS_ASCII'] = False  # Ensure French characters are not ASCII-escaped in JSON
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Important car tu n'as pas de HTTPS (SSL) localement
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -261,6 +263,13 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Veuillez vous connecter pour accéder à cette page.'
 login_manager.login_message_category = 'warning'
+
+# Force UTF-8 charset in all HTML responses
+@app.after_request
+def set_charset(response):
+    if response.mimetype == 'text/html' and 'charset' not in response.content_type:
+        response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return response
 
 # Token serializer for password reset
 serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])

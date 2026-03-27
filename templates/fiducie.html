@@ -937,7 +937,7 @@ async function loadAuthorizations() {
             // Disable the save button so a new auth cannot be added while one is active.
             if (saveBtn) saveBtn.disabled = true;
             // Always display the active-auth warning.
-            resultDiv.textContent = '{{ t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d\'abord supprimer l\'autorisation existante." }}';
+            resultDiv.textContent = {{ (t.msg_active_auth_exists or "Une autorisation active existe déjà pour ce dossier. Veuillez d'abord supprimer l'autorisation existante.") | tojson }};
             resultDiv.style.color = '#dc3545';
             resultDiv.style.display = 'block';
             resultDiv.dataset.msgType = 'active-auth';
