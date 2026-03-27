@@ -63,20 +63,6 @@
                     <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
-            <div class="form-group">
-                <label>{{ t.lbl_after_import or 'After Import:' }}</label>
-                <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:4px;">
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="keep"> {{ t.opt_keep_file or 'Keep file on server' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="rename" checked> {{ t.opt_rename_file or 'Rename file (add date)' }}
-                    </label>
-                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;cursor:pointer;">
-                        <input type="radio" name="costs_file_action" value="delete"> {{ t.opt_delete_file or 'Delete original file' }}
-                    </label>
-                </div>
-            </div>
             <!-- Progress bar -->
             <div id="costs-progress-container" style="display:none;margin-bottom:12px;">
                 <div style="background:#e9ecef;border-radius:4px;overflow:hidden;height:18px;">
@@ -383,7 +369,6 @@ document.getElementById('import-matters-form').addEventListener('submit', async 
 
 document.getElementById('import-costs-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const fileAction = e.target.querySelector('input[name="costs_file_action"]:checked')?.value || 'keep';
     const resultDiv = document.getElementById('costs-result');
     resultDiv.innerHTML = '<p>' + IMPORT_STR.importing + '</p>';
 
@@ -411,7 +396,6 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         }
         formData.append('file', fileInput.files[0]);
     }
-    formData.append('file_action', fileAction);
 
     try {
         const response = await fetch(SCRIPT_ROOT + '/api/import/costs', { method: 'POST', body: formData });
@@ -419,7 +403,6 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'costs-submit-btn');
         if (result.imported > 0) {
-            await applyOriginalFileAction(costsFileHandle, fileAction, resultDiv);
             if (supportsFilePicker) costsFileHandle = null;
         } else {
             if (submitBtn) submitBtn.disabled = false;
