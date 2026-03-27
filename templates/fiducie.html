@@ -959,7 +959,7 @@ async function loadAuthorizations() {
             container.innerHTML = '<p style="color:#888;">{{ t.msg_no_authorizations or "Aucune autorisation enregistrée." }}</p>';
             return;
         }
-        let html = '<table style="width:100%;min-width:560px;border-collapse:collapse;font-size:13px;">';
+        let html = '<div style="overflow-x:auto;"><table id="auth-list-table" style="width:100%;min-width:560px;border-collapse:separate;border-spacing:0;font-size:13px;">';
         html += '<thead><tr style="background:#f3f3f3;">';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_date_from or "Du" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_date_to or "Au" }}</th>';
@@ -1001,7 +1001,7 @@ async function loadAuthorizations() {
                 </td>
             </tr>`;
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
     } catch(e) {
         container.innerHTML = '<p style="color:#dc3545;">{{ t.msg_error or "Erreur lors du chargement." }}</p>';
