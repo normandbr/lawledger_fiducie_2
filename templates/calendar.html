@@ -201,6 +201,7 @@
 
         <div id="event-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
         <div style="display:flex;gap:8px;">
+            <button id="save-event-btn" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
             <button id="btn-save-event" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
             <button id="ev-save-btn" class="btn btn-primary" onclick="saveEvent()">{{ t.btn_save_event or 'Save Event' }}</button>
             <button class="btn btn-secondary" onclick="closeEventModal()">{{ t.btn_cancel or 'Cancel' }}</button>
@@ -333,6 +334,8 @@ function onEventTypeChange() {
         locationGroup.style.display = '';
         document.getElementById('ev-room').value = '';
         document.getElementById('ev-room-warning').style.display = 'none';
+        const saveBtn = document.getElementById('save-event-btn');
+        if (saveBtn) saveBtn.disabled = false;
         document.getElementById('btn-save-event').disabled = false;
     }
 }
@@ -342,6 +345,11 @@ async function checkRoomAvailability() {
     const date   = document.getElementById('ev-date').value;
     const eventId = document.getElementById('event-id').value;
     const warningEl = document.getElementById('ev-room-warning');
+    const saveBtn   = document.getElementById('save-event-btn');
+    if (!roomId || !date) { warningEl.style.display = 'none'; if (saveBtn) saveBtn.disabled = false; return; }
+    try {
+        const resp = await fetch(SCRIPT_ROOT + `/api/calendar/rooms/${roomId}/reservations?date_from=${encodeURIComponent(date)}&date_to=${encodeURIComponent(date)}`);
+        if (!resp.ok) { warningEl.style.display = 'none'; if (saveBtn) saveBtn.disabled = false; return; }
     const saveBtn   = document.getElementById('btn-save-event');
     if (!roomId || !date) { warningEl.style.display = 'none'; saveBtn.disabled = false; return; }
     try {
@@ -357,6 +365,8 @@ async function checkRoomAvailability() {
         // Conflict = another event (not the current one) is already booked in this room on this date
         const conflict = reservations.some(r => String(r.id) !== String(eventId));
         warningEl.style.display = conflict ? '' : 'none';
+        if (saveBtn) saveBtn.disabled = conflict;
+    } catch(e) { warningEl.style.display = 'none'; if (saveBtn) saveBtn.disabled = false; }
         saveBtn.disabled = conflict;
     } catch(e) { warningEl.style.display = 'none'; saveBtn.disabled = false; }
         setSaveDisabled(conflict);
@@ -380,6 +390,8 @@ function openAddEventModal() {
     document.getElementById('ev-location-group').style.display = '';
     document.getElementById('ev-room-warning').style.display   = 'none';
     document.getElementById('event-modal-error').style.display = 'none';
+    const saveBtn = document.getElementById('save-event-btn');
+    if (saveBtn) saveBtn.disabled = false;
     document.getElementById('btn-save-event').disabled = false;
     const evSaveBtn = document.getElementById('ev-save-btn');
     if (evSaveBtn) evSaveBtn.disabled = false;
@@ -415,6 +427,8 @@ async function openEditEventModal(id) {
         } else {
             roomGroup.style.display     = 'none';
             locationGroup.style.display = '';
+            const saveBtn = document.getElementById('save-event-btn');
+            if (saveBtn) saveBtn.disabled = false;
         }
         document.getElementById('event-modal-error').style.display = 'none';
         document.getElementById('event-modal').style.display = 'flex';
