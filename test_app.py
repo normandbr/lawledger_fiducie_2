@@ -654,3 +654,109 @@ class TestTrustAuthorizationAPI:
         assert resp.status_code == 403
         logout(client)
 
+    def test_duplicate_active_authorization_rejected(self, client, manager_user, app):
+        """Creating a second active authorization for the same matter must return 409."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        # Create first authorization (should succeed)
+        r1 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r1.status_code == 201
+
+        # Attempt to create a second one (should be rejected)
+        r2 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r2.status_code == 409
+        logout(client)
+
+    def test_soft_delete_then_create_succeeds(self, client, manager_user, app):
+        """After soft-deleting an active authorization, a new one can be created."""
+        from datetime import date
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        r1 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r1.status_code == 201
+        auth_id = r1.get_json()["id"]
+
+        # Soft-delete
+        rd = client.delete(f"/api/fiducie/authorizations/{auth_id}")
+        assert rd.status_code == 200
+
+        # Now creating a new one must succeed
+        r2 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r2.status_code == 201
+        logout(client)
+
+    def test_expired_authorization_allows_new(self, client, manager_user, app):
+        """An expired (date_to in the past) authorization must not block a new one."""
+        from datetime import date, timedelta
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        past = (date.today() - timedelta(days=30)).isoformat()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        # Create an expired authorization first (no active auth yet, should succeed)
+        r1 = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": past, "date_to": yesterday},
+        )
+        assert r1.status_code == 201
+
+        # Creating a new authorization for today should succeed (old one is expired)
+        today = date.today().isoformat()
+        r2 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r2.status_code == 201
+        logout(client)
+
+    def test_is_valid_field_reflects_active_on(self, client, manager_user, app):
+        """The is_valid field returned by the list endpoint must match is_active_on()."""
+        from datetime import date, timedelta
+        from app import db, TrustAuthorization
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            m = self._create_matter(app)
+            matter_id = m.id
+            TrustAuthorization.query.filter_by(matter_id=matter_id).delete()
+            db.session.commit()
+
+        today = date.today().isoformat()
+        past = (date.today() - timedelta(days=30)).isoformat()
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+        # Create an expired authorization first (date_to in the past, not active today)
+        r1 = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": past, "date_to": yesterday},
+        )
+        assert r1.status_code == 201
+
+        # Now create a currently active authorization (no conflict – expired one is inactive)
+        r2 = client.post(f"/api/fiducie/{matter_id}/authorizations", json={"date_from": today})
+        assert r2.status_code == 201
+
+        auths = client.get(f"/api/fiducie/{matter_id}/authorizations").get_json()
+        valid = [a for a in auths if a["is_valid"]]
+        invalid = [a for a in auths if not a["is_valid"]]
+        # Only the active one (today) should be is_valid=True; the expired one is False
+        assert len(valid) == 1
+        assert len(invalid) == 1
+        logout(client)
+

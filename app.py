@@ -1501,11 +1501,15 @@ _COLUMN_MIGRATIONS = {
     ],
     'trust_authorizations': [
         ('client_id',         'INT NULL'),
+        ('date_from',         'DATE NULL'),
+        ('date_to',           'DATE NULL'),
         ('is_indefinite',     'BIT NOT NULL DEFAULT 0'),
         ('max_amount',        'DECIMAL(12,2) NULL'),
+        ('notes',             'NTEXT NULL'),
         ('doc_filename',      'NVARCHAR(500) NULL'),
         ('doc_original_name', 'NVARCHAR(255) NULL'),
         ('is_active',         'BIT NOT NULL DEFAULT 1'),
+        ('created_by',        'NVARCHAR(255) NULL'),
     ],
 }
 
@@ -2639,12 +2643,16 @@ def api_trust_auth_create(matter_id):
     data = request.get_json() or {}
 
     # Reject if there is already an active authorization for this matter.
-    # Pre-filter in the DB: exclude records whose date_to is in the past, then
-    # apply the full is_active_on() check in Python to handle all edge cases.
+    # Pre-filter in the DB: exclude soft-deleted records and those whose date range
+    # does not overlap with today, then apply is_active_on() to cover all edge cases.
     today = datetime.now(UTC).date()
     candidate_auths = TrustAuthorization.query.filter(
         TrustAuthorization.matter_id == matter_id,
         TrustAuthorization.is_active == True,  # noqa: E712 - exclude soft-deleted
+        db.or_(
+            TrustAuthorization.date_from == None,   # noqa: E711
+            TrustAuthorization.date_from <= today,
+        ),
         db.or_(
             TrustAuthorization.date_to == None,   # noqa: E711 (SQLAlchemy requires ==)
             TrustAuthorization.date_to >= today,
@@ -2732,9 +2740,14 @@ def api_trust_auth_delete(auth_id):
     if not current_user.is_manager:
         return jsonify({'error': 'Manager access required'}), 403
     auth = TrustAuthorization.query.get_or_404(auth_id)
-    auth.is_active = False
-    db.session.commit()
-    return jsonify({'success': True})
+    try:
+        auth.is_active = False
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as exc:
+        db.session.rollback()
+        logger.exception('Error soft-deleting trust authorization %s: %s', auth_id, exc)
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/api/fiducie/authorizations/<int:auth_id>/document', methods=['POST'])
