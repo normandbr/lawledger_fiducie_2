@@ -19,9 +19,10 @@
         <form id="import-matters-form" enctype="multipart/form-data">
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
-                <div>
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                     <button type="button" id="matters-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
-                    <span id="matters-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <span id="matters-file-name" style="font-size:13px;color:var(--text-secondary);">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <button type="button" id="matters-clear-btn" class="btn btn-sm btn-danger" style="display:none;" onclick="clearFileInput('matters')">🗑 {{ t.btn_remove_file or 'Supprimer' }}</button>
                     <input type="file" id="matters-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
@@ -57,9 +58,10 @@
         <form id="import-costs-form" enctype="multipart/form-data">
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
-                <div>
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                     <button type="button" id="costs-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
-                    <span id="costs-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <span id="costs-file-name" style="font-size:13px;color:var(--text-secondary);">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <button type="button" id="costs-clear-btn" class="btn btn-sm btn-danger" style="display:none;" onclick="clearFileInput('costs')">🗑 {{ t.btn_remove_file or 'Supprimer' }}</button>
                     <input type="file" id="costs-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
@@ -92,9 +94,10 @@
         <form id="import-cost-codes-form" enctype="multipart/form-data">
             <div class="form-group">
                 <label>{{ t.lbl_select_file or 'Select File:' }}</label>
-                <div>
+                <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
                     <button type="button" id="cost-codes-pick-btn" class="btn">{{ t.btn_choose_file or 'Choose File…' }}</button>
-                    <span id="cost-codes-file-name" style="font-size:13px;color:var(--text-secondary);margin-left:4px;">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <span id="cost-codes-file-name" style="font-size:13px;color:var(--text-secondary);">{{ t.lbl_no_file_chosen or 'No file chosen' }}</span>
+                    <button type="button" id="cost-codes-clear-btn" class="btn btn-sm btn-danger" style="display:none;" onclick="clearFileInput('cost-codes')">🗑 {{ t.btn_remove_file or 'Supprimer' }}</button>
                     <input type="file" id="cost-codes-file" name="file" accept=".csv,.xlsx,.xls,.txt" style="display:none;">
                 </div>
             </div>
@@ -158,11 +161,12 @@ const FILE_PICKER_TYPES = [{
     }
 }];
 
-function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle) {
+function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHandle, clearBtnId) {
     const pickBtn = document.getElementById(pickBtnId);
     const fileNameEl = document.getElementById(fileNameId);
     const fileInput = document.getElementById(fileInputId);
     const submitBtn = document.getElementById(submitBtnId);
+    const clearBtn = clearBtnId ? document.getElementById(clearBtnId) : null;
 
     // Enable submit button when a file is chosen via standard input
     if (fileInput) {
@@ -170,6 +174,7 @@ function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHand
             if (fileInput.files.length) {
                 fileNameEl.textContent = fileInput.files[0].name;
                 if (submitBtn) submitBtn.disabled = false;
+                if (clearBtn) clearBtn.style.display = '';
             }
         });
     }
@@ -181,6 +186,7 @@ function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHand
                 setHandle(handle);
                 fileNameEl.textContent = handle.name;
                 if (submitBtn) submitBtn.disabled = false;
+                if (clearBtn) clearBtn.style.display = '';
             } catch (err) {
                 if (err.name !== 'AbortError') console.error(err);
             }
@@ -191,9 +197,27 @@ function initFilePicker(pickBtnId, fileNameId, fileInputId, submitBtnId, setHand
     }
 }
 
-initFilePicker('matters-pick-btn', 'matters-file-name', 'matters-file', 'matters-submit-btn', h => { mattersFileHandle = h; });
-initFilePicker('costs-pick-btn', 'costs-file-name', 'costs-file', 'costs-submit-btn', h => { costsFileHandle = h; });
-initFilePicker('cost-codes-pick-btn', 'cost-codes-file-name', 'cost-codes-file', 'cost-codes-submit-btn', h => { costCodesFileHandle = h; });
+initFilePicker('matters-pick-btn', 'matters-file-name', 'matters-file', 'matters-submit-btn', h => { mattersFileHandle = h; }, 'matters-clear-btn');
+initFilePicker('costs-pick-btn', 'costs-file-name', 'costs-file', 'costs-submit-btn', h => { costsFileHandle = h; }, 'costs-clear-btn');
+initFilePicker('cost-codes-pick-btn', 'cost-codes-file-name', 'cost-codes-file', 'cost-codes-submit-btn', h => { costCodesFileHandle = h; }, 'cost-codes-clear-btn');
+
+function clearFileInput(prefix) {
+    const fileInput = document.getElementById(prefix + '-file');
+    const fileNameEl = document.getElementById(prefix + '-file-name');
+    const submitBtn = document.getElementById(prefix + '-submit-btn');
+    const clearBtn = document.getElementById(prefix + '-clear-btn');
+    if (fileInput) fileInput.value = '';
+    if (fileNameEl) fileNameEl.textContent = IMPORT_STR.noFileChosen;
+    if (submitBtn) submitBtn.disabled = true;
+    if (clearBtn) clearBtn.style.display = 'none';
+    // Clear the file handle for the File System Access API
+    const handleResetMap = {
+        'matters':    () => { mattersFileHandle = null; },
+        'costs':      () => { costsFileHandle = null; },
+        'cost-codes': () => { costCodesFileHandle = null; },
+    };
+    if (handleResetMap[prefix]) handleResetMap[prefix]();
+}
 
 function showImportResult(resultDiv, result, formEl, submitBtnId) {
     if (result.success) {
@@ -225,10 +249,12 @@ function showImportResult(resultDiv, result, formEl, submitBtnId) {
             const btn = document.getElementById(submitBtnId);
             if (btn) btn.disabled = true;
         }
-        // Reset the custom file name label to "No file chosen"
+        // Reset the custom file name label to "No file chosen" and hide clear button
         if (formEl) {
             const fileNameEl = formEl.querySelector('[id$="-file-name"]');
             if (fileNameEl) fileNameEl.textContent = IMPORT_STR.noFileChosen;
+            const clearBtn = formEl.querySelector('[id$="-clear-btn"]');
+            if (clearBtn) clearBtn.style.display = 'none';
         }
     } else {
         resultDiv.innerHTML = `
