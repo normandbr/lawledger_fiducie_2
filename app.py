@@ -125,8 +125,12 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 # Cookie path set to root so the session works both with and without the IIS
 # reverse-proxy prefix (/lawledger).
 app.config['SESSION_COOKIE_PATH'] = '/'
-# Sessions expire after 2 hours of inactivity (enforced server-side as well)
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
+# Sessions are non-persistent: the cookie has no expiry, so it disappears when
+# the browser is closed and a fresh login is required every time.
+# Note: PERMANENT_SESSION_LIFETIME only applies to *permanent* sessions; the
+# 15-minute inactivity timeout is enforced server-side by _check_session_timeout.
+app.config['SESSION_PERMANENT'] = False
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)
 
 
 #app.config['SECRET_KEY'] = '8513c25c36b9708695e2fc52da2ba23df65839164c5d19fcefd5ea0dc565896f'
@@ -269,6 +273,18 @@ login_manager.login_message_category = 'warning'
 def set_charset(response):
     if response.mimetype == 'text/html' and 'charset' not in response.content_type:
         response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return response
+
+
+# Prevent browsers from caching protected pages so that pressing the back
+# button after logout does not reveal stale content.  Static assets are
+# excluded so their normal browser caching is preserved.
+@app.after_request
+def add_no_cache_headers(response):
+    if not request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
     return response
 
 # Token serializer for password reset
@@ -2116,7 +2132,7 @@ def _enforce_license_restrictions():
 
 # ── Session timeout & single-session enforcement ─────────────────────────────
 
-_SESSION_TIMEOUT_SECONDS = 2 * 3600  # 2 hours of inactivity
+_SESSION_TIMEOUT_SECONDS = 15 * 60  # 15 minutes of inactivity
 
 _SESSION_EXEMPT_PATHS = {'/login', '/logout', '/register', '/forgot-password',
                          '/reset-password', '/license/acknowledge', '/mfa-verify'}
@@ -2124,7 +2140,7 @@ _SESSION_EXEMPT_PATHS = {'/login', '/logout', '/register', '/forgot-password',
 
 @app.before_request
 def _check_session_timeout():
-    """Force-logout a user who has been inactive for more than 2 hours."""
+    """Force-logout a user who has been inactive for more than 15 minutes."""
     if not current_user.is_authenticated:
         return
     path = request.path
@@ -2142,8 +2158,8 @@ def _check_session_timeout():
                 session.clear()
                 if path.startswith('/api/'):
                     return jsonify({'error': 'session_expired',
-                                    'message': 'Session expirée après 2 heures d\'inactivité.'}), 401
-                flash('Votre session a expiré après 2 heures d\'inactivité. Veuillez vous reconnecter.', 'warning')
+                                    'message': 'Session expirée après 15 minutes d\'inactivité.'}), 401
+                flash('Votre session a expiré après 15 minutes d\'inactivité. Veuillez vous reconnecter.', 'warning')
                 return redirect(url_for('login'))
         except (ValueError, TypeError):
             pass
