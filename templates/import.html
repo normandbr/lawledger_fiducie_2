@@ -143,6 +143,7 @@ const IMPORT_STR = {
     selectFile:          {{ (t.err_select_file or 'Please select a file first.') | tojson }},
     errorLabel:          {{ (t.err_import_error or 'Error:') | tojson }},
     noFileChosen:        {{ (t.lbl_no_file_chosen or 'No file chosen') | tojson }},
+    btnDeleteFile:       {{ (t.btn_delete_imported_file or '🗑 Supprimer le fichier importé') | tojson }},
 };
 
 const supportsFilePicker = typeof window.showOpenFilePicker === 'function';
@@ -313,6 +314,23 @@ async function applyOriginalFileAction(handle, fileAction, resultDiv) {
     }
 }
 
+function addDeleteFileButton(resultDiv, handle) {
+    const alertEl = resultDiv.querySelector('.alert');
+    if (!alertEl) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-danger';
+    btn.style.marginTop = '8px';
+    btn.textContent = IMPORT_STR.btnDeleteFile;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        await applyOriginalFileAction(handle, 'delete', resultDiv);
+        btn.remove();
+    });
+    alertEl.appendChild(document.createElement('br'));
+    alertEl.appendChild(btn);
+}
+
 // Progress bar animation helper: simulates progress while waiting for server
 function startProgressBar(barId, labelId) {
     const bar = document.getElementById(barId);
@@ -377,8 +395,9 @@ document.getElementById('import-matters-form').addEventListener('submit', async 
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'matters-submit-btn');
         if (result.imported > 0) {
-            await applyOriginalFileAction(mattersFileHandle, fileAction, resultDiv);
-            if (supportsFilePicker) mattersFileHandle = null;
+            const capturedHandle = mattersFileHandle;
+            mattersFileHandle = null;
+            addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }
@@ -429,7 +448,9 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'costs-submit-btn');
         if (result.imported > 0) {
-            if (supportsFilePicker) costsFileHandle = null;
+            const capturedHandle = costsFileHandle;
+            costsFileHandle = null;
+            addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }
@@ -481,7 +502,9 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'cost-codes-submit-btn');
         if (result.imported > 0) {
-            if (supportsFilePicker) costCodesFileHandle = null;
+            const capturedHandle = costCodesFileHandle;
+            costCodesFileHandle = null;
+            addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }
