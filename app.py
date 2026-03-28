@@ -131,7 +131,11 @@ app.config['SESSION_COOKIE_PATH'] = '/'
 # 15-minute inactivity timeout is enforced server-side by _check_session_timeout.
 app.config['SESSION_PERMANENT'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)
-
+app.config.update(
+    SESSION_PERMANENT=False,          # 🔴 session non persistante
+    SESSION_TYPE='filesystem',        # ou autre selon ton setup
+    PERMANENT_SESSION_LIFETIME=timedelta(minutes=0)  # optionnel
+)
 
 #app.config['SECRET_KEY'] = '8513c25c36b9708695e2fc52da2ba23df65839164c5d19fcefd5ea0dc565896f'
 
@@ -164,6 +168,10 @@ app.config['SQLALCHEMY_ECHO'] = os.environ.get('DEBUG', '').lower() in ('1', 'tr
 def set_lang(lang):
     session['lang'] = lang if lang in ['fr', 'en'] else 'fr'
     return redirect(request.referrer or url_for('index'))
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return "OK"
 
 # Flask-Mail configuration (from .env or config.ini)
 # When BREVO_API_KEY is set the app sends via Brevo's transactional API directly,
