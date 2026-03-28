@@ -134,7 +134,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=15)
 app.config.update(
     SESSION_PERMANENT=False,          # 🔴 session non persistante
     SESSION_TYPE='filesystem',        # ou autre selon ton setup
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=0)  # optionnel
+    #PERMANENT_SESSION_LIFETIME=timedelta(minutes=0)  # optionnel
 )
 
 #app.config['SECRET_KEY'] = '8513c25c36b9708695e2fc52da2ba23df65839164c5d19fcefd5ea0dc565896f'
@@ -1202,7 +1202,18 @@ class TrustAuthorization(db.Model):
             return False
         return True
 
+    def get_amount_used(self):
+        """Return the total amount of non-cancelled RETRAIT/REMBOURSEMENT transactions
+        that were made under this specific authorization."""
+        total = db.session.query(db.func.sum(TransactionsFiducie.montant)).filter(
+            TransactionsFiducie.authorization_id == self.id,
+            TransactionsFiducie.est_annulee == False  # noqa: E712
+        ).scalar()
+        return float(total) if total is not None else 0.0
+
     def to_dict(self):
+        amount_used = self.get_amount_used()
+        max_amt = float(self.max_amount) if self.max_amount is not None else None
         return {
             'id': self.id,
             'matter_id': self.matter_id,
@@ -1210,7 +1221,9 @@ class TrustAuthorization(db.Model):
             'date_from': self.date_from.isoformat() if self.date_from else None,
             'date_to': self.date_to.isoformat() if self.date_to else None,
             'is_indefinite': bool(self.is_indefinite) if self.is_indefinite is not None else False,
-            'max_amount': float(self.max_amount) if self.max_amount is not None else None,
+            'max_amount': max_amt,
+            'amount_used': round(amount_used, 2),
+            'amount_remaining': round(max_amt - amount_used, 2) if max_amt is not None else None,
             'notes': self.notes or '',
             'doc_filename': self.doc_filename or '',
             'doc_original_name': self.doc_original_name or '',
@@ -1497,10 +1510,11 @@ _COLUMN_MIGRATIONS = {
         ('added_by', 'NVARCHAR(80) NULL'),
     ],
     'TransactionsFiducie': [
-        ('beneficiaire',    'NVARCHAR(255) NULL'),
-        ('motif',           'NVARCHAR(MAX) NULL'),
-        ('created_by',      'NVARCHAR(255) NULL'),
-        ('invoice_number',  'NVARCHAR(100) NULL'),
+        ('beneficiaire',      'NVARCHAR(255) NULL'),
+        ('motif',             'NVARCHAR(MAX) NULL'),
+        ('created_by',        'NVARCHAR(255) NULL'),
+        ('invoice_number',    'NVARCHAR(100) NULL'),
+        ('authorization_id',  'INT NULL'),
     ],
     'suppliers': [
         ('account_number',    'NVARCHAR(100) NULL'),
@@ -2491,6 +2505,7 @@ class TransactionsFiducie(db.Model):
     created_by = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    authorization_id = db.Column(db.Integer, db.ForeignKey('trust_authorizations.id'), nullable=True)
 
 @app.route('/fiducie', methods=['GET'])
 @login_required
@@ -2584,6 +2599,7 @@ def api_fiducie_list(matter_id):
                 'invoice_number': t.invoice_number or '',
                 'est_annulee': t.est_annulee,
                 'created_by': t.created_by,
+                'authorization_id': t.authorization_id,
             }
             for t in transactions
         ]
@@ -2610,7 +2626,8 @@ def api_fiducie_create(matter_id):
     except (TypeError, ValueError):
         return jsonify({'error': 'Invalid montant value'}), 400
 
-    # Check sufficient funds for withdrawals
+    # Check sufficient funds for withdrawals; require and validate active authorization
+    active_auth = None
     if type_trans in ('RETRAIT', 'REMBOURSEMENT'):
         transactions = TransactionsFiducie.query.filter_by(matter_id=matter_id).all()
         solde = sum(
@@ -2623,13 +2640,31 @@ def api_fiducie_create(matter_id):
         # Require an active client authorization to withdraw/reimburse funds from trust
         today = datetime.now(UTC).date()
         auths = TrustAuthorization.query.filter_by(matter_id=matter_id).all()
-        has_active_auth = any(a.is_active_on(today) for a in auths)
-        if not has_active_auth:
+        active_auth = next((a for a in auths if a.is_active_on(today)), None)
+        if active_auth is None:
             return jsonify({
                 'error': 'no_authorization',
                 'message': 'Aucune autorisation client active pour ce dossier. '
                            'Veuillez ajouter une autorisation signée avant de procéder à un retrait ou remboursement.'
             }), 403
+
+        # Enforce max_amount: block the transaction if the authorization's cumulative
+        # total would exceed the permitted maximum.
+        if active_auth.max_amount is not None:
+            used = active_auth.get_amount_used()
+            if used + montant > float(active_auth.max_amount):
+                remaining = max(0.0, float(active_auth.max_amount) - used)
+                return jsonify({
+                    'error': 'max_amount_exceeded',
+                    'message': (
+                        f'Le montant maximum autorisé ({float(active_auth.max_amount):,.2f}$) '
+                        f'serait dépassé. Montant déjà utilisé\u00a0: {used:,.2f}$. '
+                        f'Reste disponible\u00a0: {remaining:,.2f}$.'
+                    ),
+                    'max_amount': float(active_auth.max_amount),
+                    'amount_used': round(used, 2),
+                    'amount_remaining': round(remaining, 2),
+                }), 400
 
     nouvelle_t = TransactionsFiducie(
         matter_id=matter_id,
@@ -2640,7 +2675,8 @@ def api_fiducie_create(matter_id):
         ref_bancaire=(data.get('ref_bancaire') or '').strip() or None,
         invoice_number=(data.get('invoice_number') or '').strip() or None,
         est_annulee=False,
-        created_by=current_user.display_name
+        created_by=current_user.display_name,
+        authorization_id=active_auth.id if active_auth is not None else None,
     )
     db.session.add(nouvelle_t)
     db.session.commit()
@@ -5407,10 +5443,12 @@ def api_invoices():
     # Validate trust authorization before accepting an apply_trust request.
     # A RETRAIT is created in the name of the invoice; the same rule that applies
     # to direct trust withdrawals must also apply here.
+    invoice_trust_auth = None  # will hold the active auth when apply_trust is used
     if data.get('apply_trust', False) and matter_id:
         today_auth = datetime.now(UTC).date()
         trust_auths_check = TrustAuthorization.query.filter_by(matter_id=matter_id).all()
-        if not any(a.is_active_on(today_auth) for a in trust_auths_check):
+        invoice_trust_auth = next((a for a in trust_auths_check if a.is_active_on(today_auth)), None)
+        if invoice_trust_auth is None:
             return jsonify({
                 'error': 'no_authorization',
                 'message': 'Aucune autorisation client active pour ce dossier. '
@@ -5524,6 +5562,25 @@ def api_invoices():
         current_total = float(invoice.total_amount)
         if trust_balance > 0 and current_total > 0:
             trust_applied = min(trust_balance, current_total)
+
+            # Enforce max_amount: cap the withdrawal to the remaining authorized amount
+            if invoice_trust_auth is not None and invoice_trust_auth.max_amount is not None:
+                used = invoice_trust_auth.get_amount_used()
+                remaining_auth = max(0.0, float(invoice_trust_auth.max_amount) - used)
+                if remaining_auth <= 0:
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'max_amount_exceeded',
+                        'message': (
+                            f'Le montant maximum autorisé ({float(invoice_trust_auth.max_amount):,.2f}$) '
+                            f'a été atteint. Aucun retrait de fiducie n\'est possible avec cette autorisation.'
+                        ),
+                        'max_amount': float(invoice_trust_auth.max_amount),
+                        'amount_used': round(used, 2),
+                        'amount_remaining': 0.0,
+                    }), 400
+                trust_applied = min(trust_applied, remaining_auth)
+
             # Create trust withdrawal
             trust_withdrawal = TransactionsFiducie(
                 matter_id=matter_id,
@@ -5533,7 +5590,8 @@ def api_invoices():
                 motif=f'Paiement facture {invoice.invoice_number}',
                 invoice_number=invoice.invoice_number,
                 est_annulee=False,
-                created_by=current_user.display_name
+                created_by=current_user.display_name,
+                authorization_id=invoice_trust_auth.id if invoice_trust_auth is not None else None,
             )
             db.session.add(trust_withdrawal)
             invoice.trust_applied = round(trust_applied, 2)
