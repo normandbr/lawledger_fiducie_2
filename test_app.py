@@ -938,3 +938,213 @@ class TestInvoiceTrustAuthorizationEnforcement:
         assert not (resp.status_code == 403 and data.get("error") == "no_authorization")
         logout(client)
 
+
+# ---------------------------------------------------------------------------
+# 13. Trust authorization max_amount enforcement
+# ---------------------------------------------------------------------------
+class TestTrustAuthMaxAmount:
+    """Verify that RETRAIT/REMBOURSEMENT transactions respect the authorization max_amount."""
+
+    def _setup(self, app):
+        """Create a test client, matter, and return (matter_id,)."""
+        from app import db, Client as ClientModel, Matter, TrustAuthorization, TransactionsFiducie
+        c = ClientModel.query.filter_by(client_number="MAXAMT-C001").first()
+        if not c:
+            c = ClientModel(client_number="MAXAMT-C001", client_name="MaxAmt Client", is_active=True)
+            db.session.add(c)
+            db.session.flush()
+        m = Matter.query.filter_by(matter_number="MAXAMT-M001").first()
+        if not m:
+            m = Matter(client_id=c.id, matter_number="MAXAMT-M001")
+            db.session.add(m)
+            db.session.flush()
+        # Wipe any existing transactions and authorizations so tests start clean
+        TransactionsFiducie.query.filter_by(matter_id=m.id).delete()
+        TrustAuthorization.query.filter_by(matter_id=m.id).delete()
+        db.session.commit()
+        return m.id
+
+    def _deposit(self, client, matter_id, amount):
+        """Helper: create a DEPOT transaction."""
+        from datetime import date
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "DEPOT", "montant": amount, "motif": "test deposit"},
+        )
+        assert resp.status_code == 201, resp.get_json()
+
+    def test_retrait_blocked_when_max_amount_exceeded(self, client, manager_user, app):
+        """A RETRAIT that would exceed the authorization max_amount must return 400."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        # First deposit $1000 into trust
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        # Create authorization with max_amount=$300
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today, "max_amount": 300.0},
+        )
+        assert r_auth.status_code == 201
+
+        # Attempting a $350 RETRAIT should be blocked (exceeds $300 max)
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 350.0, "motif": "over limit"},
+        )
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert data.get("error") == "max_amount_exceeded"
+        assert "300" in data.get("message", "")
+        logout(client)
+
+    def test_retrait_allowed_under_max_amount(self, client, manager_user, app):
+        """A RETRAIT within the authorization max_amount must succeed."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today, "max_amount": 300.0},
+        )
+        assert r_auth.status_code == 201
+
+        # A $200 RETRAIT is within the $300 limit
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 200.0, "motif": "within limit"},
+        )
+        assert resp.status_code == 201
+        logout(client)
+
+    def test_cumulative_retraits_blocked_at_max_amount(self, client, manager_user, app):
+        """Successive RETRAIT transactions that cumulatively exceed max_amount must be blocked."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today, "max_amount": 300.0},
+        )
+        assert r_auth.status_code == 201
+
+        # First withdrawal: $200 (total used = $200, under $300)
+        r1 = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 200.0},
+        )
+        assert r1.status_code == 201
+
+        # Second withdrawal: $150 (would bring total to $350, over $300)
+        r2 = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 150.0},
+        )
+        assert r2.status_code == 400
+        assert r2.get_json().get("error") == "max_amount_exceeded"
+        logout(client)
+
+    def test_retrait_no_max_amount_unlimited(self, client, manager_user, app):
+        """An authorization without max_amount imposes no upper limit on withdrawals."""
+        from datetime import date
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        # Authorization with no max_amount (unlimited)
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today},
+        )
+        assert r_auth.status_code == 201
+
+        # Should be able to withdraw the full available balance
+        resp = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 900.0},
+        )
+        assert resp.status_code == 201
+        logout(client)
+
+    def test_authorization_to_dict_includes_amount_used(self, client, manager_user, app):
+        """The authorization to_dict must include amount_used and amount_remaining."""
+        from datetime import date
+        from app import db, TrustAuthorization, TransactionsFiducie
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today, "max_amount": 300.0},
+        )
+        assert r_auth.status_code == 201
+
+        # Make a $100 withdrawal
+        client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 100.0},
+        )
+
+        # Check the authorization list
+        auths_resp = client.get(f"/api/fiducie/{matter_id}/authorizations")
+        assert auths_resp.status_code == 200
+        auths = auths_resp.get_json()
+        auth = next((a for a in auths if a.get("is_valid")), None)
+        assert auth is not None
+        assert auth.get("amount_used") == 100.0
+        assert auth.get("amount_remaining") == 200.0
+        assert auth.get("max_amount") == 300.0
+        logout(client)
+
+    def test_transaction_stores_authorization_id(self, client, manager_user, app):
+        """A RETRAIT transaction must store the authorization_id of the active auth."""
+        from datetime import date
+        from app import db, TransactionsFiducie
+        login(client, "test_manager", "Pass1234!")
+        with app.app_context():
+            matter_id = self._setup(app)
+
+        self._deposit(client, matter_id, 1000.0)
+
+        today = date.today().isoformat()
+        r_auth = client.post(
+            f"/api/fiducie/{matter_id}/authorizations",
+            json={"date_from": today, "max_amount": 500.0},
+        )
+        assert r_auth.status_code == 201
+        auth_id = r_auth.get_json()["id"]
+
+        r_retrait = client.post(
+            f"/api/fiducie/{matter_id}",
+            json={"type_trans": "RETRAIT", "montant": 150.0},
+        )
+        assert r_retrait.status_code == 201
+        trans_id = r_retrait.get_json()["id"]
+
+        with app.app_context():
+            txn = TransactionsFiducie.query.get(trans_id)
+            assert txn is not None
+            assert txn.authorization_id == auth_id
+        logout(client)
+

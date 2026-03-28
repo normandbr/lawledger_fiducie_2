@@ -493,8 +493,11 @@ document.getElementById('fiducie-form').addEventListener('submit', async functio
                 link.style.color = '#0078d4';
                 link.addEventListener('click', function(ev) { ev.preventDefault(); openAuthModal(); });
                 errorDiv.appendChild(link);
+            } else if (result.error === 'max_amount_exceeded') {
+                const msg = result.message || '{{ t.msg_max_amount_exceeded or "Le montant maximum autorisé serait dépassé." }}';
+                errorDiv.textContent = '🔒 ' + msg;
             } else {
-                errorDiv.textContent = '🚫 ' + (result.error || FID_STR.errGeneric);
+                errorDiv.textContent = '🚫 ' + (result.message || result.error || FID_STR.errGeneric);
             }
             errorDiv.style.display = 'block';
             return;
@@ -965,6 +968,8 @@ async function loadAuthorizations() {
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_date_to or "Au" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;min-width:120px;">{{ t.th_status or "Statut" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_max_amount or "Max ($)" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_amount_used or "Utilisé ($)" }}</th>';
+        html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.lbl_auth_amount_remaining or "Restant ($)" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;">{{ t.lbl_auth_notes or "Notes" }}</th>';
         html += '<th style="padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0;white-space:nowrap;">{{ t.th_document or "Document" }}</th>';
         html += '<th style="padding:6px 10px;border-bottom:1px solid #e0e0e0;"></th>';
@@ -988,12 +993,20 @@ async function loadAuthorizations() {
             const docCell = a.doc_filename
                 ? `<a href="${SCRIPT_ROOT}/api/fiducie/authorizations/${a.id}/document" target="_blank" class="btn btn-sm btn-outline-primary" title="${docLabel}">📄 {{ t.btn_view_document or "Voir PDF" }}</a>`
                 : `<span style="color:#999;font-size:12px;">—</span>`;
-            const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '{{ t.lbl_not_set or "Non défini" }}';
+            const maxAmt = a.max_amount != null ? '$' + parseFloat(a.max_amount).toFixed(2) : '—';
+            const amtUsed = a.max_amount != null ? '$' + parseFloat(a.amount_used || 0).toFixed(2) : '—';
+            const amtRemaining = a.max_amount != null
+                ? (parseFloat(a.amount_remaining || 0) <= 0
+                    ? `<span style="color:#dc3545;font-weight:600;">$0.00 <span title="{{ t.lbl_auth_exhausted or 'Épuisé' }}" style="font-size:11px;">⛔</span></span>`
+                    : '$' + parseFloat(a.amount_remaining || 0).toFixed(2))
+                : '—';
             html += `<tr>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${a.date_from || '{{ t.lbl_not_set or "Non défini" }}'}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${a.date_to || '{{ t.lbl_indefinite or "Indéfini" }}'}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${statusBadge}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${maxAmt}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${amtUsed}</td>
+                <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">${amtRemaining}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${a.notes || ''}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;">${docCell}</td>
                 <td style="padding:6px 10px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">
