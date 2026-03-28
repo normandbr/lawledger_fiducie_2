@@ -75,6 +75,7 @@
                     <input type="checkbox" id="apply_trust" name="apply_trust">
                     <span id="trust-label">{{ t.lbl_apply_trust or 'Payer avec le compte en fiducie' }}: <strong id="trust-amount">$0.00</strong></span>
                 </label>
+                <div id="trust-max-msg" style="display:none;margin-top:6px;color:#856404;font-size:12px;font-weight:500;"></div>
             </div>
         </div>
 
@@ -203,6 +204,7 @@ async function loadMattersForClient() {
     document.getElementById('apply_credit').checked = false;
     document.getElementById('trust-section').style.display = 'none';
     document.getElementById('apply_trust').checked = false;
+    document.getElementById('trust-max-msg').style.display = 'none';
     if (!selectedClientId) return;
     const [mattersRes, creditRes, trustRes] = await Promise.all([
         fetch(`${SCRIPT_ROOT}/api/clients/${selectedClientId}/matters?show_inactive=false`),
@@ -247,7 +249,10 @@ async function loadMattersForClient() {
         cb.disabled = true;
         cb.checked = false;
         section.style.opacity = '0.5';
+        section.style.background = '';
+        section.style.borderColor = '';
         section.title = '';
+        document.getElementById('trust-max-msg').style.display = 'none';
     }
 }
 
@@ -276,28 +281,59 @@ async function loadExpensesForMatter() {
                 trustCb.checked = false;
                 trustSection.style.opacity = '0.5';
                 trustSection.title = "Aucun solde en fiducie pour ce dossier";
+                document.getElementById('trust-max-msg').style.display = 'none';
             } else {
                 // Specific matter selected with funds – check for active trust authorization
                 matterTrustAuthorized = false;
+                let activeAuths = [];
                 try {
                     const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
                     if (authRes.ok) {
-                        const activeAuths = await authRes.json();
+                        activeAuths = await authRes.json();
                         matterTrustAuthorized = activeAuths.length > 0;
                     }
                 } catch (e) {
                     // Log fetch/network errors; keep checkbox disabled on failure
                     console.warn('Trust authorization check failed:', e);
                 }
+                const trustMaxMsgEl = document.getElementById('trust-max-msg');
                 if (matterTrustAuthorized) {
-                    trustCb.disabled = false;
-                    trustSection.style.opacity = '1';
-                    trustSection.title = '';
+                    // Check if the max amount has been reached for any active authorization
+                    const maxReached = activeAuths.some(a =>
+                        a.max_amount !== null && a.amount_remaining !== null && a.amount_remaining <= 0
+                    );
+                    if (maxReached) {
+                        // Find the authorization with the max amount that was reached
+                        const reachedAuth = activeAuths.find(a =>
+                            a.max_amount !== null && a.amount_remaining !== null && a.amount_remaining <= 0
+                        );
+                        const maxAmt = reachedAuth && reachedAuth.max_amount !== null
+                            ? parseFloat(reachedAuth.max_amount).toFixed(2)
+                            : '—';
+                        trustCb.disabled = true;
+                        trustCb.checked = false;
+                        trustSection.style.opacity = '0.7';
+                        trustSection.style.background = '#fff3cd';
+                        trustSection.style.borderColor = '#ffc107';
+                        trustSection.title = '';
+                        trustMaxMsgEl.textContent = `⚠ Le montant maximum de ${maxAmt}$ a été atteint. Aucun retrait de fiducie n'est possible.`;
+                        trustMaxMsgEl.style.display = '';
+                    } else {
+                        trustCb.disabled = false;
+                        trustSection.style.opacity = '1';
+                        trustSection.style.background = '';
+                        trustSection.style.borderColor = '';
+                        trustSection.title = '';
+                        trustMaxMsgEl.style.display = 'none';
+                    }
                 } else {
                     trustCb.disabled = true;
                     trustCb.checked = false;
                     trustSection.style.opacity = '0.5';
+                    trustSection.style.background = '';
+                    trustSection.style.borderColor = '';
                     trustSection.title = "Aucune autorisation active pour ce dossier";
+                    trustMaxMsgEl.style.display = 'none';
                 }
             }
         } else {
@@ -307,7 +343,10 @@ async function loadExpensesForMatter() {
             trustCb.disabled = true;
             trustCb.checked = false;
             trustSection.style.opacity = '0.5';
+            trustSection.style.background = '';
+            trustSection.style.borderColor = '';
             trustSection.title = '';
+            document.getElementById('trust-max-msg').style.display = 'none';
             // Restore the total client trust balance display when no matter selected
             document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
         }
