@@ -540,12 +540,55 @@
 
             <!-- Configuration Tab -->
             <div id="setup-tab-config" style="display:none;">
-                <p style="font-size:13px;color:#555;margin-bottom:18px;">
-                    {{ t.setup_config_desc or 'Renommez les champs supplémentaires pour les clients, les dossiers et les fournisseurs selon les besoins de votre firme.' }}
+                <p style="font-size:13px;color:#555;margin-bottom:14px;">
+                    {{ t.setup_config_desc or 'Configurez les champs supplémentaires et les paramètres de salaire.' }}
                 </p>
 
+                <!-- Section navigation buttons -->
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+                    <button id="cfg-btn-salary" onclick="toggleCfgSection('salary')"
+                            style="padding:8px 18px;border:1px solid #0078d4;background:#fff;color:#0078d4;
+                                   border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;
+                                   transition:background .15s,color .15s,transform .1s;">
+                        ⚙ {{ t.lbl_salary_config_btn or 'Salaire' }}
+                    </button>
+                    <button id="cfg-btn-clients" onclick="toggleCfgSection('clients')"
+                            style="padding:8px 18px;border:1px solid #0078d4;background:#fff;color:#0078d4;
+                                   border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;
+                                   transition:background .15s,color .15s,transform .1s;">
+                        👥 {{ t.lbl_extra_fields_clients_btn or 'Clients' }}
+                    </button>
+                    <button id="cfg-btn-dossiers" onclick="toggleCfgSection('dossiers')"
+                            style="padding:8px 18px;border:1px solid #0078d4;background:#fff;color:#0078d4;
+                                   border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;
+                                   transition:background .15s,color .15s,transform .1s;">
+                        📁 {{ t.lbl_extra_fields_matters_btn or 'Dossiers' }}
+                    </button>
+                    <button id="cfg-btn-fournisseurs" onclick="toggleCfgSection('fournisseurs')"
+                            style="padding:8px 18px;border:1px solid #0078d4;background:#fff;color:#0078d4;
+                                   border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;
+                                   transition:background .15s,color .15s,transform .1s;">
+                        🏢 {{ t.lbl_extra_fields_suppliers_btn or 'Fournisseurs' }}
+                    </button>
+                </div>
+
+                <!-- Salary section -->
+                <div id="cfg-section-salary" style="display:none;margin-bottom:20px;">
+                    <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
+                        ⚙ {{ t.lbl_salary_config_btn or 'Salaire' }}
+                    </h3>
+                    <p style="font-size:13px;color:#555;margin-bottom:10px;">
+                        {{ t.setup_salary_config_link_desc or 'Configurez les champs de salaire et leurs codes comptables depuis la page Salaire.' }}
+                    </p>
+                    <a href="{{ url_for('salary_page') }}"
+                       style="display:inline-block;padding:8px 18px;background:#0078d4;color:#fff;text-decoration:none;
+                              border-radius:4px;font-size:13px;font-weight:600;">
+                        {{ t.btn_go_to_salary or '→ Aller à la configuration Salaire' }}
+                    </a>
+                </div>
+
                 <!-- Clients extra fields -->
-                <div style="margin-bottom:20px;">
+                <div id="cfg-section-clients" style="display:none;margin-bottom:20px;">
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_clients or 'Champs supplémentaires – Clients' }}
                     </h3>
@@ -561,7 +604,7 @@
                 </div>
 
                 <!-- Matters/Dossiers extra fields -->
-                <div style="margin-bottom:20px;">
+                <div id="cfg-section-dossiers" style="display:none;margin-bottom:20px;">
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_matters or 'Champs supplémentaires – Dossiers' }}
                     </h3>
@@ -577,7 +620,7 @@
                 </div>
 
                 <!-- Suppliers extra fields -->
-                <div style="margin-bottom:20px;">
+                <div id="cfg-section-fournisseurs" style="display:none;margin-bottom:20px;">
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_suppliers or 'Champs supplémentaires – Fournisseurs' }}
                     </h3>
@@ -594,15 +637,21 @@
 
                 <div id="setup_cfg_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
                 <div style="display:flex;gap:8px;">
-                    <button onclick="saveSetupConfig()"
+                    <button id="btn-save-setup-config" onclick="saveSetupConfig()"
                             style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
-                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;
+                                   transition:transform .1s,box-shadow .1s;">
                         {{ t.btn_save or 'Enregistrer' }}
                     </button>
                     <button onclick="closeAppSetupModal()"
                             style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
                                    border-radius:4px;font-size:14px;cursor:pointer;">
                         {{ t.btn_cancel or 'Annuler' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#107c10;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_done or 'Terminé' }}
                     </button>
                 </div>
             </div>
@@ -1026,6 +1075,8 @@
             }
         });
         var msg = document.getElementById('setup_cfg_msg');
+        var saveBtn = document.getElementById('btn-save-setup-config');
+        if (saveBtn) { saveBtn.style.transform = 'scale(0.96)'; saveBtn.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,.2)'; }
         fetch(SCRIPT_ROOT + '/api/custom-field-defs', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
@@ -1035,13 +1086,34 @@
             .then(function () {
                 msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
                 msg.textContent = '{{ t.msg_config_saved or "Configuration enregistrée." }}';
+                setTimeout(function () { msg.style.display = 'none'; }, 3000);
                 // Notify other pages that custom field labels may have changed
                 if (typeof window.onCustomFieldDefsChanged === 'function') { window.onCustomFieldDefsChanged(); }
             })
             .catch(function () {
                 msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
                 msg.textContent = '{{ t.msg_config_error or "Erreur lors de l\'enregistrement." }}';
+                setTimeout(function () { msg.style.display = 'none'; }, 3000);
+            })
+            .finally(function () {
+                if (saveBtn) { saveBtn.style.transform = ''; saveBtn.style.boxShadow = ''; }
             });
+    }
+
+    var _activeCfgSection = null;
+    function toggleCfgSection(name) {
+        var sections = ['salary', 'clients', 'dossiers', 'fournisseurs'];
+        sections.forEach(function (s) {
+            var sec = document.getElementById('cfg-section-' + s);
+            var btn = document.getElementById('cfg-btn-' + s);
+            var isActive = (s === name && _activeCfgSection !== name);
+            if (sec) sec.style.display = isActive ? '' : 'none';
+            if (btn) {
+                btn.style.background = isActive ? '#0078d4' : '#fff';
+                btn.style.color      = isActive ? '#fff'    : '#0078d4';
+            }
+        });
+        _activeCfgSection = (_activeCfgSection === name) ? null : name;
     }
     </script>
     {% endif %}

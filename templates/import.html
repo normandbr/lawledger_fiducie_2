@@ -319,9 +319,19 @@ async function addDeleteFileButton(resultDiv, handle) {
     if (!alertEl) return;
 
     // If we have no file system handle (fallback input or unsupported browser),
-    // show the reminder text directly — no button needed.
+    // show a button that reminds the user to delete the file manually.
     if (!handle || !supportsFilePicker || typeof handle.remove !== 'function') {
-        alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-danger';
+        btn.style.marginTop = '8px';
+        btn.textContent = IMPORT_STR.btnDeleteFile;
+        btn.addEventListener('click', () => {
+            btn.remove();
+            alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        });
+        alertEl.appendChild(document.createElement('br'));
+        alertEl.appendChild(btn);
         return;
     }
 
