@@ -13,10 +13,21 @@
 
         <!-- Step 1: Select client → matter -->
         <div class="form-row">
-            <div class="form-group">
-                <label for="client_select">{{ t.lbl_select_client or 'Client' }}</label>
-                <input type="text" id="client_search" placeholder="{{ t.ph_search_client or 'Rechercher par nom ou numéro…' }}" oninput="filterClients()" autocomplete="off" style="margin-bottom:4px;">
-                <select id="client_select" required onchange="loadMattersForClient()">
+            <div class="form-group" style="position:relative;">
+                <label for="client_combo_input">{{ t.lbl_select_client or 'Client' }}</label>
+                <!-- Unified searchable client picker -->
+                <input type="text" id="client_combo_input"
+                       placeholder="{{ t.ph_search_client or 'Rechercher un client…' }}"
+                       autocomplete="off"
+                       oninput="onClientComboInput()"
+                       onfocus="onClientComboFocus()"
+                       onblur="onClientComboBlur()"
+                       style="width:100%;">
+                <ul id="client_combo_list"
+                    style="display:none;position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:4px;margin:0;padding:0;list-style:none;width:100%;max-height:240px;overflow-y:auto;box-shadow:0 2px 6px rgba(0,0,0,.15);">
+                </ul>
+                <!-- Hidden select kept for backward compatibility with loadMattersForClient() -->
+                <select id="client_select" required style="display:none;" onchange="loadMattersForClient()">
                     <option value="">{{ t.ph_select_client or '— Sélectionner un client —' }}</option>
                 </select>
             </div>
@@ -132,6 +143,12 @@ async function init() {
         const clientSel = document.getElementById('client_select');
         clientSel.value = preClientId;
         if (clientSel.value === preClientId) {
+            // Also fill the combo input with the selected client label
+            const preClient = allClientsData.find(c => String(c.id) === String(preClientId));
+            if (preClient) {
+                document.getElementById('client_combo_input').value =
+                    escHtml(String(preClient.client_number)) + ' – ' + escHtml(preClient.client_name);
+            }
             await loadMattersForClient();
             if (preMatterId) {
                 const matterSel = document.getElementById('matter_select');
@@ -198,17 +215,70 @@ function renderClientOptions(clients) {
     if (currentVal) sel.value = currentVal;
 }
 
-function filterClients() {
-    const query = document.getElementById('client_search').value.toLowerCase().trim();
-    if (!query) {
-        renderClientOptions(allClientsData);
+// ── Unified client combo widget ───────────────────────────────────────────────
+let _comboBlurTimer = null;
+
+function _getMatchingClients(query) {
+    if (!query) return allClientsData;
+    const q = query.toLowerCase();
+    return allClientsData.filter(c =>
+        (c.client_name || '').toLowerCase().includes(q) ||
+        String(c.client_number || '').toLowerCase().includes(q)
+    );
+}
+
+function _renderComboList(clients) {
+    const list = document.getElementById('client_combo_list');
+    if (!clients.length) {
+        list.style.display = 'none';
         return;
     }
-    const filtered = allClientsData.filter(c =>
-        (c.client_name || '').toLowerCase().includes(query) ||
-        String(c.client_number || '').toLowerCase().includes(query)
-    );
-    renderClientOptions(filtered);
+    list.innerHTML = clients.map(c =>
+        `<li data-id="${c.id}" data-label="${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}"
+             style="padding:6px 10px;cursor:pointer;font-size:13px;"
+             onmousedown="selectClientFromCombo(${c.id}, '${escHtml(String(c.client_number))} – ${escHtml(c.client_name).replace(/'/g, "\\'")}')"
+             onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background=''">
+            ${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}
+        </li>`
+    ).join('');
+    list.style.display = '';
+}
+
+function onClientComboInput() {
+    const input = document.getElementById('client_combo_input');
+    const query = input.value;
+    // Clear selection if user is typing something new
+    const sel = document.getElementById('client_select');
+    sel.value = '';
+    _renderComboList(_getMatchingClients(query));
+}
+
+function onClientComboFocus() {
+    if (_comboBlurTimer) { clearTimeout(_comboBlurTimer); _comboBlurTimer = null; }
+    const input = document.getElementById('client_combo_input');
+    _renderComboList(_getMatchingClients(input.value));
+}
+
+function onClientComboBlur() {
+    _comboBlurTimer = setTimeout(() => {
+        document.getElementById('client_combo_list').style.display = 'none';
+    }, 150);
+}
+
+function selectClientFromCombo(clientId, label) {
+    if (_comboBlurTimer) { clearTimeout(_comboBlurTimer); _comboBlurTimer = null; }
+    document.getElementById('client_combo_input').value = label;
+    document.getElementById('client_combo_list').style.display = 'none';
+    const sel = document.getElementById('client_select');
+    sel.value = clientId;
+    loadMattersForClient();
+}
+
+// Legacy function kept for compatibility (pre-select from URL)
+function filterClients() {
+    const query = document.getElementById('client_combo_input') ?
+        document.getElementById('client_combo_input').value : '';
+    _renderComboList(_getMatchingClients(query));
 }
 
 async function loadMattersForClient() {

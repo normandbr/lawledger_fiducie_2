@@ -95,6 +95,17 @@
             </select>
         </div>
         <div id="supplier-modal-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <!-- Extra configurable fields -->
+        <div id="sup-extra-fields" style="display:none;margin-bottom:12px;">
+            <hr style="margin:12px 0;">
+            {% for i in range(1, 6) %}
+            <div class="form-group" style="margin-bottom:10px;">
+                <label id="sup_extra{{ i }}_label" style="display:block;font-size:13px;font-weight:500;margin-bottom:4px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                <input type="text" id="sup-extra{{ i }}" maxlength="500"
+                       style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+            </div>
+            {% endfor %}
+        </div>
         <div style="display:flex;gap:8px;">
             <button class="btn btn-primary" onclick="saveSupplier()">{{ t.btn_save_supplier or 'Save Supplier' }}</button>
             <button class="btn btn-secondary" onclick="closeSupplierModal()">{{ t.btn_cancel or 'Cancel' }}</button>
@@ -348,6 +359,7 @@ function openAddSupplierModal() {
     document.getElementById('sup-service').value = '';
     document.getElementById('sup-notes').value = '';
     document.getElementById('sup-accounting-code').value = '';
+    for (let i = 1; i <= 5; i++) { const el = document.getElementById(`sup-extra${i}`); if (el) el.value = ''; }
     document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalAdd;
     document.getElementById('supplier-modal-error').style.display = 'none';
     document.getElementById('supplier-modal').style.display = 'flex';
@@ -367,6 +379,10 @@ async function openEditSupplierModal(supplierId) {
         document.getElementById('sup-service').value = s.service_provided || '';
         document.getElementById('sup-notes').value = s.notes || '';
         document.getElementById('sup-accounting-code').value = s.accounting_code || '';
+        for (let i = 1; i <= 5; i++) {
+            const el = document.getElementById(`sup-extra${i}`);
+            if (el) el.value = s[`extra${i}`] || '';
+        }
         document.getElementById('supplier-modal-title').firstElementChild.textContent = SUP_STR.modalEdit;
         document.getElementById('supplier-modal-error').style.display = 'none';
         document.getElementById('supplier-modal').style.display = 'flex';
@@ -397,6 +413,11 @@ async function saveSupplier() {
         service_provided: document.getElementById('sup-service').value,
         notes: document.getElementById('sup-notes').value,
         accounting_code: document.getElementById('sup-accounting-code').value,
+        extra1: document.getElementById('sup-extra1').value || null,
+        extra2: document.getElementById('sup-extra2').value || null,
+        extra3: document.getElementById('sup-extra3').value || null,
+        extra4: document.getElementById('sup-extra4').value || null,
+        extra5: document.getElementById('sup-extra5').value || null,
     };
     try {
         const url = id ? SCRIPT_ROOT + '/api/suppliers/' + id : SCRIPT_ROOT + '/api/suppliers';
@@ -702,6 +723,33 @@ async function loadAccountOptions() {
 // Initialize
 loadSuppliers();
 loadAccountOptions();
+loadSupplierCustomFieldDefs();
+
+let supplierCustomFieldDefs = [];
+
+async function loadSupplierCustomFieldDefs() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/custom-field-defs');
+        if (res.ok) supplierCustomFieldDefs = await res.json();
+    } catch (e) { /* ignore */ }
+    applySupplierFieldLabels();
+}
+
+function applySupplierFieldLabels() {
+    let anySupplier = false;
+    for (let i = 1; i <= 5; i++) {
+        const def = supplierCustomFieldDefs.find(d => d.entity_type === 'supplier' && d.field_index === i);
+        const lbl = def && def.label ? def.label : null;
+        const labelEl = document.getElementById(`sup_extra${i}_label`);
+        if (labelEl) labelEl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (lbl) anySupplier = true;
+    }
+    const extraDiv = document.getElementById('sup-extra-fields');
+    if (extraDiv) extraDiv.style.display = anySupplier ? '' : 'none';
+}
+
+window.onCustomFieldDefsChanged = function () { loadSupplierCustomFieldDefs(); };
+
 
 async function postSuppliersToGL() {
     try {

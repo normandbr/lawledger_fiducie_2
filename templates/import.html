@@ -314,21 +314,40 @@ async function applyOriginalFileAction(handle, fileAction, resultDiv) {
     }
 }
 
-function addDeleteFileButton(resultDiv, handle) {
+async function addDeleteFileButton(resultDiv, handle) {
     const alertEl = resultDiv.querySelector('.alert');
     if (!alertEl) return;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn-sm btn-danger';
-    btn.style.marginTop = '8px';
-    btn.textContent = IMPORT_STR.btnDeleteFile;
-    btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        await applyOriginalFileAction(handle, 'delete', resultDiv);
-        btn.remove();
-    });
-    alertEl.appendChild(document.createElement('br'));
-    alertEl.appendChild(btn);
+
+    // If we have no file system handle (fallback input or unsupported browser),
+    // show the reminder text directly — no button needed.
+    if (!handle || !supportsFilePicker || typeof handle.remove !== 'function') {
+        alertEl.innerHTML += '<br>' + IMPORT_STR.fileReminder;
+        return;
+    }
+
+    // Try auto-deleting the original file immediately.
+    try {
+        if (typeof handle.requestPermission === 'function') {
+            const perm = await handle.requestPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') throw new Error('permission denied');
+        }
+        await handle.remove();
+        alertEl.innerHTML += '<br><em>' + IMPORT_STR.fileDeletedOriginal + '</em>';
+    } catch (err) {
+        // Could not auto-delete – let the user try manually via a button.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-danger';
+        btn.style.marginTop = '8px';
+        btn.textContent = IMPORT_STR.btnDeleteFile;
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            await applyOriginalFileAction(handle, 'delete', resultDiv);
+            btn.remove();
+        });
+        alertEl.appendChild(document.createElement('br'));
+        alertEl.appendChild(btn);
+    }
 }
 
 // Progress bar animation helper: simulates progress while waiting for server
@@ -397,7 +416,7 @@ document.getElementById('import-matters-form').addEventListener('submit', async 
         if (result.imported > 0) {
             const capturedHandle = mattersFileHandle;
             mattersFileHandle = null;
-            addDeleteFileButton(resultDiv, capturedHandle);
+            await addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }
@@ -450,7 +469,7 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         if (result.imported > 0) {
             const capturedHandle = costsFileHandle;
             costsFileHandle = null;
-            addDeleteFileButton(resultDiv, capturedHandle);
+            await addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }
@@ -504,7 +523,7 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         if (result.imported > 0) {
             const capturedHandle = costCodesFileHandle;
             costCodesFileHandle = null;
-            addDeleteFileButton(resultDiv, capturedHandle);
+            await addDeleteFileButton(resultDiv, capturedHandle);
         } else {
             if (submitBtn) submitBtn.disabled = false;
         }

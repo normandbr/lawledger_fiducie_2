@@ -8,6 +8,28 @@
     .container { max-width: none; }
     /* Sticky header cell in dynamically-rendered expense tables */
     .expense-th { position: sticky; top: 0; z-index: 2; background-color: #f3f3f3; }
+    /* Actions dropdown */
+    .actions-dropdown { position: relative; display: inline-block; }
+    .actions-dropdown .dropdown-menu {
+        display: none; position: absolute; right: 0; z-index: 300;
+        min-width: 200px; background: #fff; border: 1px solid var(--border);
+        border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+        padding: 4px 0;
+    }
+    .actions-dropdown.open .dropdown-menu { display: block; }
+    .actions-dropdown .dropdown-menu button,
+    .actions-dropdown .dropdown-menu a {
+        display: block; width: 100%; text-align: left;
+        padding: 7px 14px; background: none; border: none;
+        font-size: 13px; color: var(--text-primary); cursor: pointer;
+        text-decoration: none; white-space: nowrap;
+    }
+    .actions-dropdown .dropdown-menu button:hover,
+    .actions-dropdown .dropdown-menu a:hover { background: #f0f4ff; }
+    .actions-dropdown .dropdown-menu .dropdown-divider {
+        margin: 4px 0; border-top: 1px solid var(--border);
+    }
+    .actions-dropdown .dropdown-menu .text-danger { color: var(--danger) !important; }
 </style>
 <div class="page-header">
     <h1>{{ t.title_clients_matters or 'Clients &amp; Matters' }}</h1>
@@ -70,6 +92,16 @@
                 <label for="client_email">{{ t.lbl_email or 'Email' }}</label>
                 <input type="email" id="client_email" name="email" maxlength="255" placeholder="{{ t.ph_client_email or 'e.g. contact@client.com' }}">
             </div>
+            <!-- Extra configurable fields -->
+            <div id="add-client-extra-fields" style="display:none;">
+                <hr style="margin:12px 0;">
+                {% for i in range(1, 6) %}
+                <div class="form-group">
+                    <label id="client_extra{{ i }}_label" for="client_extra{{ i }}">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                    <input type="text" id="client_extra{{ i }}" name="extra{{ i }}" maxlength="500">
+                </div>
+                {% endfor %}
+            </div>
             <div class="form-group">
                 <label style="display:flex;align-items:center;gap:8px;font-weight:normal;">
                     <input type="checkbox" id="client_is_active" name="is_active" checked>
@@ -102,6 +134,16 @@
                     <input type="checkbox" id="matter_is_active" name="is_active" checked>
                     {{ t.lbl_active or 'Active' }}
                 </label>
+            </div>
+            <!-- Extra configurable fields -->
+            <div id="add-matter-extra-fields" style="display:none;">
+                <hr style="margin:12px 0;">
+                {% for i in range(1, 6) %}
+                <div class="form-group">
+                    <label id="matter_extra{{ i }}_label" for="matter_extra{{ i }}">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                    <input type="text" id="matter_extra{{ i }}" name="extra{{ i }}" maxlength="500">
+                </div>
+                {% endfor %}
             </div>
             <button type="submit" class="btn btn-primary">{{ t.btn_save_matter or 'Save Matter' }}</button>
         </form>
@@ -158,6 +200,16 @@
             <div class="form-group">
                 <label for="edit_client_email">{{ t.lbl_email or 'Email' }}</label>
                 <input type="email" id="edit_client_email" name="email" maxlength="255">
+            </div>
+            <!-- Extra configurable fields -->
+            <div id="edit-client-extra-fields" style="display:none;">
+                <hr style="margin:12px 0;">
+                {% for i in range(1, 6) %}
+                <div class="form-group">
+                    <label id="edit_client_extra{{ i }}_label" for="edit_client_extra{{ i }}">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                    <input type="text" id="edit_client_extra{{ i }}" name="extra{{ i }}" maxlength="500">
+                </div>
+                {% endfor %}
             </div>
             <div class="form-group">
                 <label style="display:flex;align-items:center;gap:8px;font-weight:normal;">
@@ -222,6 +274,16 @@
             </div>
 
             <div id="edit-matter-error" class="alert alert-error" style="display:none;"></div>
+            <!-- Extra configurable fields -->
+            <div id="edit-matter-extra-fields" style="display:none;">
+                <hr style="margin:12px 0;">
+                {% for i in range(1, 6) %}
+                <div class="form-group">
+                    <label id="edit_matter_extra{{ i }}_label" for="edit_matter_extra{{ i }}">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                    <input type="text" id="edit_matter_extra{{ i }}" name="extra{{ i }}" maxlength="500">
+                </div>
+                {% endfor %}
+            </div>
             <div style="display:flex;gap:8px;">
                 <button type="submit" class="btn btn-primary">{{ t.btn_save or 'Save Changes' }}</button>
                 <button type="button" class="btn btn-secondary" onclick="hideEditMatterForm()">{{ t.btn_cancel or 'Cancel' }}</button>
@@ -376,6 +438,7 @@ const I18N = {
     btnTrust: {{ (t.btn_trust_test or '💰 Fiducie') | tojson }},
     btnInvoices: {{ (t.btn_invoices or '📋 Factures') | tojson }},
     btnNewInvoice: {{ (t.btn_new_invoice or '+ Nouvelle facture') | tojson }},
+    btnActions: {{ (t.btn_actions or 'Actions') | tojson }},
     confirmDeleteClient: {{ (t.msg_confirm_delete_client or 'Are you sure you want to delete this client? This action cannot be undone.') | tojson }},
     confirmDeleteMatter: {{ (t.msg_confirm_delete_matter or 'Are you sure you want to delete this matter? This action cannot be undone.') | tojson }},
     trustBalance: {{ (t.trust_balance or 'Trust Balance') | tojson }},
@@ -390,8 +453,25 @@ const I18N = {
     noExpenses: {{ (t.msg_no_expenses_found or 'No expenses found for this matter.') | tojson }},
 };
 
+// ── Dropdown helpers ──────────────────────────────────────────────────────────
+function toggleDropdown(id, event) {
+    event.stopPropagation();
+    const el = document.getElementById(id);
+    const wasOpen = el.classList.contains('open');
+    document.querySelectorAll('.actions-dropdown.open').forEach(d => d.classList.remove('open'));
+    if (!wasOpen) el.classList.add('open');
+}
+function closeDropdown(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('open');
+}
+document.addEventListener('click', () => {
+    document.querySelectorAll('.actions-dropdown.open').forEach(d => d.classList.remove('open'));
+});
+
 let clients = [];
 let costCodes = [];
+let customFieldDefs = [];  // {entity_type, field_index, label}
 let mattersCache = {};  // matterId → matter object
 let currentViewMatterId = null;
 let currentViewMatterLabel = '';
@@ -404,8 +484,58 @@ async function init() {
     const [ccRes] = await Promise.all([fetch(SCRIPT_ROOT + '/api/cost-codes')]);
     costCodes = ccRes.ok ? await ccRes.json() : [];
     populateCostCodeSelect();
+    await loadCustomFieldDefs();
     await loadClients();
 }
+
+async function loadCustomFieldDefs() {
+    try {
+        const res = await fetch(SCRIPT_ROOT + '/api/custom-field-defs');
+        if (res.ok) customFieldDefs = await res.json();
+    } catch (e) { /* ignore */ }
+    applyCustomFieldLabels();
+}
+
+function getFieldLabel(entityType, fieldIndex) {
+    const def = customFieldDefs.find(d => d.entity_type === entityType && d.field_index === fieldIndex);
+    return (def && def.label) ? def.label : null;
+}
+
+function applyCustomFieldLabels() {
+    // Client add/edit
+    let anyClient = false;
+    for (let i = 1; i <= 5; i++) {
+        const lbl = getFieldLabel('client', i);
+        const addLbl = document.getElementById(`client_extra${i}_label`);
+        const editLbl = document.getElementById(`edit_client_extra${i}_label`);
+        if (addLbl) addLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (editLbl) editLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (lbl) anyClient = true;
+    }
+    const addExtra = document.getElementById('add-client-extra-fields');
+    const editExtra = document.getElementById('edit-client-extra-fields');
+    if (addExtra) addExtra.style.display = anyClient ? '' : 'none';
+    if (editExtra) editExtra.style.display = anyClient ? '' : 'none';
+
+    // Matter add/edit
+    let anyMatter = false;
+    for (let i = 1; i <= 5; i++) {
+        const lbl = getFieldLabel('matter', i);
+        const addLbl = document.getElementById(`matter_extra${i}_label`);
+        const editLbl = document.getElementById(`edit_matter_extra${i}_label`);
+        if (addLbl) addLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (editLbl) editLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (lbl) anyMatter = true;
+    }
+    const addMatterExtra = document.getElementById('add-matter-extra-fields');
+    const editMatterExtra = document.getElementById('edit-matter-extra-fields');
+    if (addMatterExtra) addMatterExtra.style.display = anyMatter ? '' : 'none';
+    if (editMatterExtra) editMatterExtra.style.display = anyMatter ? '' : 'none';
+}
+
+// Re-apply when config saved from setup modal
+window.onCustomFieldDefsChanged = function () { loadCustomFieldDefs(); };
+
 
 function populateCostCodeSelect() {
     const sel = document.getElementById('expense_cost_code');
@@ -561,15 +691,22 @@ function renderMatters(clientId, matters) {
                         <td>${atty2}</td>
                         <td><span class="badge ${m.is_active ? 'badge-success' : 'badge-inactive'}">${m.is_active ? I18N.lblActive : I18N.lblInactive}</span></td>
                         <td>
-                            <div style="display:flex;flex-wrap:nowrap;gap:4px;">
-                            <button class="btn btn-sm btn-secondary" onclick="showEditMatterForm(${m.id}, ${clientId})">✏ ${I18N.btnEdit}</button>
-                            <button class="btn btn-sm btn-secondary" style="min-width:90px;" onclick="toggleMatterStatus(${m.id}, ${m.is_active}, ${clientId})">${m.is_active ? I18N.btnDeactivate : I18N.btnActivate}</button>
-                            <button class="btn btn-sm" style="color:var(--danger);" onclick="deleteMatter(${m.id}, ${clientId})">🗑 ${I18N.btnDelete}</button>
-                            <button class="btn btn-sm" onclick="viewExpenses(${m.id}, '${escHtml(m.matter_number)}', ${clientId})">${I18N.btnViewUnbilled}</button>
-                            <button class="btn btn-sm btn-secondary" onclick="showAddExpenseForm(${m.id}, '${escHtml(m.matter_number)}', ${clientId})">${I18N.btnAddExpense}</button>
-                            <a href="${SCRIPT_ROOT}/fiducie/${m.id}" class="btn btn-sm btn-success" style="text-decoration:none;">${I18N.btnTrust}</a>
-                            <a href="${SCRIPT_ROOT}/invoices?client_id=${clientId}" class="btn btn-sm btn-secondary" style="text-decoration:none;">${I18N.btnInvoices}</a>
-                            <a href="${SCRIPT_ROOT}/invoices/create?client_id=${clientId}&matter_id=${m.id}" class="btn btn-sm btn-secondary" style="text-decoration:none;">${I18N.btnNewInvoice}</a>
+                            <div class="actions-dropdown" id="dd-${m.id}">
+                                <button class="btn btn-sm btn-secondary" onclick="toggleDropdown('dd-${m.id}', event)">
+                                    ${I18N.btnActions} ▾
+                                </button>
+                                <div class="dropdown-menu">
+                                    <button onclick="closeDropdown('dd-${m.id}');showEditMatterForm(${m.id}, ${clientId})">✏ ${I18N.btnEdit}</button>
+                                    <button onclick="closeDropdown('dd-${m.id}');toggleMatterStatus(${m.id}, ${m.is_active}, ${clientId})">${m.is_active ? I18N.btnDeactivate : I18N.btnActivate}</button>
+                                    <div class="dropdown-divider"></div>
+                                    <button onclick="closeDropdown('dd-${m.id}');viewExpenses(${m.id}, '${escHtml(m.matter_number)}', ${clientId})">${I18N.btnViewUnbilled}</button>
+                                    <button onclick="closeDropdown('dd-${m.id}');showAddExpenseForm(${m.id}, '${escHtml(m.matter_number)}', ${clientId})">${I18N.btnAddExpense}</button>
+                                    <a href="${SCRIPT_ROOT}/fiducie/${m.id}" onclick="closeDropdown('dd-${m.id}')">${I18N.btnTrust}</a>
+                                    <a href="${SCRIPT_ROOT}/invoices?client_id=${clientId}" onclick="closeDropdown('dd-${m.id}')">${I18N.btnInvoices}</a>
+                                    <a href="${SCRIPT_ROOT}/invoices/create?client_id=${clientId}&matter_id=${m.id}" onclick="closeDropdown('dd-${m.id}')">${I18N.btnNewInvoice}</a>
+                                    <div class="dropdown-divider"></div>
+                                    <button class="text-danger" onclick="closeDropdown('dd-${m.id}');deleteMatter(${m.id}, ${clientId})">🗑 ${I18N.btnDelete}</button>
+                                </div>
                             </div>
                         </td>
                     </tr>`;
@@ -628,6 +765,10 @@ function showEditClientForm(clientId) {
     document.getElementById('edit_client_phone').value        = client.phone        || '';
     document.getElementById('edit_client_email').value        = client.email        || '';
     document.getElementById('edit_client_is_active').checked = client.is_active;
+    for (let i = 1; i <= 5; i++) {
+        const el = document.getElementById(`edit_client_extra${i}`);
+        if (el) el.value = client[`extra${i}`] || '';
+    }
     document.getElementById('edit-client-error').style.display = 'none';
     document.getElementById('edit-client-modal').style.display = 'flex';
 }
@@ -650,6 +791,11 @@ document.getElementById('edit-client-form').addEventListener('submit', async (e)
         contact_name:  fd.get('contact_name')  || null,
         phone:         fd.get('phone')         || null,
         email:         fd.get('email')         || null,
+        extra1: fd.get('extra1') || null,
+        extra2: fd.get('extra2') || null,
+        extra3: fd.get('extra3') || null,
+        extra4: fd.get('extra4') || null,
+        extra5: fd.get('extra5') || null,
         is_active:     document.getElementById('edit_client_is_active').checked
     };
     const res = await fetch(`${SCRIPT_ROOT}/api/clients/${id}`, {
@@ -679,6 +825,10 @@ function showEditMatterForm(matterId, clientId) {
     document.getElementById('edit_matter_attorney1_start_date').value = m.attorney1_start_date || '';
     document.getElementById('edit_matter_attorney2_name').value       = m.attorney2_name || '';
     document.getElementById('edit_matter_attorney2_start_date').value = m.attorney2_start_date || '';
+    for (let i = 1; i <= 5; i++) {
+        const el = document.getElementById(`edit_matter_extra${i}`);
+        if (el) el.value = m[`extra${i}`] || '';
+    }
     document.getElementById('edit-matter-error').style.display = 'none';
     document.getElementById('edit-matter-modal').style.display = 'flex';
 }
@@ -699,6 +849,11 @@ document.getElementById('edit-matter-form').addEventListener('submit', async (e)
         attorney1_start_date: fd.get('attorney1_start_date') || null,
         attorney2_name:       fd.get('attorney2_name') || null,
         attorney2_start_date: fd.get('attorney2_start_date') || null,
+        extra1: fd.get('extra1') || null,
+        extra2: fd.get('extra2') || null,
+        extra3: fd.get('extra3') || null,
+        extra4: fd.get('extra4') || null,
+        extra5: fd.get('extra5') || null,
     };
     const res = await fetch(`${SCRIPT_ROOT}/api/client-matters/${id}`, {
         method: 'PUT',
@@ -728,6 +883,11 @@ document.getElementById('client-form').addEventListener('submit', async (e) => {
         contact_name: fd.get('contact_name') || null,
         phone:   fd.get('phone')   || null,
         email:   fd.get('email')   || null,
+        extra1: fd.get('extra1') || null,
+        extra2: fd.get('extra2') || null,
+        extra3: fd.get('extra3') || null,
+        extra4: fd.get('extra4') || null,
+        extra5: fd.get('extra5') || null,
         is_active: document.getElementById('client_is_active').checked
     };
     const res = await fetch(SCRIPT_ROOT + '/api/clients', {
@@ -765,7 +925,12 @@ document.getElementById('matter-form').addEventListener('submit', async (e) => {
     const data = {
         matter_number: fd.get('matter_number'),
         matter_description: fd.get('matter_description'),
-        is_active: document.getElementById('matter_is_active').checked
+        is_active: document.getElementById('matter_is_active').checked,
+        extra1: fd.get('extra1') || null,
+        extra2: fd.get('extra2') || null,
+        extra3: fd.get('extra3') || null,
+        extra4: fd.get('extra4') || null,
+        extra5: fd.get('extra5') || null,
     };
     const res = await fetch(`${SCRIPT_ROOT}/api/clients/${clientId}/matters`, {
         method: 'POST',
