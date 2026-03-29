@@ -740,9 +740,11 @@ function applySupplierFieldLabels() {
     let anySupplier = false;
     for (let i = 1; i <= 5; i++) {
         const def = supplierCustomFieldDefs.find(d => d.entity_type === 'supplier' && d.field_index === i);
-        const lbl = def && def.label ? def.label : null;
+        const lbl = (def && def.label && def.is_active !== false) ? def.label : null;
         const labelEl = document.getElementById(`sup_extra${i}_label`);
+        const rowEl = document.getElementById(`sup_extra${i}_row`);
         if (labelEl) labelEl.textContent = lbl || (SUP_STR.extraFieldLbl + ' ' + i);
+        if (rowEl) rowEl.style.display = lbl ? '' : 'none';
         if (lbl) anySupplier = true;
     }
     const extraDiv = document.getElementById('sup-extra-fields');

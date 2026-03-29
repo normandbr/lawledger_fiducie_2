@@ -423,11 +423,10 @@ document.getElementById('import-matters-form').addEventListener('submit', async 
         const result = await response.json();
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'matters-submit-btn');
-        if (result.imported > 0) {
-            const capturedHandle = mattersFileHandle;
-            mattersFileHandle = null;
-            await addDeleteFileButton(resultDiv, capturedHandle);
-        } else {
+        const capturedHandle = mattersFileHandle;
+        mattersFileHandle = null;
+        await addDeleteFileButton(resultDiv, capturedHandle);
+        if (result.imported === 0) {
             if (submitBtn) submitBtn.disabled = false;
         }
     } catch (error) {
@@ -476,11 +475,10 @@ document.getElementById('import-costs-form').addEventListener('submit', async (e
         const result = await response.json();
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'costs-submit-btn');
-        if (result.imported > 0) {
-            const capturedHandle = costsFileHandle;
-            costsFileHandle = null;
-            await addDeleteFileButton(resultDiv, capturedHandle);
-        } else {
+        const capturedHandle = costsFileHandle;
+        costsFileHandle = null;
+        await addDeleteFileButton(resultDiv, capturedHandle);
+        if (result.imported === 0) {
             if (submitBtn) submitBtn.disabled = false;
         }
     } catch (error) {
@@ -530,11 +528,10 @@ document.getElementById('import-cost-codes-form').addEventListener('submit', asy
         const result = await response.json();
         finishProgressBar(progressState);
         showImportResult(resultDiv, result, e.target, 'cost-codes-submit-btn');
-        if (result.imported > 0) {
-            const capturedHandle = costCodesFileHandle;
-            costCodesFileHandle = null;
-            await addDeleteFileButton(resultDiv, capturedHandle);
-        } else {
+        const capturedHandle = costCodesFileHandle;
+        costCodesFileHandle = null;
+        await addDeleteFileButton(resultDiv, capturedHandle);
+        if (result.imported === 0) {
             if (submitBtn) submitBtn.disabled = false;
         }
     } catch (error) {
