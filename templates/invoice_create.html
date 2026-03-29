@@ -13,9 +13,21 @@
 
         <!-- Step 1: Select client → matter -->
         <div class="form-row">
-            <div class="form-group">
-                <label for="client_select">{{ t.lbl_select_client or 'Client' }}</label>
-                <select id="client_select" required onchange="loadMattersForClient()">
+            <div class="form-group" style="position:relative;">
+                <label for="client_combo_input">{{ t.lbl_select_client or 'Client' }}</label>
+                <!-- Unified searchable client picker -->
+                <input type="text" id="client_combo_input"
+                       placeholder="{{ t.ph_search_client or 'Rechercher un client…' }}"
+                       autocomplete="off"
+                       oninput="onClientComboInput()"
+                       onfocus="onClientComboFocus()"
+                       onblur="onClientComboBlur()"
+                       style="width:100%;">
+                <ul id="client_combo_list"
+                    style="display:none;position:absolute;z-index:200;background:#fff;border:1px solid var(--border);border-radius:4px;margin:0;padding:0;list-style:none;width:100%;max-height:240px;overflow-y:auto;box-shadow:0 2px 6px rgba(0,0,0,.15);">
+                </ul>
+                <!-- Hidden select kept for backward compatibility with loadMattersForClient() -->
+                <select id="client_select" required style="display:none;" onchange="loadMattersForClient()">
                     <option value="">{{ t.ph_select_client or '— Sélectionner un client —' }}</option>
                 </select>
             </div>
@@ -75,6 +87,7 @@
                     <input type="checkbox" id="apply_trust" name="apply_trust">
                     <span id="trust-label">{{ t.lbl_apply_trust or 'Payer avec le compte en fiducie' }}: <strong id="trust-amount">$0.00</strong></span>
                 </label>
+                <div id="trust-max-msg" style="display:none;margin-top:6px;color:#856404;font-size:12px;font-weight:500;"></div>
             </div>
         </div>
 
@@ -89,6 +102,7 @@
 {% block scripts %}
 <script>
 let allExpenses = [];
+let allClientsData = [];
 let firmInfo = { tax1_name: 'GST', tax2_name: '', tax2_compound: false };
 let selectedClientId = null;
 let selectedMatterId = null;  // null = "All Matters"
@@ -129,6 +143,12 @@ async function init() {
         const clientSel = document.getElementById('client_select');
         clientSel.value = preClientId;
         if (clientSel.value === preClientId) {
+            // Also fill the combo input with the selected client label
+            const preClient = allClientsData.find(c => String(c.id) === String(preClientId));
+            if (preClient) {
+                document.getElementById('client_combo_input').value =
+                    String(preClient.client_number) + ' – ' + preClient.client_name;
+            }
             await loadMattersForClient();
             if (preMatterId) {
                 const matterSel = document.getElementById('matter_select');
@@ -183,10 +203,92 @@ function applyTaxSettings() {
 async function loadClients() {
     const res = await fetch(SCRIPT_ROOT + '/api/clients?show_inactive=false');
     if (!res.ok) return;
-    const clients = await res.json();
+    allClientsData = await res.json();
+    renderClientOptions(allClientsData);
+}
+
+function renderClientOptions(clients) {
     const sel = document.getElementById('client_select');
+    const currentVal = sel.value;
     sel.innerHTML = '<option value="">' + INV_STR.selectClient + '</option>' +
-        clients.map(c => `<option value="${c.id}">${escHtml(c.client_number)} – ${escHtml(c.client_name)}</option>`).join('');
+        clients.map(c => `<option value="${c.id}">${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}</option>`).join('');
+    if (currentVal) sel.value = currentVal;
+}
+
+// ── Unified client combo widget ───────────────────────────────────────────────
+let _comboBlurTimer = null;
+
+function _getMatchingClients(query) {
+    if (!query) return allClientsData;
+    const q = query.toLowerCase();
+    return allClientsData.filter(c =>
+        (c.client_name || '').toLowerCase().includes(q) ||
+        String(c.client_number || '').toLowerCase().includes(q)
+    );
+}
+
+function _renderComboList(clients) {
+    const list = document.getElementById('client_combo_list');
+    if (!clients.length) {
+        list.style.display = 'none';
+        return;
+    }
+    list.innerHTML = clients.map(c =>
+        `<li data-id="${c.id}"
+             style="padding:6px 10px;cursor:pointer;font-size:13px;"
+             onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background=''">
+            ${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}
+        </li>`
+    ).join('');
+    // Use event delegation to avoid inline onclick with string interpolation
+    list.querySelectorAll('li[data-id]').forEach(li => {
+        li.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            selectClientFromCombo(parseInt(li.dataset.id));
+        });
+    });
+    list.style.display = '';
+}
+
+function onClientComboInput() {
+    const input = document.getElementById('client_combo_input');
+    const query = input.value;
+    // Clear selection if user is typing something new
+    const sel = document.getElementById('client_select');
+    sel.value = '';
+    _renderComboList(_getMatchingClients(query));
+}
+
+function onClientComboFocus() {
+    if (_comboBlurTimer) { clearTimeout(_comboBlurTimer); _comboBlurTimer = null; }
+    const input = document.getElementById('client_combo_input');
+    _renderComboList(_getMatchingClients(input.value));
+}
+
+function onClientComboBlur() {
+    _comboBlurTimer = setTimeout(() => {
+        document.getElementById('client_combo_list').style.display = 'none';
+    }, 150);
+}
+
+function selectClientFromCombo(clientId) {
+    if (_comboBlurTimer) { clearTimeout(_comboBlurTimer); _comboBlurTimer = null; }
+    const client = allClientsData.find(c => c.id === clientId);
+    if (client) {
+        document.getElementById('client_combo_input').value =
+            String(client.client_number) + ' – ' + client.client_name;
+    }
+    document.getElementById('client_combo_list').style.display = 'none';
+    const sel = document.getElementById('client_select');
+    sel.value = clientId;
+    loadMattersForClient();
+}
+
+// Legacy function kept for compatibility (pre-select from URL)
+function filterClients() {
+    const query = document.getElementById('client_combo_input') ?
+        document.getElementById('client_combo_input').value : '';
+    _renderComboList(_getMatchingClients(query));
 }
 
 async function loadMattersForClient() {
@@ -203,6 +305,7 @@ async function loadMattersForClient() {
     document.getElementById('apply_credit').checked = false;
     document.getElementById('trust-section').style.display = 'none';
     document.getElementById('apply_trust').checked = false;
+    document.getElementById('trust-max-msg').style.display = 'none';
     if (!selectedClientId) return;
     const [mattersRes, creditRes, trustRes] = await Promise.all([
         fetch(`${SCRIPT_ROOT}/api/clients/${selectedClientId}/matters?show_inactive=false`),
@@ -247,7 +350,10 @@ async function loadMattersForClient() {
         cb.disabled = true;
         cb.checked = false;
         section.style.opacity = '0.5';
+        section.style.background = '';
+        section.style.borderColor = '';
         section.title = '';
+        document.getElementById('trust-max-msg').style.display = 'none';
     }
 }
 
@@ -276,28 +382,59 @@ async function loadExpensesForMatter() {
                 trustCb.checked = false;
                 trustSection.style.opacity = '0.5';
                 trustSection.title = "Aucun solde en fiducie pour ce dossier";
+                document.getElementById('trust-max-msg').style.display = 'none';
             } else {
                 // Specific matter selected with funds – check for active trust authorization
                 matterTrustAuthorized = false;
+                let activeAuths = [];
                 try {
                     const authRes = await fetch(`${SCRIPT_ROOT}/api/fiducie/${matterVal}/authorizations/active`);
                     if (authRes.ok) {
-                        const activeAuths = await authRes.json();
+                        activeAuths = await authRes.json();
                         matterTrustAuthorized = activeAuths.length > 0;
                     }
                 } catch (e) {
                     // Log fetch/network errors; keep checkbox disabled on failure
                     console.warn('Trust authorization check failed:', e);
                 }
+                const trustMaxMsgEl = document.getElementById('trust-max-msg');
                 if (matterTrustAuthorized) {
-                    trustCb.disabled = false;
-                    trustSection.style.opacity = '1';
-                    trustSection.title = '';
+                    // Check if the max amount has been reached for any active authorization
+                    const maxReached = activeAuths.some(a =>
+                        a.max_amount !== null && a.amount_remaining !== null && a.amount_remaining <= 0
+                    );
+                    if (maxReached) {
+                        // Find the authorization with the max amount that was reached
+                        const reachedAuth = activeAuths.find(a =>
+                            a.max_amount !== null && a.amount_remaining !== null && a.amount_remaining <= 0
+                        );
+                        const maxAmt = reachedAuth && reachedAuth.max_amount !== null
+                            ? parseFloat(reachedAuth.max_amount).toFixed(2)
+                            : '—';
+                        trustCb.disabled = true;
+                        trustCb.checked = false;
+                        trustSection.style.opacity = '0.7';
+                        trustSection.style.background = '#fff3cd';
+                        trustSection.style.borderColor = '#ffc107';
+                        trustSection.title = '';
+                        trustMaxMsgEl.textContent = `⚠ Le montant maximum de ${maxAmt}$ a été atteint. Aucun retrait de fiducie n'est possible.`;
+                        trustMaxMsgEl.style.display = '';
+                    } else {
+                        trustCb.disabled = false;
+                        trustSection.style.opacity = '1';
+                        trustSection.style.background = '';
+                        trustSection.style.borderColor = '';
+                        trustSection.title = '';
+                        trustMaxMsgEl.style.display = 'none';
+                    }
                 } else {
                     trustCb.disabled = true;
                     trustCb.checked = false;
                     trustSection.style.opacity = '0.5';
+                    trustSection.style.background = '';
+                    trustSection.style.borderColor = '';
                     trustSection.title = "Aucune autorisation active pour ce dossier";
+                    trustMaxMsgEl.style.display = 'none';
                 }
             }
         } else {
@@ -307,7 +444,10 @@ async function loadExpensesForMatter() {
             trustCb.disabled = true;
             trustCb.checked = false;
             trustSection.style.opacity = '0.5';
+            trustSection.style.background = '';
+            trustSection.style.borderColor = '';
             trustSection.title = '';
+            document.getElementById('trust-max-msg').style.display = 'none';
             // Restore the total client trust balance display when no matter selected
             document.getElementById('trust-amount').textContent = '$' + clientTrustBalance.toFixed(2);
         }

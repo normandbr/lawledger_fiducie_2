@@ -253,6 +253,11 @@
                                font-size:13px;font-weight:600;color:#666;border-bottom:none;">
                     {{ t.setup_tab_security or 'Security' }}
                 </button>
+                <button id="setup-tab-config-btn" onclick="switchSetupTab('config')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    {{ t.setup_tab_config or 'Configuration' }}
+                </button>
             </div>
 
             <!-- Manager Tab -->
@@ -532,6 +537,75 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Configuration Tab -->
+            <div id="setup-tab-config" style="display:none;">
+                <p style="font-size:13px;color:#555;margin-bottom:18px;">
+                    {{ t.setup_config_desc or 'Renommez les champs supplémentaires pour les clients, les dossiers et les fournisseurs selon les besoins de votre firme.' }}
+                </p>
+
+                <!-- Clients extra fields -->
+                <div style="margin-bottom:20px;">
+                    <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
+                        {{ t.lbl_extra_fields_clients or 'Champs supplémentaires – Clients' }}
+                    </h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        {% for i in range(1, 6) %}
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                            <input type="text" id="cfg_client_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Matters/Dossiers extra fields -->
+                <div style="margin-bottom:20px;">
+                    <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
+                        {{ t.lbl_extra_fields_matters or 'Champs supplémentaires – Dossiers' }}
+                    </h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        {% for i in range(1, 6) %}
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                            <input type="text" id="cfg_matter_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Suppliers extra fields -->
+                <div style="margin-bottom:20px;">
+                    <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
+                        {{ t.lbl_extra_fields_suppliers or 'Champs supplémentaires – Fournisseurs' }}
+                    </h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        {% for i in range(1, 6) %}
+                        <div>
+                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
+                            <input type="text" id="cfg_supplier_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div id="setup_cfg_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveSetupConfig()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_save or 'Enregistrer' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        {{ t.btn_cancel or 'Annuler' }}
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -670,17 +744,21 @@
         document.getElementById('setup-tab-firminfo').style.display = tab === 'firminfo' ? '' : 'none';
         document.getElementById('setup-tab-license').style.display  = tab === 'license'  ? '' : 'none';
         document.getElementById('setup-tab-security').style.display = tab === 'security' ? '' : 'none';
+        document.getElementById('setup-tab-config').style.display   = tab === 'config'   ? '' : 'none';
         var activeColor = '#0078d4', activeBorder = '2px solid #0078d4';
         var inactiveColor = '#666', inactiveBorder = 'none';
         document.getElementById('setup-tab-manager-btn').style.color        = tab === 'manager'  ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-firminfo-btn').style.color       = tab === 'firminfo' ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-license-btn').style.color        = tab === 'license'  ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-security-btn').style.color       = tab === 'security' ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-config-btn').style.color         = tab === 'config'   ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-manager-btn').style.borderBottom = tab === 'manager'  ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-firminfo-btn').style.borderBottom = tab === 'firminfo' ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-license-btn').style.borderBottom  = tab === 'license'  ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-security-btn').style.borderBottom = tab === 'security' ? activeBorder  : inactiveBorder;
+        document.getElementById('setup-tab-config-btn').style.borderBottom   = tab === 'config'   ? activeBorder  : inactiveBorder;
         if (tab === 'license') { loadLicenseInfo(); }
+        if (tab === 'config')  { loadSetupConfig(); }
     }
 
     function loadLicenseInfo() {
@@ -921,6 +999,48 @@
             .catch(function () {
                 msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
                 msg.textContent = SETUP_STR.securityError;
+            });
+    }
+
+    function loadSetupConfig() {
+        fetch(SCRIPT_ROOT + '/api/custom-field-defs')
+            .then(function (r) { return r.ok ? r.json() : []; })
+            .then(function (defs) {
+                ['client', 'matter', 'supplier'].forEach(function (et) {
+                    for (var i = 1; i <= 5; i++) {
+                        var def = defs.find(function (d) { return d.entity_type === et && d.field_index === i; });
+                        var el = document.getElementById('cfg_' + et + '_extra' + i);
+                        if (el) el.value = def ? def.label : '';
+                    }
+                });
+            })
+            .catch(function () {});
+    }
+
+    function saveSetupConfig() {
+        var items = [];
+        ['client', 'matter', 'supplier'].forEach(function (et) {
+            for (var i = 1; i <= 5; i++) {
+                var el = document.getElementById('cfg_' + et + '_extra' + i);
+                items.push({ entity_type: et, field_index: i, label: el ? el.value.trim() : '' });
+            }
+        });
+        var msg = document.getElementById('setup_cfg_msg');
+        fetch(SCRIPT_ROOT + '/api/custom-field-defs', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(items)
+        })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+            .then(function () {
+                msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                msg.textContent = '{{ t.msg_config_saved or "Configuration enregistrée." }}';
+                // Notify other pages that custom field labels may have changed
+                if (typeof window.onCustomFieldDefsChanged === 'function') { window.onCustomFieldDefsChanged(); }
+            })
+            .catch(function () {
+                msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                msg.textContent = '{{ t.msg_config_error or "Erreur lors de l\'enregistrement." }}';
             });
     }
     </script>
