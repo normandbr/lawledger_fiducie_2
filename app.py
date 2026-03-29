@@ -1410,6 +1410,7 @@ class CustomFieldDef(db.Model):
     entity_type: 'client' | 'matter' | 'supplier'
     field_index: 1–5
     label: the firm-defined display name for that field
+    is_active: whether this field should be displayed in the corresponding module
     """
     __tablename__ = 'custom_field_defs'
 
@@ -1417,6 +1418,7 @@ class CustomFieldDef(db.Model):
     entity_type = db.Column(db.String(20), nullable=False)   # 'client', 'matter', 'supplier'
     field_index = db.Column(db.Integer, nullable=False)       # 1–5
     label = db.Column(db.String(255), nullable=False, default='')
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     def to_dict(self):
@@ -1425,6 +1427,7 @@ class CustomFieldDef(db.Model):
             'entity_type': self.entity_type,
             'field_index': self.field_index,
             'label': self.label or '',
+            'is_active': bool(self.is_active) if self.is_active is not None else True,
         }
 
 
@@ -1433,6 +1436,9 @@ class CustomFieldDef(db.Model):
 # Columns that may be missing from existing tables after a schema upgrade.
 # Each entry is (column_name, SQL Server column definition).
 _COLUMN_MIGRATIONS = {
+    'custom_field_defs': [
+        ('is_active', 'BIT NOT NULL DEFAULT 1'),
+    ],
     'cost_codes': [
         ('charge_type',   'NVARCHAR(100) NULL'),
         ('is_active',     'BIT NOT NULL DEFAULT 1'),
@@ -7217,7 +7223,7 @@ def api_custom_field_defs_get():
 @app.route('/api/custom-field-defs', methods=['PUT'])
 @login_required
 def api_custom_field_defs_put():
-    """Upsert custom field labels.  Body: list of {entity_type, field_index, label}."""
+    """Upsert custom field labels.  Body: list of {entity_type, field_index, label, is_active}."""
     if not current_user.is_manager:
         return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
     items = request.get_json() or []
@@ -7227,6 +7233,7 @@ def api_custom_field_defs_put():
         entity_type = (item.get('entity_type') or '').strip()
         field_index = int(item.get('field_index') or 0)
         label = (item.get('label') or '').strip()
+        is_active = bool(item.get('is_active', True))
         if entity_type not in ('client', 'matter', 'supplier') or field_index not in range(1, 6):
             continue
         existing = CustomFieldDef.query.filter_by(
@@ -7234,8 +7241,10 @@ def api_custom_field_defs_put():
         ).first()
         if existing:
             existing.label = label
+            existing.is_active = is_active
         else:
-            db.session.add(CustomFieldDef(entity_type=entity_type, field_index=field_index, label=label))
+            db.session.add(CustomFieldDef(entity_type=entity_type, field_index=field_index,
+                                          label=label, is_active=is_active))
     db.session.commit()
     defs = CustomFieldDef.query.order_by(CustomFieldDef.entity_type, CustomFieldDef.field_index).all()
     return jsonify([d.to_dict() for d in defs])

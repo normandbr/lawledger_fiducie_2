@@ -258,6 +258,11 @@
                                font-size:13px;font-weight:600;color:#666;border-bottom:none;">
                     {{ t.setup_tab_config or 'Configuration' }}
                 </button>
+                <button id="setup-tab-salary-btn" onclick="switchSetupTab('salary')"
+                        style="padding:8px 20px;border:none;background:none;cursor:pointer;
+                               font-size:13px;font-weight:600;color:#666;border-bottom:none;">
+                    {{ t.setup_tab_salary or 'Salaires' }}
+                </button>
             </div>
 
             <!-- Manager Tab -->
@@ -549,15 +554,29 @@
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_clients or 'Champs supplémentaires – Clients' }}
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                        {% for i in range(1, 6) %}
-                        <div>
-                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
-                            <input type="text" id="cfg_client_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
-                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-                        </div>
-                        {% endfor %}
-                    </div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:24px;">#</th>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_field_name or 'Nom du champ' }}</th>
+                                <th style="text-align:center;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:60px;">{{ t.lbl_active or 'Actif' }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for i in range(1, 6) %}
+                            <tr>
+                                <td style="padding:4px 6px;font-size:12px;color:#666;">{{ i }}</td>
+                                <td style="padding:4px 6px;">
+                                    <input type="text" id="cfg_client_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                           style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                                </td>
+                                <td style="padding:4px 6px;text-align:center;">
+                                    <input type="checkbox" id="cfg_client_active{{ i }}" checked>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
 
                 <!-- Matters/Dossiers extra fields -->
@@ -565,15 +584,29 @@
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_matters or 'Champs supplémentaires – Dossiers' }}
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                        {% for i in range(1, 6) %}
-                        <div>
-                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
-                            <input type="text" id="cfg_matter_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
-                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-                        </div>
-                        {% endfor %}
-                    </div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:24px;">#</th>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_field_name or 'Nom du champ' }}</th>
+                                <th style="text-align:center;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:60px;">{{ t.lbl_active or 'Actif' }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for i in range(1, 6) %}
+                            <tr>
+                                <td style="padding:4px 6px;font-size:12px;color:#666;">{{ i }}</td>
+                                <td style="padding:4px 6px;">
+                                    <input type="text" id="cfg_matter_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                           style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                                </td>
+                                <td style="padding:4px 6px;text-align:center;">
+                                    <input type="checkbox" id="cfg_matter_active{{ i }}" checked>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
 
                 <!-- Suppliers extra fields -->
@@ -581,15 +614,29 @@
                     <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;border-bottom:1px solid #e0e0e0;padding-bottom:6px;">
                         {{ t.lbl_extra_fields_suppliers or 'Champs supplémentaires – Fournisseurs' }}
                     </h3>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-                        {% for i in range(1, 6) %}
-                        <div>
-                            <label style="display:block;font-size:12px;color:#666;margin-bottom:3px;">{{ t.lbl_field or 'Champ' }} {{ i }}</label>
-                            <input type="text" id="cfg_supplier_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
-                                   style="width:100%;padding:7px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
-                        </div>
-                        {% endfor %}
-                    </div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:24px;">#</th>
+                                <th style="text-align:left;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_field_name or 'Nom du champ' }}</th>
+                                <th style="text-align:center;font-size:11px;color:#888;padding:4px 6px;border-bottom:1px solid #e0e0e0;width:60px;">{{ t.lbl_active or 'Actif' }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for i in range(1, 6) %}
+                            <tr>
+                                <td style="padding:4px 6px;font-size:12px;color:#666;">{{ i }}</td>
+                                <td style="padding:4px 6px;">
+                                    <input type="text" id="cfg_supplier_extra{{ i }}" placeholder="{{ t.ph_field_name or 'Nom du champ…' }}"
+                                           style="width:100%;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;box-sizing:border-box;">
+                                </td>
+                                <td style="padding:4px 6px;text-align:center;">
+                                    <input type="checkbox" id="cfg_supplier_active{{ i }}" checked>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
 
                 <div id="setup_cfg_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
@@ -603,6 +650,48 @@
                             style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
                                    border-radius:4px;font-size:14px;cursor:pointer;">
                         {{ t.btn_cancel or 'Annuler' }}
+                    </button>
+                    <button onclick="saveSetupConfig(true)"
+                            style="background:#28a745;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_done or 'Terminé' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Salary Config Tab -->
+            <div id="setup-tab-salary" style="display:none;">
+                <p style="font-size:13px;color:#555;margin-bottom:18px;">
+                    {{ t.setup_salary_desc or 'Configurez les champs de salaire et leurs codes comptables associés.' }}
+                </p>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;font-size:11px;color:#888;padding:6px 4px;border-bottom:1px solid #e0e0e0;width:24px;">#</th>
+                            <th style="text-align:left;font-size:11px;color:#888;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_field_name or 'Nom du champ' }}</th>
+                            <th style="text-align:left;font-size:11px;color:#888;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_account_code or 'Code comptable' }}</th>
+                            <th style="text-align:center;font-size:11px;color:#888;padding:6px 4px;border-bottom:1px solid #e0e0e0;width:60px;">{{ t.lbl_active or 'Actif' }}</th>
+                        </tr>
+                    </thead>
+                    <tbody id="setup-salary-tbody">
+                    </tbody>
+                </table>
+                <div id="setup_salary_msg" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:4px;font-size:13px;"></div>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveSalarySetupConfig()"
+                            style="background:#0078d4;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_save or 'Enregistrer la configuration' }}
+                    </button>
+                    <button onclick="closeAppSetupModal()"
+                            style="background:#f3f3f3;color:#333;border:1px solid #ddd;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;cursor:pointer;">
+                        {{ t.btn_cancel or 'Annuler' }}
+                    </button>
+                    <button onclick="saveSalarySetupConfig(true)"
+                            style="background:#28a745;color:#fff;border:none;padding:10px 24px;
+                                   border-radius:4px;font-size:14px;font-weight:600;cursor:pointer;">
+                        {{ t.btn_done or 'Terminé' }}
                     </button>
                 </div>
             </div>
@@ -688,7 +777,7 @@
             .catch(function () {});
     }
 
-    function openAppSetupModal() {
+    function openAppSetupModal(tab) {
         document.getElementById('app-setup-overlay').style.display = 'block';
         document.getElementById('setup_mgr_msg').style.display = 'none';
         document.getElementById('setup_fi_msg').style.display  = 'none';
@@ -698,7 +787,7 @@
         // Always open in edit mode
         setupMgrMode = 'edit';
         _applyEditMode();
-        switchSetupTab('manager');
+        switchSetupTab(tab || 'manager');
         loadPrimaryManager();
         fetch(SCRIPT_ROOT + '/api/firm-info')
             .then(function (r) { return r.json(); })
@@ -745,6 +834,7 @@
         document.getElementById('setup-tab-license').style.display  = tab === 'license'  ? '' : 'none';
         document.getElementById('setup-tab-security').style.display = tab === 'security' ? '' : 'none';
         document.getElementById('setup-tab-config').style.display   = tab === 'config'   ? '' : 'none';
+        document.getElementById('setup-tab-salary').style.display   = tab === 'salary'   ? '' : 'none';
         var activeColor = '#0078d4', activeBorder = '2px solid #0078d4';
         var inactiveColor = '#666', inactiveBorder = 'none';
         document.getElementById('setup-tab-manager-btn').style.color        = tab === 'manager'  ? activeColor   : inactiveColor;
@@ -752,13 +842,16 @@
         document.getElementById('setup-tab-license-btn').style.color        = tab === 'license'  ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-security-btn').style.color       = tab === 'security' ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-config-btn').style.color         = tab === 'config'   ? activeColor   : inactiveColor;
+        document.getElementById('setup-tab-salary-btn').style.color         = tab === 'salary'   ? activeColor   : inactiveColor;
         document.getElementById('setup-tab-manager-btn').style.borderBottom = tab === 'manager'  ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-firminfo-btn').style.borderBottom = tab === 'firminfo' ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-license-btn').style.borderBottom  = tab === 'license'  ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-security-btn').style.borderBottom = tab === 'security' ? activeBorder  : inactiveBorder;
         document.getElementById('setup-tab-config-btn').style.borderBottom   = tab === 'config'   ? activeBorder  : inactiveBorder;
+        document.getElementById('setup-tab-salary-btn').style.borderBottom   = tab === 'salary'   ? activeBorder  : inactiveBorder;
         if (tab === 'license') { loadLicenseInfo(); }
         if (tab === 'config')  { loadSetupConfig(); }
+        if (tab === 'salary')  { loadSalarySetupConfig(); }
     }
 
     function loadLicenseInfo() {
@@ -1011,18 +1104,26 @@
                         var def = defs.find(function (d) { return d.entity_type === et && d.field_index === i; });
                         var el = document.getElementById('cfg_' + et + '_extra' + i);
                         if (el) el.value = def ? def.label : '';
+                        var chk = document.getElementById('cfg_' + et + '_active' + i);
+                        if (chk) chk.checked = def ? (def.is_active !== false) : true;
                     }
                 });
             })
             .catch(function () {});
     }
 
-    function saveSetupConfig() {
+    function saveSetupConfig(closeAfter) {
         var items = [];
         ['client', 'matter', 'supplier'].forEach(function (et) {
             for (var i = 1; i <= 5; i++) {
                 var el = document.getElementById('cfg_' + et + '_extra' + i);
-                items.push({ entity_type: et, field_index: i, label: el ? el.value.trim() : '' });
+                var chk = document.getElementById('cfg_' + et + '_active' + i);
+                items.push({
+                    entity_type: et,
+                    field_index: i,
+                    label: el ? el.value.trim() : '',
+                    is_active: chk ? chk.checked : true
+                });
             }
         });
         var msg = document.getElementById('setup_cfg_msg');
@@ -1037,6 +1138,76 @@
                 msg.textContent = '{{ t.msg_config_saved or "Configuration enregistrée." }}';
                 // Notify other pages that custom field labels may have changed
                 if (typeof window.onCustomFieldDefsChanged === 'function') { window.onCustomFieldDefsChanged(); }
+                if (closeAfter) { closeAppSetupModal(); }
+            })
+            .catch(function () {
+                msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';
+                msg.textContent = '{{ t.msg_config_error or "Erreur lors de l\'enregistrement." }}';
+            });
+    }
+
+    var _setupSalaryAccounts = [];
+
+    function loadSalarySetupConfig() {
+        var tbody = document.getElementById('setup-salary-tbody');
+        if (!tbody) return;
+        Promise.all([
+            fetch(SCRIPT_ROOT + '/api/accounts').then(function (r) { return r.ok ? r.json() : []; }),
+            fetch(SCRIPT_ROOT + '/api/salary/config').then(function (r) { return r.ok ? r.json() : []; })
+        ]).then(function (results) {
+            _setupSalaryAccounts = (results[0] || []).filter(function (a) { return !a.is_deleted && a.is_active; });
+            var existing = results[1] || [];
+            var byIndex = {};
+            existing.forEach(function (c) { byIndex[c.field_index] = c; });
+            var html = '';
+            for (var i = 1; i <= 16; i++) {
+                var cfg = byIndex[i] || {};
+                var name = (cfg.field_name || ('Champ ' + i)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                var active = cfg.is_active !== false;
+                var opts = '<option value="">—</option>';
+                _setupSalaryAccounts.forEach(function (a) {
+                    var sel = a.code === cfg.account_code ? ' selected' : '';
+                    var ac = String(a.code).replace(/"/g,'&quot;');
+                    var an = (String(a.code) + ' – ' + String(a.name)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    opts += '<option value="' + ac + '"' + sel + '>' + an + '</option>';
+                });
+                html += '<tr>' +
+                    '<td style="padding:4px;font-size:12px;">' + i + '</td>' +
+                    '<td style="padding:4px;"><input type="text" data-sal-idx="' + i + '" data-sal-field="name" value="' + name + '"' +
+                    ' style="width:100%;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;"></td>' +
+                    '<td style="padding:4px;"><select data-sal-idx="' + i + '" data-sal-field="code"' +
+                    ' style="width:100%;padding:6px;border:1px solid #ddd;border-radius:4px;font-size:12px;box-sizing:border-box;">' + opts + '</select></td>' +
+                    '<td style="padding:4px;text-align:center;"><input type="checkbox" data-sal-idx="' + i + '" data-sal-field="active"' + (active ? ' checked' : '') + '></td>' +
+                    '</tr>';
+            }
+            tbody.innerHTML = html;
+        }).catch(function () {});
+    }
+
+    function saveSalarySetupConfig(closeAfter) {
+        var rows = [];
+        for (var i = 1; i <= 16; i++) {
+            var nameEl   = document.querySelector('[data-sal-idx="' + i + '"][data-sal-field="name"]');
+            var codeEl   = document.querySelector('[data-sal-idx="' + i + '"][data-sal-field="code"]');
+            var activeEl = document.querySelector('[data-sal-idx="' + i + '"][data-sal-field="active"]');
+            rows.push({
+                field_index:  i,
+                field_name:   nameEl ? nameEl.value.trim() || ('Champ ' + i) : ('Champ ' + i),
+                account_code: codeEl ? codeEl.value : '',
+                is_active:    activeEl ? activeEl.checked : true
+            });
+        }
+        var msg = document.getElementById('setup_salary_msg');
+        fetch(SCRIPT_ROOT + '/api/salary/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rows)
+        })
+            .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+            .then(function () {
+                msg.style.display = 'block'; msg.style.background = '#dff6dd'; msg.style.color = '#107c10';
+                msg.textContent = '{{ t.msg_config_saved or "Configuration enregistrée." }}';
+                if (closeAfter) { closeAppSetupModal(); }
             })
             .catch(function () {
                 msg.style.display = 'block'; msg.style.background = '#fde7e9'; msg.style.color = '#a4262c';

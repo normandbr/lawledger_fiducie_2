@@ -499,7 +499,7 @@ async function loadCustomFieldDefs() {
 
 function getFieldLabel(entityType, fieldIndex) {
     const def = customFieldDefs.find(d => d.entity_type === entityType && d.field_index === fieldIndex);
-    return (def && def.label) ? def.label : null;
+    return (def && def.label && def.is_active !== false) ? def.label : null;
 }
 
 function applyCustomFieldLabels() {
@@ -509,8 +509,12 @@ function applyCustomFieldLabels() {
         const lbl = getFieldLabel('client', i);
         const addLbl = document.getElementById(`client_extra${i}_label`);
         const editLbl = document.getElementById(`edit_client_extra${i}_label`);
+        const addRow = document.getElementById(`client_extra${i}_row`);
+        const editRow = document.getElementById(`edit_client_extra${i}_row`);
         if (addLbl) addLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
         if (editLbl) editLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
+        if (addRow) addRow.style.display = lbl ? '' : 'none';
+        if (editRow) editRow.style.display = lbl ? '' : 'none';
         if (lbl) anyClient = true;
     }
     const addExtra = document.getElementById('add-client-extra-fields');
@@ -524,8 +528,12 @@ function applyCustomFieldLabels() {
         const lbl = getFieldLabel('matter', i);
         const addLbl = document.getElementById(`matter_extra${i}_label`);
         const editLbl = document.getElementById(`edit_matter_extra${i}_label`);
+        const addRow = document.getElementById(`matter_extra${i}_row`);
+        const editRow = document.getElementById(`edit_matter_extra${i}_row`);
         if (addLbl) addLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
         if (editLbl) editLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
+        if (addRow) addRow.style.display = lbl ? '' : 'none';
+        if (editRow) editRow.style.display = lbl ? '' : 'none';
         if (lbl) anyMatter = true;
     }
     const addMatterExtra = document.getElementById('add-matter-extra-fields');
