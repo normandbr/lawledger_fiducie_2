@@ -15,6 +15,7 @@
         <div class="form-row">
             <div class="form-group">
                 <label for="client_select">{{ t.lbl_select_client or 'Client' }}</label>
+                <input type="text" id="client_search" placeholder="{{ t.ph_search_client or 'Rechercher par nom ou numéro…' }}" oninput="filterClients()" autocomplete="off" style="margin-bottom:4px;">
                 <select id="client_select" required onchange="loadMattersForClient()">
                     <option value="">{{ t.ph_select_client or '— Sélectionner un client —' }}</option>
                 </select>
@@ -90,6 +91,7 @@
 {% block scripts %}
 <script>
 let allExpenses = [];
+let allClientsData = [];
 let firmInfo = { tax1_name: 'GST', tax2_name: '', tax2_compound: false };
 let selectedClientId = null;
 let selectedMatterId = null;  // null = "All Matters"
@@ -184,10 +186,29 @@ function applyTaxSettings() {
 async function loadClients() {
     const res = await fetch(SCRIPT_ROOT + '/api/clients?show_inactive=false');
     if (!res.ok) return;
-    const clients = await res.json();
+    allClientsData = await res.json();
+    renderClientOptions(allClientsData);
+}
+
+function renderClientOptions(clients) {
     const sel = document.getElementById('client_select');
+    const currentVal = sel.value;
     sel.innerHTML = '<option value="">' + INV_STR.selectClient + '</option>' +
-        clients.map(c => `<option value="${c.id}">${escHtml(c.client_number)} – ${escHtml(c.client_name)}</option>`).join('');
+        clients.map(c => `<option value="${c.id}">${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}</option>`).join('');
+    if (currentVal) sel.value = currentVal;
+}
+
+function filterClients() {
+    const query = document.getElementById('client_search').value.toLowerCase().trim();
+    if (!query) {
+        renderClientOptions(allClientsData);
+        return;
+    }
+    const filtered = allClientsData.filter(c =>
+        (c.client_name || '').toLowerCase().includes(query) ||
+        String(c.client_number || '').toLowerCase().includes(query)
+    );
+    renderClientOptions(filtered);
 }
 
 async function loadMattersForClient() {
