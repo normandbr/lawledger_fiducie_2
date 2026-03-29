@@ -147,7 +147,7 @@ async function init() {
             const preClient = allClientsData.find(c => String(c.id) === String(preClientId));
             if (preClient) {
                 document.getElementById('client_combo_input').value =
-                    escHtml(String(preClient.client_number)) + ' – ' + escHtml(preClient.client_name);
+                    String(preClient.client_number) + ' – ' + preClient.client_name;
             }
             await loadMattersForClient();
             if (preMatterId) {
@@ -234,13 +234,19 @@ function _renderComboList(clients) {
         return;
     }
     list.innerHTML = clients.map(c =>
-        `<li data-id="${c.id}" data-label="${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}"
+        `<li data-id="${c.id}"
              style="padding:6px 10px;cursor:pointer;font-size:13px;"
-             onmousedown="selectClientFromCombo(${c.id}, '${escHtml(String(c.client_number))} – ${escHtml(c.client_name).replace(/'/g, "\\'")}')"
              onmouseover="this.style.background='#f0f4ff'" onmouseout="this.style.background=''">
             ${escHtml(String(c.client_number))} – ${escHtml(c.client_name)}
         </li>`
     ).join('');
+    // Use event delegation to avoid inline onclick with string interpolation
+    list.querySelectorAll('li[data-id]').forEach(li => {
+        li.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            selectClientFromCombo(parseInt(li.dataset.id));
+        });
+    });
     list.style.display = '';
 }
 
@@ -265,9 +271,13 @@ function onClientComboBlur() {
     }, 150);
 }
 
-function selectClientFromCombo(clientId, label) {
+function selectClientFromCombo(clientId) {
     if (_comboBlurTimer) { clearTimeout(_comboBlurTimer); _comboBlurTimer = null; }
-    document.getElementById('client_combo_input').value = label;
+    const client = allClientsData.find(c => c.id === clientId);
+    if (client) {
+        document.getElementById('client_combo_input').value =
+            String(client.client_number) + ' – ' + client.client_name;
+    }
     document.getElementById('client_combo_list').style.display = 'none';
     const sel = document.getElementById('client_select');
     sel.value = clientId;

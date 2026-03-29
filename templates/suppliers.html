@@ -303,6 +303,7 @@ const SUP_STR = {
     payDeleted:  {{ (t.msg_payment_deleted or 'Payment deleted.') | tojson }},
     invMarkedPaid: {{ (t.msg_invoice_marked_paid or 'Invoice marked as paid.') | tojson }},
     loading:     {{ (t.inv_loading or 'Loading…') | tojson }},
+    extraFieldLbl: {{ (t.lbl_field or 'Champ') | tojson }},
 };
 
 let currentSupplierId = null;
@@ -741,7 +742,7 @@ function applySupplierFieldLabels() {
         const def = supplierCustomFieldDefs.find(d => d.entity_type === 'supplier' && d.field_index === i);
         const lbl = def && def.label ? def.label : null;
         const labelEl = document.getElementById(`sup_extra${i}_label`);
-        if (labelEl) labelEl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (labelEl) labelEl.textContent = lbl || (SUP_STR.extraFieldLbl + ' ' + i);
         if (lbl) anySupplier = true;
     }
     const extraDiv = document.getElementById('sup-extra-fields');

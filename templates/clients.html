@@ -451,6 +451,7 @@ const I18N = {
     expenseBilled: {{ (t.lbl_expense_billed or 'Facturé') | tojson }},
     expenseUnbilled: {{ (t.lbl_expense_unbilled or 'Non facturé') | tojson }},
     noExpenses: {{ (t.msg_no_expenses_found or 'No expenses found for this matter.') | tojson }},
+    extraFieldLbl: {{ (t.lbl_field or 'Champ') | tojson }},
 };
 
 // ── Dropdown helpers ──────────────────────────────────────────────────────────
@@ -508,8 +509,8 @@ function applyCustomFieldLabels() {
         const lbl = getFieldLabel('client', i);
         const addLbl = document.getElementById(`client_extra${i}_label`);
         const editLbl = document.getElementById(`edit_client_extra${i}_label`);
-        if (addLbl) addLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
-        if (editLbl) editLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (addLbl) addLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
+        if (editLbl) editLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
         if (lbl) anyClient = true;
     }
     const addExtra = document.getElementById('add-client-extra-fields');
@@ -523,8 +524,8 @@ function applyCustomFieldLabels() {
         const lbl = getFieldLabel('matter', i);
         const addLbl = document.getElementById(`matter_extra${i}_label`);
         const editLbl = document.getElementById(`edit_matter_extra${i}_label`);
-        if (addLbl) addLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
-        if (editLbl) editLbl.textContent = lbl || `{{ t.lbl_field or 'Champ' }} ${i}`;
+        if (addLbl) addLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
+        if (editLbl) editLbl.textContent = lbl || (I18N.extraFieldLbl + ' ' + i);
         if (lbl) anyMatter = true;
     }
     const addMatterExtra = document.getElementById('add-matter-extra-fields');
