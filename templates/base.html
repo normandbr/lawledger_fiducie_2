@@ -715,6 +715,10 @@
 
     let setupMgrMode = 'edit'; // 'edit' | 'add'
 
+    function _escHtml(str) {
+        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
     function _applyEditMode() {
         document.getElementById('setup_mgr_username').placeholder   = 'ex. admin';
         document.getElementById('setup_mgr_username_label').innerHTML =
@@ -1162,13 +1166,13 @@
             var html = '';
             for (var i = 1; i <= 16; i++) {
                 var cfg = byIndex[i] || {};
-                var name = (cfg.field_name || ('Champ ' + i)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+                var name = _escHtml(cfg.field_name || ('Champ ' + i));
                 var active = cfg.is_active !== false;
                 var opts = '<option value="">—</option>';
                 _setupSalaryAccounts.forEach(function (a) {
                     var sel = a.code === cfg.account_code ? ' selected' : '';
-                    var ac = String(a.code).replace(/"/g,'&quot;');
-                    var an = (String(a.code) + ' – ' + String(a.name)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                    var ac = _escHtml(a.code);
+                    var an = _escHtml(String(a.code) + ' – ' + String(a.name));
                     opts += '<option value="' + ac + '"' + sel + '>' + an + '</option>';
                 });
                 html += '<tr>' +

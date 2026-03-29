@@ -1427,7 +1427,7 @@ class CustomFieldDef(db.Model):
             'entity_type': self.entity_type,
             'field_index': self.field_index,
             'label': self.label or '',
-            'is_active': bool(self.is_active) if self.is_active is not None else True,
+            'is_active': bool(self.is_active),
         }
 
 
