@@ -404,6 +404,11 @@ class Client(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
     accounting_code = db.Column(db.String(20), nullable=True, default='1100')
+    extra1 = db.Column(db.String(500), nullable=True)
+    extra2 = db.Column(db.String(500), nullable=True)
+    extra3 = db.Column(db.String(500), nullable=True)
+    extra4 = db.Column(db.String(500), nullable=True)
+    extra5 = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = db.Column(db.String(80), nullable=True)
@@ -428,6 +433,11 @@ class Client(db.Model):
             'email': self.email or '',
             'is_active': self.is_active,
             'accounting_code': self.accounting_code or '1100',
+            'extra1': self.extra1 or '',
+            'extra2': self.extra2 or '',
+            'extra3': self.extra3 or '',
+            'extra4': self.extra4 or '',
+            'extra5': self.extra5 or '',
             'created_by': self.created_by or '',
             'deleted_by': self.deleted_by or '',
             'disabled_by': self.disabled_by or '',
@@ -461,6 +471,11 @@ class Matter(db.Model):
     attorney5_start_date = db.Column(db.Date, nullable=True)
     attorney6_name = db.Column(db.String(255), nullable=True)
     attorney6_start_date = db.Column(db.Date, nullable=True)
+    extra1 = db.Column(db.String(500), nullable=True)
+    extra2 = db.Column(db.String(500), nullable=True)
+    extra3 = db.Column(db.String(500), nullable=True)
+    extra4 = db.Column(db.String(500), nullable=True)
+    extra5 = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by = db.Column(db.String(80), nullable=True)
@@ -490,6 +505,11 @@ class Matter(db.Model):
             'attorney5_start_date': self.attorney5_start_date.isoformat() if self.attorney5_start_date else '',
             'attorney6_name': self.attorney6_name or '',
             'attorney6_start_date': self.attorney6_start_date.isoformat() if self.attorney6_start_date else '',
+            'extra1': self.extra1 or '',
+            'extra2': self.extra2 or '',
+            'extra3': self.extra3 or '',
+            'extra4': self.extra4 or '',
+            'extra5': self.extra5 or '',
             'created_by': self.created_by or '',
             'deleted_by': self.deleted_by or '',
             'disabled_by': self.disabled_by or '',
@@ -943,6 +963,11 @@ class Supplier(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     is_deleted = db.Column(db.Boolean, default=False)
     accounting_code = db.Column(db.String(20), nullable=True)
+    extra1 = db.Column(db.String(500), nullable=True)
+    extra2 = db.Column(db.String(500), nullable=True)
+    extra3 = db.Column(db.String(500), nullable=True)
+    extra4 = db.Column(db.String(500), nullable=True)
+    extra5 = db.Column(db.String(500), nullable=True)
     added_by = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -962,6 +987,11 @@ class Supplier(db.Model):
             'notes': self.notes or '',
             'is_active': bool(self.is_active),
             'accounting_code': self.accounting_code or '',
+            'extra1': self.extra1 or '',
+            'extra2': self.extra2 or '',
+            'extra3': self.extra3 or '',
+            'extra4': self.extra4 or '',
+            'extra5': self.extra5 or '',
             'added_by': self.added_by or '',
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -1374,7 +1404,31 @@ class SalaryEntry(db.Model):
         }
 
 
-# ── Schema migrations (no Alembic – add missing columns on startup) ───────────
+class CustomFieldDef(db.Model):
+    """User-configurable label for an extra field on clients, matters, or suppliers.
+
+    entity_type: 'client' | 'matter' | 'supplier'
+    field_index: 1–5
+    label: the firm-defined display name for that field
+    """
+    __tablename__ = 'custom_field_defs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    entity_type = db.Column(db.String(20), nullable=False)   # 'client', 'matter', 'supplier'
+    field_index = db.Column(db.Integer, nullable=False)       # 1–5
+    label = db.Column(db.String(255), nullable=False, default='')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entity_type': self.entity_type,
+            'field_index': self.field_index,
+            'label': self.label or '',
+        }
+
+
+
 
 # Columns that may be missing from existing tables after a schema upgrade.
 # Each entry is (column_name, SQL Server column definition).
@@ -1398,6 +1452,11 @@ _COLUMN_MIGRATIONS = {
         ('country',      'NVARCHAR(100) NULL'),
         ('contact_name', 'NVARCHAR(255) NULL'),
         ('accounting_code', 'NVARCHAR(20) NULL DEFAULT \'1100\''),
+        ('extra1',       'NVARCHAR(500) NULL'),
+        ('extra2',       'NVARCHAR(500) NULL'),
+        ('extra3',       'NVARCHAR(500) NULL'),
+        ('extra4',       'NVARCHAR(500) NULL'),
+        ('extra5',       'NVARCHAR(500) NULL'),
         ('created_by',   'NVARCHAR(80) NULL'),
         ('deleted_by',   'NVARCHAR(80) NULL'),
         ('disabled_by',  'NVARCHAR(80) NULL'),
@@ -1418,6 +1477,11 @@ _COLUMN_MIGRATIONS = {
         ('attorney5_start_date', 'DATE NULL'),
         ('attorney6_name',       'NVARCHAR(255) NULL'),
         ('attorney6_start_date', 'DATE NULL'),
+        ('extra1',               'NVARCHAR(500) NULL'),
+        ('extra2',               'NVARCHAR(500) NULL'),
+        ('extra3',               'NVARCHAR(500) NULL'),
+        ('extra4',               'NVARCHAR(500) NULL'),
+        ('extra5',               'NVARCHAR(500) NULL'),
         ('client_matter_key',    'NVARCHAR(120) NULL'),
         ('created_by',           'NVARCHAR(80) NULL'),
         ('deleted_by',           'NVARCHAR(80) NULL'),
@@ -1523,6 +1587,11 @@ _COLUMN_MIGRATIONS = {
         ('is_active',         'BIT NOT NULL DEFAULT 1'),
         ('is_deleted',        'BIT NOT NULL DEFAULT 0'),
         ('accounting_code',   'NVARCHAR(20) NULL'),
+        ('extra1',            'NVARCHAR(500) NULL'),
+        ('extra2',            'NVARCHAR(500) NULL'),
+        ('extra3',            'NVARCHAR(500) NULL'),
+        ('extra4',            'NVARCHAR(500) NULL'),
+        ('extra5',            'NVARCHAR(500) NULL'),
         ('added_by',          'NVARCHAR(80) NULL'),
     ],
     'supplier_payments': [
@@ -5144,6 +5213,11 @@ def api_clients():
         contact_name=data.get('contact_name') or None,
         phone=data.get('phone') or None,
         email=data.get('email') or None,
+        extra1=data.get('extra1') or None,
+        extra2=data.get('extra2') or None,
+        extra3=data.get('extra3') or None,
+        extra4=data.get('extra4') or None,
+        extra5=data.get('extra5') or None,
         is_active=data.get('is_active', True),
         created_by=current_user.display_name,
     )
@@ -5173,7 +5247,7 @@ def api_client_detail(client_id):
         if 'client_name' in data:
             client.client_name = data['client_name']
         for field in ('street', 'city', 'state', 'postal_code', 'country', 'contact_name',
-                      'phone', 'email'):
+                      'phone', 'email', 'extra1', 'extra2', 'extra3', 'extra4', 'extra5'):
             if field in data:
                 setattr(client, field, data[field] or None)
         if 'is_active' in data:
@@ -5225,6 +5299,11 @@ def api_client_matters(client_id):
         attorney5_start_date=_parse_date(data.get('attorney5_start_date')),
         attorney6_name=data.get('attorney6_name') or None,
         attorney6_start_date=_parse_date(data.get('attorney6_start_date')),
+        extra1=data.get('extra1') or None,
+        extra2=data.get('extra2') or None,
+        extra3=data.get('extra3') or None,
+        extra4=data.get('extra4') or None,
+        extra5=data.get('extra5') or None,
         created_by=current_user.display_name,
     )
     db.session.add(matter)
@@ -5262,7 +5341,8 @@ def api_matter_detail(matter_id):
             elif not was_active and matter.is_active:
                 matter.reenabled_by = current_user.display_name
         for field in ('attorney1_name', 'attorney2_name', 'attorney3_name',
-                      'attorney4_name', 'attorney5_name', 'attorney6_name'):
+                      'attorney4_name', 'attorney5_name', 'attorney6_name',
+                      'extra1', 'extra2', 'extra3', 'extra4', 'extra5'):
             if field in data:
                 setattr(matter, field, data[field] or None)
         for n in range(1, 7):
@@ -6474,6 +6554,11 @@ def api_suppliers():
         service_provided=data.get('service_provided', ''),
         notes=data.get('notes', ''),
         accounting_code=data.get('accounting_code', ''),
+        extra1=data.get('extra1') or None,
+        extra2=data.get('extra2') or None,
+        extra3=data.get('extra3') or None,
+        extra4=data.get('extra4') or None,
+        extra5=data.get('extra5') or None,
         is_active=True,
         added_by=current_user.display_name,
     )
@@ -6499,7 +6584,8 @@ def api_supplier_detail(supplier_id):
             if not name:
                 return jsonify({'error': 'name_required', 'message': 'Supplier name is required.'}), 400
             supplier.name = name
-        for field in ('account_number', 'address', 'phone', 'email', 'service_provided', 'notes', 'accounting_code'):
+        for field in ('account_number', 'address', 'phone', 'email', 'service_provided', 'notes', 'accounting_code',
+                      'extra1', 'extra2', 'extra3', 'extra4', 'extra5'):
             if field in data:
                 setattr(supplier, field, data[field])
         if 'is_active' in data:
@@ -7118,6 +7204,41 @@ def api_salary_post_to_gl():
     return jsonify({'posted': posted_count, 'message': f'{posted_count} entr{"ée" if posted_count == 1 else "ées"} soumise{"" if posted_count == 1 else "s"} au GL.'})
 
 
+# ── API: Custom Field Definitions ─────────────────────────────────────────────
+
+@app.route('/api/custom-field-defs', methods=['GET'])
+@login_required
+def api_custom_field_defs_get():
+    """Return all custom field definitions grouped by entity_type."""
+    defs = CustomFieldDef.query.order_by(CustomFieldDef.entity_type, CustomFieldDef.field_index).all()
+    return jsonify([d.to_dict() for d in defs])
+
+
+@app.route('/api/custom-field-defs', methods=['PUT'])
+@login_required
+def api_custom_field_defs_put():
+    """Upsert custom field labels.  Body: list of {entity_type, field_index, label}."""
+    if not current_user.is_manager:
+        return jsonify({'error': 'access_denied', 'message': 'Manager access required.'}), 403
+    items = request.get_json() or []
+    if not isinstance(items, list):
+        return jsonify({'error': 'Expected a JSON array'}), 400
+    for item in items:
+        entity_type = (item.get('entity_type') or '').strip()
+        field_index = int(item.get('field_index') or 0)
+        label = (item.get('label') or '').strip()
+        if entity_type not in ('client', 'matter', 'supplier') or field_index not in range(1, 6):
+            continue
+        existing = CustomFieldDef.query.filter_by(
+            entity_type=entity_type, field_index=field_index
+        ).first()
+        if existing:
+            existing.label = label
+        else:
+            db.session.add(CustomFieldDef(entity_type=entity_type, field_index=field_index, label=label))
+    db.session.commit()
+    defs = CustomFieldDef.query.order_by(CustomFieldDef.entity_type, CustomFieldDef.field_index).all()
+    return jsonify([d.to_dict() for d in defs])
 
 
 def _run_license_diagnostic():
