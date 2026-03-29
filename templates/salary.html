@@ -54,23 +54,42 @@
                 <span onclick="closeConfigModal()" style="cursor:pointer;color:#888;font-size:20px;font-weight:bold;">&times;</span>
             </h2>
         </div>
-        <div id="config-modal-body" style="padding:24px;overflow-y:auto;">
+        <!-- Fixed column headers (non-scrolling, always visible at top) -->
+        <div style="flex-shrink:0;background:#f8f9fa;border-bottom:1px solid #e0e0e0;padding:0 24px;">
+            <table style="width:100%;border-collapse:collapse;">
+                <colgroup>
+                    <col style="width:36px;">
+                    <col>
+                    <col style="width:44%;">
+                    <col style="width:60px;">
+                </colgroup>
+                <tbody>
+                    <tr>
+                        <td style="font-size:11px;font-weight:700;text-transform:uppercase;color:#666;padding:6px 4px;letter-spacing:.05em;">#</td>
+                        <td style="font-size:11px;font-weight:700;text-transform:uppercase;color:#666;padding:6px 4px;letter-spacing:.05em;">{{ t.lbl_salary_field_name or 'NOM DU CHAMP' }}</td>
+                        <td style="font-size:11px;font-weight:700;text-transform:uppercase;color:#666;padding:6px 4px;letter-spacing:.05em;">{{ t.lbl_salary_account_code or 'CODE COMPTABLE' }}</td>
+                        <td style="font-size:11px;font-weight:700;text-transform:uppercase;color:#666;padding:6px 4px;letter-spacing:.05em;text-align:center;">{{ t.lbl_salary_active or 'ACTIF' }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="config-modal-body" style="padding:0 24px 24px;overflow-y:auto;flex:1;">
         <table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
-            <thead>
-                <tr>
-                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">#</th>
-                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_field_name or 'Field Name' }}</th>
-                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:left;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_account_code or 'Accounting Code' }}</th>
-                    <th style="position:sticky;top:0;z-index:1;background:#f8f9fa;text-align:center;font-size:12px;padding:6px 4px;border-bottom:1px solid #e0e0e0;">{{ t.lbl_salary_active or 'Active' }}</th>
-                </tr>
-            </thead>
+            <colgroup>
+                <col style="width:36px;">
+                <col>
+                <col style="width:44%;">
+                <col style="width:60px;">
+            </colgroup>
             <tbody id="config-tbody">
             </tbody>
         </table>
         <div id="config-error" style="color:var(--danger);font-size:12px;margin-bottom:8px;display:none;"></div>
+        <div id="config-save-msg" style="display:none;margin-bottom:8px;padding:8px 12px;border-radius:4px;font-size:13px;background:#dff6dd;color:#107c10;"></div>
         <div style="display:flex;gap:8px;">
-            <button class="btn btn-primary" onclick="saveConfig()">{{ t.btn_save_salary_config or 'Save Configuration' }}</button>
+            <button id="btn-save-salary-config" class="btn btn-primary" onclick="saveConfig()">{{ t.btn_save_salary_config or 'Save Configuration' }}</button>
             <button class="btn btn-secondary" onclick="closeConfigModal()">{{ t.btn_cancel or 'Cancel' }}</button>
+            <button class="btn" onclick="closeConfigModal()" style="background:#107c10;color:#fff;border:none;">{{ t.btn_done or 'Terminé' }}</button>
         </div>
         </div>
     </div>
@@ -194,6 +213,8 @@ async function saveConfig() {
             is_active:    activeEl ? activeEl.checked : true,
         });
     }
+    const saveBtn = document.getElementById('btn-save-salary-config');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.style.transform = 'scale(0.96)'; }
     try {
         const res = await fetch(SCRIPT_ROOT + '/api/salary/config', {
             method: 'POST',
@@ -202,11 +223,17 @@ async function saveConfig() {
         });
         if (!res.ok) throw new Error('API error');
         _configs = await res.json();
-        closeConfigModal();
-        alert(SAL_STR.configSaved);
+        const msgEl = document.getElementById('config-save-msg');
+        if (msgEl) {
+            msgEl.textContent = SAL_STR.configSaved;
+            msgEl.style.display = 'block';
+            setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
+        }
     } catch (err) {
         document.getElementById('config-error').textContent = 'Error: ' + err.message;
         document.getElementById('config-error').style.display = '';
+    } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.style.transform = ''; }
     }
 }
 
